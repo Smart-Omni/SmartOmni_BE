@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartomni.common.exception.GlobalExceptionHandler;
 import com.smartomni.common.security.JwtTokenProvider;
 import com.smartomni.common.tenant.TenantContext;
+import com.smartomni.tenant.dto.PublicTenantStorefrontResponse;
 import com.smartomni.tenant.dto.StorefrontConfigRequest;
 import com.smartomni.tenant.dto.SubdomainCheckResponse;
 import com.smartomni.tenant.dto.TenantOnboardingRequest;
@@ -76,6 +77,29 @@ class TenantControllerTest {
                 .andExpect(jsonPath("$.data.subdomain").value("brand-fashion"))
                 .andExpect(jsonPath("$.data.available").value(true))
                 .andExpect(jsonPath("$.data.message").value("Subdomain khả dụng"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/tenants/public/by-subdomain/{subdomain}: Trả về thông tin storefront công khai")
+    void testGetPublicStorefront_Success() throws Exception {
+        PublicTenantStorefrontResponse response = PublicTenantStorefrontResponse.builder()
+                .subdomain("fashion-store")
+                .storeName("Fashion Store")
+                .logoUrl("https://example.com/logo.png")
+                .primaryColor("#ff5722")
+                .status("ACTIVE")
+                .build();
+
+        when(tenantService.getPublicStorefrontProfile("fashion-store")).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/tenants/public/by-subdomain/fashion-store"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.subdomain").value("fashion-store"))
+                .andExpect(jsonPath("$.data.storeName").value("Fashion Store"))
+                .andExpect(jsonPath("$.data.logoUrl").value("https://example.com/logo.png"))
+                .andExpect(jsonPath("$.data.primaryColor").value("#ff5722"))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
     }
 
     @Test

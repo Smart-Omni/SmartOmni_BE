@@ -3,6 +3,8 @@ package com.smartomni.tenant.service.impl;
 import com.smartomni.common.exception.BusinessException;
 import com.smartomni.common.exception.ResourceNotFoundException;
 import com.smartomni.common.tenant.TenantContext;
+import com.smartomni.common.tenant.TenantProperties;
+import com.smartomni.tenant.dto.PublicTenantStorefrontResponse;
 import com.smartomni.tenant.dto.StorefrontConfigRequest;
 import com.smartomni.tenant.dto.SubdomainCheckResponse;
 import com.smartomni.tenant.dto.TenantOnboardingRequest;
@@ -34,12 +36,11 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class TenantServiceImpl implements TenantService {
 
-    private static final Set<String> RESERVED_KEYWORDS = Set.of("admin", "api", "auth", "app", "www");
-
     private final TenantRepository tenantRepository;
     private final SubscriptionPlanRepository subscriptionPlanRepository;
     private final PlanFeatureFlagRepository featureFlagRepository;
     private final org.springframework.data.redis.core.StringRedisTemplate stringRedisTemplate;
+    private final TenantProperties tenantProperties;
 
     // In-memory persistent cache for tenant storefront configurations
     private final Map<Long, StorefrontConfigRequest> storefrontConfigMap = new ConcurrentHashMap<>();
@@ -74,7 +75,11 @@ public class TenantServiceImpl implements TenantService {
                     .build();
         }
 
-        for (String keyword : RESERVED_KEYWORDS) {
+        Set<String> reservedKeywords = (tenantProperties != null && tenantProperties.getReservedSubdomains() != null)
+                ? tenantProperties.getReservedSubdomains()
+                : Set.of("admin", "api", "auth", "app", "www", "static", "mail");
+
+        for (String keyword : reservedKeywords) {
             if (clean.contains(keyword)) {
                 return SubdomainCheckResponse.builder()
                         .subdomain(clean)
@@ -335,6 +340,61 @@ public class TenantServiceImpl implements TenantService {
                 .storefront(storefrontDto)
                 .createdAt(tenant.getCreatedAt())
                 .updatedAt(tenant.getUpdatedAt())
+                .build();
+    }
+
+    @Override
+    public PublicTenantStorefrontResponse getPublicStorefrontProfile(String subdomain) {
+        if (subdomain == null || subdomain.trim().isEmpty()) {
+            throw new BusinessException("Subdomain không được để trống");
+        }
+
+        String clean = subdomain.trim().toLowerCase();
+        Tenant tenant = tenantRepository.findBySubdomain(clean)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy cửa hàng với subdomain: " + clean));
+
+        if (tenant.getStatus() == Tenant.TenantStatus.LOCKED) {
+            throw new BusinessException("Cửa hàng hiện đang tạm ngưng hoạt động");
+        }
+
+        StorefrontConfigRequest storefrontConfig = storefrontConfigMap.get(tenant.getId());
+        String storeName = tenant.getStoreName() != null ? tenant.getStoreName() : tenant.getName();
+        String logoUrl = tenant.getLogoUrl();
+        String bannerUrl = tenant.getBannerUrl();
+        String primaryColor = tenant.getPrimaryColor();
+        String supportPhone = tenant.getSupportPhone();
+        String address = tenant.getAddress();
+
+        if (storefrontConfig != null) {
+            if (storefrontConfig.getStoreName() != null && !storefrontConfig.getStoreName().isBlank()) {
+                storeName = storefrontConfig.getStoreName();
+            }
+            if (storefrontConfig.getLogoUrl() != null) {
+                logoUrl = storefrontConfig.getLogoUrl();
+            }
+            if (storefrontConfig.getBannerUrl() != null) {
+                bannerUrl = storefrontConfig.getBannerUrl();
+            }
+            if (storefrontConfig.getPrimaryColor() != null) {
+                primaryColor = storefrontConfig.getPrimaryColor();
+            }
+            if (storefrontConfig.getSupportPhone() != null) {
+                supportPhone = storefrontConfig.getSupportPhone();
+            }
+            if (storefrontConfig.getAddress() != null) {
+                address = storefrontConfig.getAddress();
+            }
+        }
+
+        return PublicTenantStorefrontResponse.builder()
+                .subdomain(tenant.getSubdomain())
+                .storeName(storeName)
+                .logoUrl(logoUrl)
+                .bannerUrl(bannerUrl)
+                .primaryColor(primaryColor)
+                .supportPhone(supportPhone)
+                .address(address)
+                .status(tenant.getStatus() != null ? tenant.getStatus().name() : "ACTIVE")
                 .build();
     }
 }

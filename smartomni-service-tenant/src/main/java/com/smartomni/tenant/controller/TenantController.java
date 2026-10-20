@@ -4,6 +4,7 @@ import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.common.exception.BusinessException;
 import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.tenant.dto.LockTenantRequest;
+import com.smartomni.tenant.dto.PublicTenantStorefrontResponse;
 import com.smartomni.tenant.dto.StorefrontConfigRequest;
 import com.smartomni.tenant.dto.SubdomainCheckResponse;
 import com.smartomni.tenant.dto.TenantOnboardingRequest;
@@ -30,6 +31,11 @@ public class TenantController {
     @GetMapping("/check-subdomain")
     public ApiResponse<SubdomainCheckResponse> checkSubdomain(@RequestParam String subdomain) {
         return ApiResponse.success(tenantService.checkSubdomain(subdomain));
+    }
+
+    @GetMapping("/public/by-subdomain/{subdomain}")
+    public ApiResponse<PublicTenantStorefrontResponse> getPublicStorefront(@PathVariable String subdomain) {
+        return ApiResponse.success(tenantService.getPublicStorefrontProfile(subdomain));
     }
 
     @PostMapping("/onboarding")
