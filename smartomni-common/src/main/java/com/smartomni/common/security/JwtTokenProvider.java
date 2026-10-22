@@ -30,13 +30,20 @@ public class JwtTokenProvider {
         return Keys.hmacShaKeyFor(jwtSecret.getBytes());
     }
 
-    public String generateToken(Long userId, String role, Long tenantId) {
+    public String generateToken(Long userId, String role, Long tenantId, String subdomain) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expirationMs);
         Map<String, Object> claims = new HashMap<>();
         claims.put("role", role);
+        if (userId != null) {
+            claims.put("user_id", userId);
+        }
         if (tenantId != null) {
+            claims.put("tenant_id", tenantId);
             claims.put("tenantId", tenantId);
+        }
+        if (subdomain != null) {
+            claims.put("subdomain", subdomain);
         }
 
         return Jwts.builder()
@@ -46,6 +53,10 @@ public class JwtTokenProvider {
                 .expiration(expiry)
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
+    }
+
+    public String generateToken(Long userId, String role, Long tenantId) {
+        return generateToken(userId, role, tenantId, null);
     }
 
     public Claims parseClaims(String token) {
@@ -66,7 +77,12 @@ public class JwtTokenProvider {
     }
 
     public Long getUserId(String token) {
-        return Long.valueOf(parseClaims(token).getSubject());
+        Claims claims = parseClaims(token);
+        Object userId = claims.get("user_id");
+        if (userId != null) {
+            return Long.valueOf(userId.toString());
+        }
+        return Long.valueOf(claims.getSubject());
     }
 
     public String getRole(String token) {
@@ -74,7 +90,36 @@ public class JwtTokenProvider {
     }
 
     public Long getTenantId(String token) {
-        Object tenantId = parseClaims(token).get("tenantId");
+        Claims claims = parseClaims(token);
+        Object tenantId = claims.get("tenant_id");
+        if (tenantId == null) {
+            tenantId = claims.get("tenantId");
+        }
         return tenantId == null ? null : Long.valueOf(tenantId.toString());
+    }
+
+    public String getSubdomain(String token) {
+        return parseClaims(token).get("subdomain", String.class);
+    }
+
+    public Date getExpiration(String token) {
+        return parseClaims(token).getExpiration();
+    }
+
+    public long getRemainingExpirationMs(String token) {
+        try {
+            Date expiration = getExpiration(token);
+            if (expiration == null) {
+                return 0;
+            }
+            long remaining = expiration.getTime() - System.currentTimeMillis();
+            return Math.max(remaining, 0);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    public long getExpirationMs() {
+        return expirationMs;
     }
 }

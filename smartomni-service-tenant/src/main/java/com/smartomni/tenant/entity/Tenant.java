@@ -10,7 +10,7 @@ import lombok.Setter;
 import java.time.Instant;
 
 /**
- * UC-17 (Self-service Onboarding), UC-19 (Khoa/mo tai khoan Tenant).
+ * UC-17 (Self-service Onboarding), UC-19 (Khoa/mo tai khoan Tenant), TEN-01.1.
  * Day la entity goc - KHONG ke thua BaseTenantEntity vi chinh no la Tenant.
  */
 @Getter
@@ -41,6 +41,53 @@ public class Tenant extends BaseEntity {
 
     @Column(name = "locked_at")
     private Instant lockedAt;
+
+    // TEN-01.1: Common identifier across microservices
+    @Transient
+    private String tenantId;
+
+    // Contact info
+    @Transient
+    private String contactEmail;
+
+    @Transient
+    private String contactPhone;
+
+    // Storefront configuration
+    @Transient
+    private String storeName;
+
+    @Transient
+    private String logoUrl;
+
+    @Transient
+    private String bannerUrl;
+
+    @Transient
+    private String primaryColor;
+
+    @Transient
+    private String supportPhone;
+
+    @Transient
+    private String address;
+
+    // Plan & Feature flags
+    @Transient
+    private String planType;
+
+    @Transient
+    private Integer maxMarketplaceConnections;
+
+    @Transient
+    private Integer maxSkus;
+
+    @Transient
+    private Boolean aiFeaturesEnabled;
+
+    public String getTenantId() {
+        return tenantId != null ? tenantId : (getId() != null ? String.valueOf(getId()) : null);
+    }
 
     public enum TenantStatus { ACTIVE, LOCKED }
 }

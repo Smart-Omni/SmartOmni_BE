@@ -1,90 +1,37 @@
 package com.smartomni.tenant.service;
 
-import com.smartomni.common.exception.BusinessException;
-import com.smartomni.common.exception.ResourceNotFoundException;
+import com.smartomni.tenant.dto.StorefrontConfigRequest;
+import com.smartomni.tenant.dto.SubdomainCheckResponse;
 import com.smartomni.tenant.dto.TenantOnboardingRequest;
-import com.smartomni.tenant.entity.SubscriptionPlan;
+import com.smartomni.tenant.dto.TenantProfileResponse;
 import com.smartomni.tenant.entity.Tenant;
-import com.smartomni.tenant.repository.SubscriptionPlanRepository;
-import com.smartomni.tenant.repository.TenantRepository;
-import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.time.Instant;
 
 /**
- * UC-17: Dang ky & khoi tao Tenant (Self-service Onboarding) - FR-035,036,037
- * UC-25: Quan ly danh sach Tenant - FR-046,047
- * UC-19: Khoa/mo tai khoan Tenant - FR-048,049
+ * Service interface for Tenant management (TEN-01.1, UC-17, UC-19, UC-25).
  */
-@Service
-@RequiredArgsConstructor
-public class TenantService {
+public interface TenantService {
 
-    private final TenantRepository tenantRepository;
-    private final SubscriptionPlanRepository subscriptionPlanRepository;
-    // private final AuthServiceClient authServiceClient; // TODO: Feign client goi sang smartomni-service-auth de tao Admin user
+    SubdomainCheckResponse checkSubdomain(String subdomain);
 
-    @Transactional
-    public Tenant onboardTenant(TenantOnboardingRequest request) {
-        // FR-036: kiem tra subdomain duy nhat
-        if (tenantRepository.existsBySubdomain(request.getSubdomain())) {
-            throw new BusinessException("Subdomain '" + request.getSubdomain() + "' da ton tai, vui long chon ten khac");
-        }
+    TenantProfileResponse onboardTenant(TenantOnboardingRequest request);
 
-        SubscriptionPlan plan = subscriptionPlanRepository.findByName(request.getInitialPlanName())
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay goi dich vu: " + request.getInitialPlanName()));
+    TenantProfileResponse getTenantProfile(Long tenantId);
 
-        Tenant tenant = new Tenant();
-        tenant.setName(request.getBusinessName());
-        tenant.setSubdomain(request.getSubdomain());
-        tenant.setPlanId(plan.getId());
-        tenant.setStatus(Tenant.TenantStatus.ACTIVE);
-        tenant = tenantRepository.save(tenant); // FR-037: tenant_id (id) tu sinh, dung lam khoa cho moi du lieu sau nay
+    TenantProfileResponse getCurrentTenantProfile();
 
-        // TODO: goi smartomni-service-auth de tao tai khoan Admin dau tien cho Tenant nay
-        // authServiceClient.createAdminUser(tenant.getId(), request.getAdminEmail(), request.getAdminPassword());
+    TenantProfileResponse updateStorefront(Long tenantId, StorefrontConfigRequest request);
 
-        return tenant;
-    }
+    Page<Tenant> searchTenants(String keyword, Pageable pageable);
 
-    public Page<Tenant> searchTenants(String keyword, Pageable pageable) {
-        String kw = keyword == null ? "" : keyword;
-        return tenantRepository.findByNameContainingIgnoreCaseOrSubdomainContainingIgnoreCase(kw, kw, pageable);
-    }
+    void lockTenant(Long tenantId, String reason, Long lockedByUserId);
 
-    @Transactional
-    public void lockTenant(Long tenantId, String reason, Long lockedByUserId) {
-        Tenant tenant = getTenantOrThrow(tenantId);
-        tenant.setStatus(Tenant.TenantStatus.LOCKED);
-        tenant.setLockedReason(reason);
-        tenant.setLockedBy(lockedByUserId);
-        tenant.setLockedAt(Instant.now());
-        tenantRepository.save(tenant);
-    }
+    void unlockTenant(Long tenantId);
 
-    @Transactional
-    public void unlockTenant(Long tenantId) {
-        Tenant tenant = getTenantOrThrow(tenantId);
-        tenant.setStatus(Tenant.TenantStatus.ACTIVE);
-        tenant.setLockedReason(null);
-        tenant.setLockedBy(null);
-        tenant.setLockedAt(null);
-        tenantRepository.save(tenant);
-    }
+    Tenant getTenantOrThrow(Long tenantId);
 
-    public Tenant getTenantOrThrow(Long tenantId) {
-        return tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new ResourceNotFoundException("Tenant khong ton tai: " + tenantId));
-    }
+    boolean isTenantActive(Long tenantId);
 
-    /** Duoc goi boi Gateway/cac service khac de kiem tra nhanh Tenant co dang active khong (UC-03/FR-003). */
-    public boolean isTenantActive(Long tenantId) {
-        return tenantRepository.findById(tenantId)
-                .map(t -> t.getStatus() == Tenant.TenantStatus.ACTIVE)
-                .orElse(false);
-    }
+    com.smartomni.tenant.dto.PublicTenantStorefrontResponse getPublicStorefrontProfile(String subdomain);
 }

@@ -1,27 +1,79 @@
 package com.smartomni.tenant.dto;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-/** UC-17: Dang ky & khoi tao Tenant (Self-service Onboarding). */
-@Getter
-@Setter
+/**
+ * Request payload for Tenant Onboarding (UC-17, TEN-01.1).
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class TenantOnboardingRequest {
 
-    @NotBlank
+    private String companyName;
     private String businessName;
 
-    @NotBlank
-    @Pattern(regexp = "^[a-z0-9-]{3,30}$", message = "Subdomain chi gom chu thuong, so va dau gach ngang, 3-30 ky tu")
+    @NotBlank(message = "Subdomain không được để trống")
+    @Pattern(regexp = "^[a-z0-9-]{3,30}$", message = "Subdomain chỉ gồm chữ thường, số và dấu gạch ngang, 3-30 ký tự")
     private String subdomain;
 
-    @NotBlank
+    @Email(message = "Email không đúng định dạng")
+    private String contactEmail;
     private String adminEmail;
 
-    @NotBlank
+    private String contactPhone;
     private String adminPassword;
 
-    private String initialPlanName = "Free";
+    @Builder.Default
+    private String planType = "FREE";
+    private String initialPlanName;
+
+    public String getCompanyName() {
+        if (companyName != null && !companyName.isBlank()) {
+            return companyName;
+        }
+        return businessName;
+    }
+
+    public void setBusinessName(String businessName) {
+        this.businessName = businessName;
+        if (this.companyName == null) {
+            this.companyName = businessName;
+        }
+    }
+
+    public String getContactEmail() {
+        if (contactEmail != null && !contactEmail.isBlank()) {
+            return contactEmail;
+        }
+        return adminEmail;
+    }
+
+    public void setAdminEmail(String adminEmail) {
+        this.adminEmail = adminEmail;
+        if (this.contactEmail == null) {
+            this.contactEmail = adminEmail;
+        }
+    }
+
+    public String getPlanType() {
+        if (planType != null && !planType.isBlank()) {
+            return planType;
+        }
+        return initialPlanName != null ? initialPlanName : "FREE";
+    }
+
+    public void setInitialPlanName(String initialPlanName) {
+        this.initialPlanName = initialPlanName;
+        if (this.planType == null) {
+            this.planType = initialPlanName;
+        }
+    }
 }

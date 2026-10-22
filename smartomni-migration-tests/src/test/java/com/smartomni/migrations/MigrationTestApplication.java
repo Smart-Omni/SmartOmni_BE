@@ -1,6 +1,8 @@
 package com.smartomni.migrations;
 
-import com.smartomni.auth.service.AuthService;
+import com.smartomni.auth.repository.TenantLookupRepository;
+import com.smartomni.auth.service.impl.AuthServiceImpl;
+import com.smartomni.auth.service.impl.UserLoginAttemptServiceImpl;
 import com.smartomni.common.persistence.RlsDatabaseConfig;
 import com.smartomni.common.security.JwtTokenProvider;
 import org.springframework.boot.SpringBootConfiguration;
@@ -21,11 +23,19 @@ import org.springframework.security.crypto.password.PasswordEncoder;
         "com.smartomni.integration.entity", "com.smartomni.ai.entity"
 })
 @EnableJpaRepositories(basePackages = "com.smartomni.auth.repository")
-@Import({RlsDatabaseConfig.class, AuthService.class, JwtTokenProvider.class})
+@Import({RlsDatabaseConfig.class, AuthServiceImpl.class, UserLoginAttemptServiceImpl.class, TenantLookupRepository.class, JwtTokenProvider.class})
 public class MigrationTestApplication {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public org.springframework.data.redis.core.StringRedisTemplate stringRedisTemplate() {
+        org.springframework.data.redis.core.StringRedisTemplate template = org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class);
+        org.springframework.data.redis.core.ValueOperations ops = org.mockito.Mockito.mock(org.springframework.data.redis.core.ValueOperations.class);
+        org.mockito.Mockito.lenient().when(template.opsForValue()).thenReturn(ops);
+        return template;
     }
 }

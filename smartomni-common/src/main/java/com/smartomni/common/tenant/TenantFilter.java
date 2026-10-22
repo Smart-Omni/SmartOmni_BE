@@ -40,6 +40,7 @@ public class TenantFilter extends OncePerRequestFilter {
                     TenantContext.setTenantId(jwtTokenProvider.getTenantId(token));
                     TenantContext.setCurrentRole(jwtTokenProvider.getRole(token));
                     TenantContext.setCurrentUserId(jwtTokenProvider.getUserId(token));
+                    TenantContext.setCurrentSubdomain(jwtTokenProvider.getSubdomain(token));
                 }
             }
 

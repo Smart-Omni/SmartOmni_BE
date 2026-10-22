@@ -15,7 +15,10 @@ import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Start the actual packaged application of every service against a disposable database. */
+/**
+ * Start the actual packaged application of every service against a disposable
+ * database.
+ */
 class PackagedServiceStartupIT {
 
     private static EmbeddedPostgres postgres;
@@ -26,7 +29,8 @@ class PackagedServiceStartupIT {
         Files.createDirectories(Path.of(System.getProperty("java.io.tmpdir")));
         postgres = EmbeddedPostgres.builder().setPort(0).start();
         url = "jdbc:postgresql://localhost:" + postgres.getPort() + "/postgres";
-        try (Connection connection = postgres.getPostgresDatabase().getConnection(); var statement = connection.createStatement()) {
+        try (Connection connection = postgres.getPostgresDatabase().getConnection();
+                var statement = connection.createStatement()) {
             statement.execute("CREATE ROLE smartomni_migrator LOGIN PASSWORD 'test' NOSUPERUSER NOBYPASSRLS");
             statement.execute("CREATE ROLE smartomni_app LOGIN PASSWORD 'test' NOSUPERUSER NOBYPASSRLS");
             statement.execute("ALTER SCHEMA public OWNER TO smartomni_migrator");
@@ -43,7 +47,7 @@ class PackagedServiceStartupIT {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"auth", "tenant", "catalog", "inventory", "order", "integration", "ai"})
+    @ValueSource(strings = { "auth", "tenant", "catalog", "inventory", "order", "integration", "ai" })
     void packagedServiceStartsAfterSharedMigration(String service) throws Exception {
         String module = "smartomni-service-" + service;
         Path directory = Path.of("..", module, "target");
@@ -85,10 +89,10 @@ class PackagedServiceStartupIT {
             }
         }
         try (Connection connection = DriverManager.getConnection(url, "postgres", "postgres");
-             var statement = connection.createStatement();
-             var result = statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
+                var statement = connection.createStatement();
+                var result = statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
             assertTrue(result.next());
-            assertEquals(8, result.getInt(1));
+            assertEquals(9, result.getInt(1));
         }
     }
 }

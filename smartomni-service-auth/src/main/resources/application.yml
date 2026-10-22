@@ -22,6 +22,10 @@ spring:
   sql:
     init:
       mode: never
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   jpa:
     open-in-view: false
     hibernate:
@@ -35,6 +39,17 @@ smartomni:
   jwt:
     secret: ${JWT_SECRET}
     expiration-ms: 86400000  # 24h
+    refresh-expiration-ms: 604800000  # 7 days (7 * 24 * 3600 * 1000)
+  tenant:
+    base-domain: ${BASE_DOMAIN:smartomni.vn}
+    reserved-subdomains:
+      - admin
+      - api
+      - auth
+      - app
+      - www
+      - static
+      - mail
 
 logging:
   level:

@@ -1,28 +1,33 @@
 package com.smartomni.auth.entity;
 
-import org.hibernate.annotations.JdbcType;
+import com.smartomni.common.entity.BaseTenantEntity;
 import com.smartomni.common.persistence.LowercasePostgreSQLEnumJdbcType;
-import com.smartomni.common.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcType;
+
+import java.time.Instant;
 
 /**
- * Luu y: tenant_id o day de NULLABLE (khac BaseTenantEntity) vi
- * Super Admin KHONG thuoc ve Tenant nao (UC-01 / FR-002).
+ * Entity Người dùng hệ thống SmartOmni (bảng users).
+ * Kế thừa BaseTenantEntity để kế thừa tenant_id và BaseEntity (id, created_at, updated_at).
  */
 @Getter
 @Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 @Entity
 @Table(name = "users")
-public class User extends BaseEntity {
-
-    @Column(name = "tenant_id")
-    private Long tenantId;
+public class User extends BaseTenantEntity {
 
     @Column(nullable = false, unique = true)
     private String email;
@@ -41,14 +46,26 @@ public class User extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @JdbcType(LowercasePostgreSQLEnumJdbcType.class)
     @Column(nullable = false, columnDefinition = "user_status")
+    @Builder.Default
     private UserStatus status = UserStatus.ACTIVE;
 
     @Column(name = "failed_login_attempts")
+    @Builder.Default
     private Integer failedLoginAttempts = 0;
 
     @Column(name = "locked_until")
-    private java.time.Instant lockedUntil;
+    private Instant lockedUntil;
 
-    public enum UserRole { SUPER_ADMIN, ADMIN, MANAGER }
-    public enum UserStatus { ACTIVE, DISABLED }
+    public enum UserRole {
+        SUPER_ADMIN,
+        ADMIN,
+        TENANT_ADMIN,
+        MANAGER,
+        CUSTOMER
+    }
+
+    public enum UserStatus {
+        ACTIVE,
+        DISABLED
+    }
 }

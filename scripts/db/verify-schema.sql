@@ -374,7 +374,8 @@ BEGIN
                  AND proname='app_current_tenant_id' AND prorettype='bigint'::regtype) THEN
     RAISE EXCEPTION 'Tenant context helper must return bigint';
   END IF;
-  IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='user_role') IS DISTINCT FROM ARRAY['super_admin','admin','manager'] THEN RAISE EXCEPTION 'Enum mismatch: user_role'; END IF;
+  IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='user_role') IS DISTINCT FROM ARRAY['super_admin','admin','manager','tenant_admin','customer']
+     AND (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='user_role') IS DISTINCT FROM ARRAY['super_admin','admin','manager'] THEN RAISE EXCEPTION 'Enum mismatch: user_role'; END IF;
   IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='user_status') IS DISTINCT FROM ARRAY['active','disabled'] THEN RAISE EXCEPTION 'Enum mismatch: user_status'; END IF;
   IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='tenant_status') IS DISTINCT FROM ARRAY['active','locked'] THEN RAISE EXCEPTION 'Enum mismatch: tenant_status'; END IF;
   IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='platform_type') IS DISTINCT FROM ARRAY['shopee','tiktok_shop','storefront'] THEN RAISE EXCEPTION 'Enum mismatch: platform_type'; END IF;
