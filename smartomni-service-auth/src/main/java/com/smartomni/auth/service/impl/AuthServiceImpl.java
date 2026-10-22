@@ -99,8 +99,13 @@ public class AuthServiceImpl implements AuthService {
         setRlsContext("app.user_role", "super_admin");
 
         String resolvedSubdomain = null;
-        if (request.getSubdomain() != null && !request.getSubdomain().trim().isEmpty()) {
-            String targetSubdomain = request.getSubdomain().trim();
+        String requestedSubdomain = request.getSubdomain();
+        if ((requestedSubdomain == null || requestedSubdomain.trim().isEmpty()) && TenantContext.getCurrentSubdomain() != null) {
+            requestedSubdomain = TenantContext.getCurrentSubdomain();
+        }
+
+        if (requestedSubdomain != null && !requestedSubdomain.trim().isEmpty()) {
+            String targetSubdomain = requestedSubdomain.trim();
             TenantLookup tenant = tenantLookupRepository.findBySubdomain(targetSubdomain)
                     .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tenant với subdomain: " + targetSubdomain));
 

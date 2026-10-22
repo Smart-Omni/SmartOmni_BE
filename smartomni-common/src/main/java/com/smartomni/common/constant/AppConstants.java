@@ -11,6 +11,7 @@ public final class AppConstants {
     public static final String HEADER_USER_ROLE = "X-User-Role";
     public static final String HEADER_AUTHORIZATION = "Authorization";
     public static final String HEADER_IDEMPOTENCY_KEY = "X-Idempotency-Key";
+    public static final String HEADER_TENANT_SUBDOMAIN = "X-Tenant-Subdomain";
     public static final String BEARER_PREFIX = "Bearer ";
 
     // Role

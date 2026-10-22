@@ -32,4 +32,6 @@ public interface TenantService {
     Tenant getTenantOrThrow(Long tenantId);
 
     boolean isTenantActive(Long tenantId);
+
+    com.smartomni.tenant.dto.PublicTenantStorefrontResponse getPublicStorefrontProfile(String subdomain);
 }

@@ -48,6 +48,9 @@ class TenantServiceTest {
     @Mock
     private org.springframework.data.redis.core.ValueOperations<String, String> valueOperations;
 
+    @org.mockito.Spy
+    private com.smartomni.common.tenant.TenantProperties tenantProperties = new com.smartomni.common.tenant.TenantProperties();
+
     @InjectMocks
     private TenantServiceImpl tenantService;
 
@@ -329,5 +332,49 @@ class TenantServiceTest {
         assertEquals(Tenant.TenantStatus.ACTIVE, tenant.getStatus());
         assertNull(tenant.getLockedReason());
         verify(stringRedisTemplate).delete("auth:tenant_locked:10");
+    }
+
+    @Test
+    @DisplayName("getPublicStorefrontProfile: Thành công khi subdomain tồn tại và active")
+    void testGetPublicStorefrontProfile_Success() {
+        Tenant tenant = new Tenant();
+        tenant.setId(5L);
+        tenant.setName("Awesome Shop");
+        tenant.setSubdomain("awesome-shop");
+        tenant.setStatus(Tenant.TenantStatus.ACTIVE);
+
+        when(tenantRepository.findBySubdomain("awesome-shop")).thenReturn(Optional.of(tenant));
+
+        com.smartomni.tenant.dto.PublicTenantStorefrontResponse response = tenantService.getPublicStorefrontProfile("awesome-shop");
+
+        assertNotNull(response);
+        assertEquals("awesome-shop", response.getSubdomain());
+        assertEquals("Awesome Shop", response.getStoreName());
+        assertEquals("ACTIVE", response.getStatus());
+    }
+
+    @Test
+    @DisplayName("getPublicStorefrontProfile: Ném BusinessException khi tenant bị khóa")
+    void testGetPublicStorefrontProfile_Locked_ThrowsException() {
+        Tenant tenant = new Tenant();
+        tenant.setId(5L);
+        tenant.setName("Locked Shop");
+        tenant.setSubdomain("locked-shop");
+        tenant.setStatus(Tenant.TenantStatus.LOCKED);
+
+        when(tenantRepository.findBySubdomain("locked-shop")).thenReturn(Optional.of(tenant));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> tenantService.getPublicStorefrontProfile("locked-shop"));
+        assertTrue(ex.getMessage().contains("tạm ngưng"));
+    }
+
+    @Test
+    @DisplayName("getPublicStorefrontProfile: Ném ResourceNotFoundException khi không tìm thấy subdomain")
+    void testGetPublicStorefrontProfile_NotFound_ThrowsException() {
+        when(tenantRepository.findBySubdomain("non-exist")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> tenantService.getPublicStorefrontProfile("non-exist"));
     }
 }

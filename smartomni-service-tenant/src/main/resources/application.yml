@@ -41,3 +41,13 @@ logging:
 smartomni:
   jwt:
     secret: ${JWT_SECRET}
+  tenant:
+    base-domain: ${BASE_DOMAIN:smartomni.vn}
+    reserved-subdomains:
+      - admin
+      - api
+      - auth
+      - app
+      - www
+      - static
+      - mail
