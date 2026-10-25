@@ -1,0 +1,370 @@
+{
+  "operation": "product.search",
+  "schema": "schemas/ops/product.search.response.json",
+  "classification": "synthetic-from-official-oas",
+  "note": "Values are synthetic and generated from the official OAS response shape; they are not captured TikTok traffic. Error cases are TEST FAULTS: no readable official source documents their code/message values.",
+  "cases": [
+    {
+      "case": "success",
+      "response": {
+        "code": 0,
+        "data": {
+          "next_page_token": "",
+          "products": [
+            {
+              "audit": {
+                "pre_approved_reasons": [
+                  "TEST_pre_approved_reasons"
+                ],
+                "status": "TEST_status"
+              },
+              "create_time": 1234567890,
+              "has_draft": false,
+              "id": "TEST_id",
+              "integrated_platform_statuses": [
+                {
+                  "platform": "TEST_platform",
+                  "status": "TEST_status"
+                }
+              ],
+              "is_not_for_sale": false,
+              "listing_quality_tier": "TEST_listing_quality_tier",
+              "product_families": [
+                {
+                  "id": "TEST_id",
+                  "products": [
+                    {
+                      "id": "TEST_id"
+                    }
+                  ]
+                }
+              ],
+              "product_sync_fail_reasons": [
+                "TEST_product_sync_fail_reasons"
+              ],
+              "recommended_categories": [
+                {
+                  "id": "TEST_id",
+                  "local_name": "TEST_local_name"
+                }
+              ],
+              "sales_regions": [
+                "TEST_sales_regions"
+              ],
+              "skus": [
+                {
+                  "external_list_prices": [
+                    {
+                      "amount": "TEST_amount",
+                      "currency": "TEST_currency",
+                      "source": "TEST_source"
+                    }
+                  ],
+                  "fees": [
+                    {
+                      "additional_attribute": "TEST_additional_attribute",
+                      "amount": "TEST_amount",
+                      "type": "TEST_type"
+                    }
+                  ],
+                  "id": "TEST_id",
+                  "inventory": [
+                    {
+                      "backorder_quantity": 888,
+                      "handling_time": 5,
+                      "quantity": 999,
+                      "warehouse_id": "TEST_warehouse_id"
+                    }
+                  ],
+                  "list_price": {
+                    "amount": "TEST_amount",
+                    "currency": "TEST_currency"
+                  },
+                  "pre_sale": {
+                    "fulfillment_type": {
+                      "handling_duration_days": 7,
+                      "release_date": 1619611761
+                    },
+                    "type": "TEST_type"
+                  },
+                  "price": {
+                    "currency": "TEST_currency",
+                    "sale_price": "TEST_sale_price",
+                    "tax_exclusive_price": "TEST_tax_exclusive_price"
+                  },
+                  "seller_sku": "TEST_seller_sku",
+                  "status_info": {
+                    "deactivation_source": "TEST_deactivation_source",
+                    "status": "TEST_status"
+                  }
+                }
+              ],
+              "status": "TEST_status",
+              "title": "TEST_title",
+              "update_time": 1234567800
+            }
+          ],
+          "total_count": 200
+        },
+        "message": "Success",
+        "request_id": "TEST-product.search-success"
+      },
+      "expect": "valid"
+    },
+    {
+      "case": "empty",
+      "response": {
+        "code": 0,
+        "data": {
+          "next_page_token": "",
+          "products": [],
+          "total_count": 0
+        },
+        "message": "Success",
+        "request_id": "TEST-product.search-empty"
+      },
+      "expect": "valid"
+    },
+    {
+      "case": "multi_page_first",
+      "request": {
+        "query": {
+          "page_size": "1"
+        }
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "next_page_token": "TEST_PAGE_TOKEN_2",
+          "products": [
+            {
+              "audit": {
+                "pre_approved_reasons": [
+                  "TEST_pre_approved_reasons"
+                ],
+                "status": "TEST_status"
+              },
+              "create_time": 1234567890,
+              "has_draft": false,
+              "id": "TEST_id",
+              "integrated_platform_statuses": [
+                {
+                  "platform": "TEST_platform",
+                  "status": "TEST_status"
+                }
+              ],
+              "is_not_for_sale": false,
+              "listing_quality_tier": "TEST_listing_quality_tier",
+              "product_families": [
+                {
+                  "id": "TEST_id",
+                  "products": [
+                    {
+                      "id": "TEST_id"
+                    }
+                  ]
+                }
+              ],
+              "product_sync_fail_reasons": [
+                "TEST_product_sync_fail_reasons"
+              ],
+              "recommended_categories": [
+                {
+                  "id": "TEST_id",
+                  "local_name": "TEST_local_name"
+                }
+              ],
+              "sales_regions": [
+                "TEST_sales_regions"
+              ],
+              "skus": [
+                {
+                  "external_list_prices": [
+                    {
+                      "amount": "TEST_amount",
+                      "currency": "TEST_currency",
+                      "source": "TEST_source"
+                    }
+                  ],
+                  "fees": [
+                    {
+                      "additional_attribute": "TEST_additional_attribute",
+                      "amount": "TEST_amount",
+                      "type": "TEST_type"
+                    }
+                  ],
+                  "id": "TEST_id",
+                  "inventory": [
+                    {
+                      "backorder_quantity": 888,
+                      "handling_time": 5,
+                      "quantity": 999,
+                      "warehouse_id": "TEST_warehouse_id"
+                    }
+                  ],
+                  "list_price": {
+                    "amount": "TEST_amount",
+                    "currency": "TEST_currency"
+                  },
+                  "pre_sale": {
+                    "fulfillment_type": {
+                      "handling_duration_days": 7,
+                      "release_date": 1619611761
+                    },
+                    "type": "TEST_type"
+                  },
+                  "price": {
+                    "currency": "TEST_currency",
+                    "sale_price": "TEST_sale_price",
+                    "tax_exclusive_price": "TEST_tax_exclusive_price"
+                  },
+                  "seller_sku": "TEST_seller_sku",
+                  "status_info": {
+                    "deactivation_source": "TEST_deactivation_source",
+                    "status": "TEST_status"
+                  }
+                }
+              ],
+              "status": "TEST_status",
+              "title": "TEST_title",
+              "update_time": 1234567800
+            }
+          ],
+          "total_count": 2
+        },
+        "message": "Success",
+        "request_id": "TEST-product.search-multi_first"
+      },
+      "expect": "valid"
+    },
+    {
+      "case": "multi_page_last",
+      "request": {
+        "query": {
+          "page_size": "1",
+          "page_token": "TEST_PAGE_TOKEN_2"
+        }
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "next_page_token": "",
+          "products": [
+            {
+              "audit": {
+                "pre_approved_reasons": [
+                  "TEST_pre_approved_reasons"
+                ],
+                "status": "TEST_status"
+              },
+              "create_time": 1234567890,
+              "has_draft": false,
+              "id": "TEST_id",
+              "integrated_platform_statuses": [
+                {
+                  "platform": "TEST_platform",
+                  "status": "TEST_status"
+                }
+              ],
+              "is_not_for_sale": false,
+              "listing_quality_tier": "TEST_listing_quality_tier",
+              "product_families": [
+                {
+                  "id": "TEST_id",
+                  "products": [
+                    {
+                      "id": "TEST_id"
+                    }
+                  ]
+                }
+              ],
+              "product_sync_fail_reasons": [
+                "TEST_product_sync_fail_reasons"
+              ],
+              "recommended_categories": [
+                {
+                  "id": "TEST_id",
+                  "local_name": "TEST_local_name"
+                }
+              ],
+              "sales_regions": [
+                "TEST_sales_regions"
+              ],
+              "skus": [
+                {
+                  "external_list_prices": [
+                    {
+                      "amount": "TEST_amount",
+                      "currency": "TEST_currency",
+                      "source": "TEST_source"
+                    }
+                  ],
+                  "fees": [
+                    {
+                      "additional_attribute": "TEST_additional_attribute",
+                      "amount": "TEST_amount",
+                      "type": "TEST_type"
+                    }
+                  ],
+                  "id": "TEST_id",
+                  "inventory": [
+                    {
+                      "backorder_quantity": 888,
+                      "handling_time": 5,
+                      "quantity": 999,
+                      "warehouse_id": "TEST_warehouse_id"
+                    }
+                  ],
+                  "list_price": {
+                    "amount": "TEST_amount",
+                    "currency": "TEST_currency"
+                  },
+                  "pre_sale": {
+                    "fulfillment_type": {
+                      "handling_duration_days": 7,
+                      "release_date": 1619611761
+                    },
+                    "type": "TEST_type"
+                  },
+                  "price": {
+                    "currency": "TEST_currency",
+                    "sale_price": "TEST_sale_price",
+                    "tax_exclusive_price": "TEST_tax_exclusive_price"
+                  },
+                  "seller_sku": "TEST_seller_sku",
+                  "status_info": {
+                    "deactivation_source": "TEST_deactivation_source",
+                    "status": "TEST_status"
+                  }
+                }
+              ],
+              "status": "TEST_status",
+              "title": "TEST_title",
+              "update_time": 1234567800
+            }
+          ],
+          "total_count": 2
+        },
+        "message": "Success",
+        "request_id": "TEST-product.search-multi_last"
+      },
+      "expect": "valid"
+    },
+    {
+      "case": "invalid_input",
+      "classification": "test_fault_undocumented",
+      "trigger": "omit required query parameter 'page_size'",
+      "requestMustFailValidation": true
+    },
+    {
+      "case": "token_expired",
+      "classification": "test_fault_undocumented",
+      "trigger": "x-tts-access-token is past its expiry"
+    },
+    {
+      "case": "missing_scope",
+      "classification": "test_fault_undocumented",
+      "trigger": "app lacks the (unverified) scope of this operation"
+    }
+  ]
+}

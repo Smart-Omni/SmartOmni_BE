@@ -1,0 +1,505 @@
+{
+  "operation": "product.detail",
+  "schema": "schemas/ops/product.detail.response.json",
+  "classification": "synthetic-from-official-oas",
+  "note": "Values are synthetic and generated from the official OAS response shape; they are not captured TikTok traffic. Error cases are TEST FAULTS: no readable official source documents their code/message values.",
+  "cases": [
+    {
+      "case": "success",
+      "response": {
+        "code": 0,
+        "data": {
+          "audit": {
+            "pre_approved_reasons": [
+              "TEST_pre_approved_reasons"
+            ],
+            "status": "TEST_status"
+          },
+          "audit_failed_reasons": [
+            {
+              "listing_platform": "TEST_listing_platform",
+              "position": "TEST_position",
+              "reasons": [
+                "TEST_reasons"
+              ],
+              "suggestions": [
+                "TEST_suggestions"
+              ]
+            }
+          ],
+          "brand": {
+            "id": "TEST_id",
+            "name": "TEST_name"
+          },
+          "category_chains": [
+            {
+              "id": "TEST_id",
+              "is_leaf": false,
+              "local_name": "TEST_local_name",
+              "parent_id": "TEST_parent_id"
+            }
+          ],
+          "certifications": [
+            {
+              "expiration_date": 1741235456,
+              "files": [
+                {
+                  "format": "TEST_format",
+                  "id": "TEST_id",
+                  "name": "TEST_name",
+                  "urls": [
+                    "TEST_urls"
+                  ]
+                }
+              ],
+              "id": "TEST_id",
+              "images": [
+                {
+                  "height": 600,
+                  "thumb_urls": [
+                    "TEST_thumb_urls"
+                  ],
+                  "uri": "TEST_uri",
+                  "urls": [
+                    "TEST_urls"
+                  ],
+                  "width": 600
+                }
+              ],
+              "title": "TEST_title"
+            }
+          ],
+          "create_time": 1234567890,
+          "delivery_options": [
+            {
+              "id": "TEST_id",
+              "is_available": false,
+              "name": "TEST_name"
+            }
+          ],
+          "description": "TEST_description",
+          "external_product_id": "TEST_external_product_id",
+          "global_product_association": {
+            "global_product_id": "TEST_global_product_id",
+            "sku_mappings": [
+              {
+                "global_sku_id": "TEST_global_sku_id",
+                "local_sku_id": "TEST_local_sku_id",
+                "sales_attribute_mappings": [
+                  {
+                    "global_attribute_id": "TEST_global_attribute_id",
+                    "global_value_id": "TEST_global_value_id",
+                    "local_attribute_id": "TEST_local_attribute_id",
+                    "local_value_id": "TEST_local_value_id"
+                  }
+                ]
+              }
+            ]
+          },
+          "has_draft": false,
+          "id": "TEST_id",
+          "integrated_platform_statuses": [
+            {
+              "platform": "TEST_platform",
+              "status": "TEST_status"
+            }
+          ],
+          "is_cod_allowed": false,
+          "is_not_for_sale": false,
+          "is_pre_owned": false,
+          "is_replicated": false,
+          "listing_quality_tier": "TEST_listing_quality_tier",
+          "main_images": [
+            {
+              "height": 600,
+              "thumb_urls": [
+                "TEST_thumb_urls"
+              ],
+              "uri": "TEST_uri",
+              "urls": [
+                "TEST_urls"
+              ],
+              "width": 600
+            }
+          ],
+          "manufacturer_ids": [
+            "TEST_manufacturer_ids"
+          ],
+          "minimum_order_quantity": 1,
+          "package_dimensions": {
+            "height": "TEST_height",
+            "length": "TEST_length",
+            "unit": "TEST_unit",
+            "width": "TEST_width"
+          },
+          "package_weight": {
+            "unit": "TEST_unit",
+            "value": "TEST_value"
+          },
+          "prescription_requirement": {
+            "needs_prescription": false
+          },
+          "primary_combined_product_id": "TEST_primary_combined_product_id",
+          "product_attributes": [
+            {
+              "id": "TEST_id",
+              "name": "TEST_name",
+              "values": [
+                {
+                  "id": "TEST_id",
+                  "name": "TEST_name"
+                }
+              ]
+            }
+          ],
+          "product_families": [
+            {
+              "id": "TEST_id",
+              "products": [
+                {
+                  "id": "TEST_id"
+                }
+              ]
+            }
+          ],
+          "product_status": "TEST_product_status",
+          "product_types": [
+            "TEST_product_types"
+          ],
+          "recommended_categories": [
+            {
+              "id": "TEST_id",
+              "local_name": "TEST_local_name"
+            }
+          ],
+          "responsible_person_ids": [
+            "TEST_responsible_person_ids"
+          ],
+          "shipping_insurance_requirement": "TEST_shipping_insurance_requirement",
+          "shipping_template_id": "TEST_shipping_template_id",
+          "size_chart": {
+            "image": {
+              "height": 600,
+              "thumb_urls": [
+                "TEST_thumb_urls"
+              ],
+              "uri": "TEST_uri",
+              "urls": [
+                "TEST_urls"
+              ],
+              "width": 600
+            },
+            "template": {
+              "id": "TEST_id"
+            }
+          },
+          "skus": [
+            {
+              "combined_skus": [
+                {
+                  "brand": {
+                    "id": "TEST_id",
+                    "name": "TEST_name"
+                  },
+                  "categories": [
+                    {
+                      "id": "TEST_id",
+                      "is_leaf": false,
+                      "local_name": "TEST_local_name",
+                      "parent_id": "TEST_parent_id"
+                    }
+                  ],
+                  "combined_listing_not_live_reasons": [
+                    "TEST_combined_listing_not_live_reasons"
+                  ],
+                  "inventory": [
+                    {
+                      "quantity": 999,
+                      "warehouse_id": "TEST_warehouse_id"
+                    }
+                  ],
+                  "price": {
+                    "currency": "TEST_currency",
+                    "sale_price": "TEST_sale_price",
+                    "tax_exclusive_price": "TEST_tax_exclusive_price"
+                  },
+                  "product_id": "TEST_product_id",
+                  "product_main_image": {
+                    "height": 600,
+                    "thumb_urls": [
+                      "TEST_thumb_urls"
+                    ],
+                    "uri": "TEST_uri",
+                    "urls": [
+                      "TEST_urls"
+                    ],
+                    "width": 600
+                  },
+                  "sales_attributes": [
+                    {
+                      "id": "TEST_id",
+                      "name": "TEST_name",
+                      "sku_img": {},
+                      "supplementary_sku_images": [
+                        {}
+                      ],
+                      "value_id": "TEST_value_id",
+                      "value_name": "TEST_value_name"
+                    }
+                  ],
+                  "seller_sku": "TEST_seller_sku",
+                  "sku_count": 1,
+                  "sku_id": "TEST_sku_id",
+                  "title": "TEST_title"
+                }
+              ],
+              "external_list_prices": [
+                {
+                  "amount": "TEST_amount",
+                  "currency": "TEST_currency",
+                  "source": "TEST_source"
+                }
+              ],
+              "external_sku_id": "TEST_external_sku_id",
+              "external_urls": [
+                "TEST_external_urls"
+              ],
+              "extra_identifier_codes": [
+                "TEST_extra_identifier_codes"
+              ],
+              "fees": [
+                {
+                  "additional_attribute": "TEST_additional_attribute",
+                  "amount": "TEST_amount",
+                  "type": "TEST_type"
+                }
+              ],
+              "global_listing_policy": {
+                "inventory_type": "TEST_inventory_type",
+                "price_sync": false,
+                "replicate_source": {
+                  "product_id": "TEST_product_id",
+                  "shop_id": "TEST_shop_id",
+                  "sku_id": "TEST_sku_id"
+                }
+              },
+              "id": "TEST_id",
+              "identifier_code": {
+                "code": "TEST_code",
+                "type": "TEST_type"
+              },
+              "inventory": [
+                {
+                  "backorder_quantity": 888,
+                  "handling_time": 5,
+                  "quantity": 999,
+                  "warehouse_id": "TEST_warehouse_id"
+                }
+              ],
+              "list_price": {
+                "amount": "TEST_amount",
+                "currency": "TEST_currency"
+              },
+              "pre_sale": {
+                "fulfillment_type": {
+                  "handling_duration_days": 3,
+                  "release_date": 1619611761
+                },
+                "type": "TEST_type"
+              },
+              "price": {
+                "currency": "TEST_currency",
+                "sale_price": "TEST_sale_price",
+                "tax_exclusive_price": "TEST_tax_exclusive_price",
+                "unit_price": "TEST_unit_price"
+              },
+              "sales_attributes": [
+                {
+                  "id": "TEST_id",
+                  "name": "TEST_name",
+                  "sku_img": {
+                    "height": 100,
+                    "thumb_urls": [
+                      "TEST_thumb_urls"
+                    ],
+                    "uri": "TEST_uri",
+                    "urls": [
+                      "TEST_urls"
+                    ],
+                    "width": 100
+                  },
+                  "supplementary_sku_images": [
+                    {
+                      "height": 100,
+                      "thumb_urls": [
+                        "TEST_thumb_urls"
+                      ],
+                      "uri": "TEST_uri",
+                      "urls": [
+                        "TEST_urls"
+                      ],
+                      "width": 100
+                    }
+                  ],
+                  "value_id": "TEST_value_id",
+                  "value_name": "TEST_value_name"
+                }
+              ],
+              "seller_sku": "TEST_seller_sku",
+              "sku_unit_count": "TEST_sku_unit_count",
+              "status_info": {
+                "deactivation_source": "TEST_deactivation_source",
+                "status": "TEST_status"
+              }
+            }
+          ],
+          "status": "TEST_status",
+          "subscribe_info": {
+            "subscribe_discount_details": [
+              {
+                "discount_level": "TEST_discount_level",
+                "discount_value": 10
+              }
+            ],
+            "subscribe_promotion_config": [
+              {
+                "discount_level": "TEST_discount_level",
+                "discount_options": [
+                  1
+                ],
+                "max_discount": 90,
+                "min_discount": 5
+              }
+            ],
+            "subscribe_status": "TEST_subscribe_status",
+            "support_subscribe": false
+          },
+          "title": "TEST_title",
+          "update_time": 1234567899,
+          "video": {
+            "cover_url": "TEST_cover_url",
+            "format": "TEST_format",
+            "height": 480,
+            "id": "TEST_id",
+            "size": 1000,
+            "url": "TEST_url",
+            "width": 1280
+          }
+        },
+        "message": "Success",
+        "request_id": "TEST-product.detail-success"
+      },
+      "expect": "valid"
+    },
+    {
+      "case": "empty",
+      "response": {
+        "code": 0,
+        "data": {
+          "audit": {
+            "pre_approved_reasons": [],
+            "status": "TEST_status"
+          },
+          "audit_failed_reasons": [],
+          "brand": {
+            "id": "TEST_id",
+            "name": "TEST_name"
+          },
+          "category_chains": [],
+          "certifications": [],
+          "create_time": 1234567890,
+          "delivery_options": [],
+          "description": "TEST_description",
+          "external_product_id": "TEST_external_product_id",
+          "global_product_association": {
+            "global_product_id": "TEST_global_product_id",
+            "sku_mappings": []
+          },
+          "has_draft": false,
+          "id": "TEST_id",
+          "integrated_platform_statuses": [],
+          "is_cod_allowed": false,
+          "is_not_for_sale": false,
+          "is_pre_owned": false,
+          "is_replicated": false,
+          "listing_quality_tier": "TEST_listing_quality_tier",
+          "main_images": [],
+          "manufacturer_ids": [],
+          "minimum_order_quantity": 1,
+          "package_dimensions": {
+            "height": "TEST_height",
+            "length": "TEST_length",
+            "unit": "TEST_unit",
+            "width": "TEST_width"
+          },
+          "package_weight": {
+            "unit": "TEST_unit",
+            "value": "TEST_value"
+          },
+          "prescription_requirement": {
+            "needs_prescription": false
+          },
+          "primary_combined_product_id": "TEST_primary_combined_product_id",
+          "product_attributes": [],
+          "product_families": [],
+          "product_status": "TEST_product_status",
+          "product_types": [],
+          "recommended_categories": [],
+          "responsible_person_ids": [],
+          "shipping_insurance_requirement": "TEST_shipping_insurance_requirement",
+          "shipping_template_id": "TEST_shipping_template_id",
+          "size_chart": {
+            "image": {
+              "height": 600,
+              "thumb_urls": [],
+              "uri": "TEST_uri",
+              "urls": [],
+              "width": 600
+            },
+            "template": {
+              "id": "TEST_id"
+            }
+          },
+          "skus": [],
+          "status": "TEST_status",
+          "subscribe_info": {
+            "subscribe_discount_details": [],
+            "subscribe_promotion_config": [],
+            "subscribe_status": "TEST_subscribe_status",
+            "support_subscribe": false
+          },
+          "title": "TEST_title",
+          "update_time": 1234567899,
+          "video": {
+            "cover_url": "TEST_cover_url",
+            "format": "TEST_format",
+            "height": 480,
+            "id": "TEST_id",
+            "size": 1000,
+            "url": "TEST_url",
+            "width": 1280
+          }
+        },
+        "message": "Success",
+        "request_id": "TEST-product.detail-empty"
+      },
+      "expect": "valid"
+    },
+    {
+      "case": "invalid_input",
+      "classification": "test_fault_undocumented",
+      "trigger": "send a malformed path parameter",
+      "requestMustFailValidation": false
+    },
+    {
+      "case": "token_expired",
+      "classification": "test_fault_undocumented",
+      "trigger": "x-tts-access-token is past its expiry"
+    },
+    {
+      "case": "missing_scope",
+      "classification": "test_fault_undocumented",
+      "trigger": "app lacks the (unverified) scope of this operation"
+    }
+  ]
+}
