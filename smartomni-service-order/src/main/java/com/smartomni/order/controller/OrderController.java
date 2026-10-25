@@ -36,6 +36,12 @@ public class OrderController {
         return ApiResponse.success(orderService.updateOrderTracking(request));
     }
 
+    /** Xử lý yêu cầu hoàn hàng / trả hàng (Giai đoạn 4 - Bước 4.2). */
+    @PostMapping("/returns")
+    public ApiResponse<Order> handleReturn(@RequestBody com.smartomni.common.dto.ProcessReturnRequest request) {
+        return ApiResponse.success(orderService.handleOrderReturn(request));
+    }
+
     /** UC-06: Public endpoint - khach hang tra cuu bang Order ID, khong can JWT. */
     @GetMapping("/track")
     public ApiResponse<Order> track(@RequestParam String platform, @RequestParam String orderId) {

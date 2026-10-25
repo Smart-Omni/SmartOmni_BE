@@ -275,5 +275,71 @@ class OrderLifecycleTest {
         assertNull(updated.getCourierScannedAt());
         assertEquals(Order.OrderStatus.TO_SHIP, updated.getStatus());
     }
+
+    @Test
+    @DisplayName("handleOrderReturn: Chấp nhận trả hàng thành công -> chuyển sang RETURNED và hoàn trả tồn kho")
+    void handleOrderReturn_completed_withRestock() {
+        sampleOrder.setStatus(Order.OrderStatus.COMPLETED);
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderItem item1 = new OrderItem();
+        item1.setOrderId(ORDER_ID);
+        item1.setSkuId(101L);
+        item1.setQuantity(2);
+
+        when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(item1));
+        when(inventoryServiceClient.restock(eq(101L), eq(2))).thenReturn(ApiResponse.success(null));
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("TIKTOK_SHOP")
+                .platformOrderId(PLATFORM_ORDER_ID)
+                .returnId("ret-888")
+                .returnStatus("RETURN_COMPLETED")
+                .restockRequired(true)
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
+
+        // Verify ghi nhận lịch sử đổi trạng thái
+        verify(orderStatusHistoryRepository).save(any(OrderStatusHistory.class));
+
+        // Verify hoàn tồn kho
+        verify(inventoryServiceClient, times(1)).restock(101L, 2);
+    }
+
+    @Test
+    @DisplayName("handleOrderReturn: Yêu cầu trả hàng đang xử lý -> chuyển sang ON_HOLD và không hoàn kho")
+    void handleOrderReturn_requested_withoutRestock() {
+        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("TIKTOK_SHOP")
+                .platformOrderId(PLATFORM_ORDER_ID)
+                .returnId("ret-999")
+                .returnStatus("RETURN_REQUESTED")
+                .restockRequired(false)
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.ON_HOLD, updated.getStatus());
+
+        // Verify không hoàn kho
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
+    }
 }
+
 

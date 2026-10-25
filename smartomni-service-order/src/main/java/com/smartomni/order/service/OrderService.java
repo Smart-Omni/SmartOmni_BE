@@ -1,5 +1,6 @@
 package com.smartomni.order.service;
 
+import com.smartomni.common.dto.ProcessReturnRequest;
 import com.smartomni.common.dto.UpdateOrderTrackingRequest;
 import com.smartomni.common.dto.WebhookOrderPayload;
 import com.smartomni.common.exception.ResourceNotFoundException;
@@ -251,6 +252,72 @@ public class OrderService {
 
         return lastUpdatedOrder;
     }
+
+    /**
+     * Xử lý yêu cầu Trả hàng / Hoàn tiền (Returns & Refund Management - Bước 4.2).
+     * - Cập nhật trạng thái đơn hàng (nếu trả hàng thành công -> RETURNED, hoặc ON_HOLD nếu đang xử lý).
+     * - Ghi nhận lịch sử vào order_status_history.
+     * - Nếu đơn hàng hoàn trả kho thành công (restockRequired = true): Gọi InventoryServiceClient để nhập lại tồn kho.
+     */
+    @Transactional
+    public Order handleOrderReturn(ProcessReturnRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("ProcessReturnRequest must not be null");
+        }
+        Long tenantId = request.getTenantId();
+        Order.Platform platform = request.getPlatform() != null && !request.getPlatform().isBlank()
+                ? Order.Platform.valueOf(request.getPlatform().toUpperCase())
+                : Order.Platform.TIKTOK_SHOP;
+
+        String platformOrderId = request.getOrderId() != null && !request.getOrderId().isBlank()
+                ? request.getOrderId()
+                : request.getPlatformOrderId();
+
+        if (platformOrderId == null || platformOrderId.isBlank()) {
+            log.warn("Không tìm thấy platformOrderId trong ProcessReturnRequest: {}", request);
+            return null;
+        }
+
+        Optional<Order> orderOpt;
+        if (tenantId != null && tenantId > 0) {
+            orderOpt = orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(tenantId, platform, platformOrderId);
+        } else {
+            orderOpt = orderRepository.findByPlatformAndPlatformOrderId(platform, platformOrderId);
+        }
+
+        if (orderOpt.isEmpty()) {
+            log.warn("Không tìm thấy đơn hàng cho yêu cầu trả hàng: tenantId={}, platform={}, orderId={}",
+                    tenantId, platform, platformOrderId);
+            return null;
+        }
+
+        Order order = orderOpt.get();
+        String returnStatus = request.getReturnStatus();
+        boolean isReturnCompleted = returnStatus != null && (
+                returnStatus.toUpperCase().contains("COMPLETE")
+                        || returnStatus.toUpperCase().contains("SUCCESS")
+                        || returnStatus.toUpperCase().contains("APPROVED")
+                        || returnStatus.equalsIgnoreCase("RETURNED"));
+
+        if (isReturnCompleted) {
+            log.info("Xác nhận trả hàng thành công cho orderId={}, returnId={}. Chuyển trạng thái sang RETURNED",
+                    platformOrderId, request.getReturnId());
+            updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+
+            if (Boolean.TRUE.equals(request.getRestockRequired())) {
+                log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
+                restockOrderItems(order);
+            }
+        } else {
+            log.info("Tiếp nhận yêu cầu trả hàng (đang xử lý): orderId={}, returnStatus={}", platformOrderId, returnStatus);
+            if (order.getStatus() != Order.OrderStatus.RETURNED && order.getStatus() != Order.OrderStatus.CANCELLED) {
+                updateOrderStatus(order, Order.OrderStatus.ON_HOLD, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+            }
+        }
+
+        return order;
+    }
+
 
     private boolean isBeforeCourierHandover(Order.OrderStatus previousStatus, Order order) {
         if (order.getCourierScannedAt() != null) {

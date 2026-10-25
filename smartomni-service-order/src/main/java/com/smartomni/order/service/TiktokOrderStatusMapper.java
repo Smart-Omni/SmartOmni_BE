@@ -53,7 +53,7 @@ public final class TiktokOrderStatusMapper {
             return true;
         }
         // Terminal states
-        if (current == Order.OrderStatus.COMPLETED || current == Order.OrderStatus.CANCELLED || current == Order.OrderStatus.RETURNED) {
+        if (current == Order.OrderStatus.CANCELLED || current == Order.OrderStatus.RETURNED) {
             return false;
         }
 
@@ -63,6 +63,7 @@ public final class TiktokOrderStatusMapper {
             case ON_HOLD -> next == Order.OrderStatus.TO_SHIP || next == Order.OrderStatus.CANCELLED;
             case SHIPPED -> next == Order.OrderStatus.DELIVERING || next == Order.OrderStatus.COMPLETED || next == Order.OrderStatus.RETURNED;
             case DELIVERING -> next == Order.OrderStatus.COMPLETED || next == Order.OrderStatus.RETURNED;
+            case COMPLETED -> next == Order.OrderStatus.RETURNED;
             default -> false;
         };
     }

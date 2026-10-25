@@ -11,6 +11,7 @@ import com.smartomni.integration.repository.MarketplaceConnectionRepository;
 import com.smartomni.integration.repository.WebhookEventLogRepository;
 import com.smartomni.integration.service.AesEncryptionService;
 import com.smartomni.integration.service.tiktok.TiktokFulfillmentService;
+import com.smartomni.integration.service.tiktok.TiktokReturnService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,9 @@ public class TiktokWebhookController {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private TiktokFulfillmentService fulfillmentService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private TiktokReturnService returnService;
 
     @PostMapping("/webhooks")
     public ResponseEntity<?> receiveWebhook(
@@ -132,12 +136,18 @@ public class TiktokWebhookController {
         // 5. Ghi log Audit Webhook (webhook_events_log) trạng thái hợp lệ & đã xếp hàng
         saveAuditLog(tenantId, payload, rawPayload, true, true);
 
-        // 6. Xử lý chuyên biệt theo event type: PACKAGE_STATUS_CHANGE
+        // 6. Xử lý chuyên biệt theo event type: PACKAGE_STATUS_CHANGE hoặc RETURN_STATUS_CHANGE
         if (payload.getType() != null && payload.getType() == 3 && fulfillmentService != null) {
             try {
                 fulfillmentService.handlePackageStatusChange(tenantId, payload);
             } catch (Exception ex) {
                 log.error("Lỗi khi xử lý PACKAGE_STATUS_CHANGE webhook: {}", ex.getMessage(), ex);
+            }
+        } else if (payload.getType() != null && (payload.getType() == 2 || payload.getType() == 4) && returnService != null) {
+            try {
+                returnService.handleReturnWebhook(tenantId, payload);
+            } catch (Exception ex) {
+                log.error("Lỗi khi xử lý RETURN_STATUS_CHANGE webhook: {}", ex.getMessage(), ex);
             }
         }
 
