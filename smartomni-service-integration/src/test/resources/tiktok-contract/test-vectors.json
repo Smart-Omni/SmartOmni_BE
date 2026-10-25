@@ -1,0 +1,93 @@
+{
+  "classification": "API vectors: algorithm taken from the TTS Open Toolkit (@tts-open-toolkit/cli 0.1.7) LOCAL proxy-broker signer (function W6; random per-process secret, signature stripped before forwarding): indirect evidence, NOT the server rule and NOT the Partner Center 'common parameters' page (unreadable). Digests agree across 4 tools, but only the toolkit's W6 function (extracted and executed) and signing/sign.ts build the string to sign; Python hmac and the OpenSSL CLI only re-run the HMAC over the recorded string_to_sign. TikTok publishes no official test vector that was readable on 2026-10-14. Webhook vector: secondary source only (Hookdeck), unchanged.",
+  "credentials": "synthetic placeholders only",
+  "api": [
+    {
+      "name": "GET authorized shops (no body, no shop_cipher)",
+      "app_secret": "test_app_secret_not_real",
+      "path": "/authorization/202309/shops",
+      "query": {
+        "app_key": "test_app_key_not_real",
+        "timestamp": "1700000000",
+        "access_token": "ignored_token",
+        "sign": "ignored"
+      },
+      "body": null,
+      "string_to_sign": "test_app_secret_not_real/authorization/202309/shopsapp_keytest_app_key_not_realtimestamp1700000000test_app_secret_not_real",
+      "sign": "cb9b186515f05b8801458ccdc53e778fdbb129678979f21548d9629c1d823284"
+    },
+    {
+      "name": "GET with shop_cipher, unsorted input order",
+      "app_secret": "test_app_secret_not_real",
+      "path": "/order/202507/orders",
+      "query": {
+        "timestamp": "1700000000",
+        "shop_cipher": "TEST_CIPHER_0001",
+        "ids": "576000000000000001",
+        "app_key": "test_app_key_not_real",
+        "access_token": "t",
+        "sign": "s"
+      },
+      "body": null,
+      "string_to_sign": "test_app_secret_not_real/order/202507/ordersapp_keytest_app_key_not_realids576000000000000001shop_cipherTEST_CIPHER_0001timestamp1700000000test_app_secret_not_real",
+      "sign": "067549d02bfde65fe00c3a2897f2376f4408d723858b37f09571de87d86c8484"
+    },
+    {
+      "name": "POST JSON body (product search)",
+      "app_secret": "test_app_secret_not_real",
+      "path": "/product/202502/products/search",
+      "query": {
+        "app_key": "test_app_key_not_real",
+        "timestamp": "1700000000",
+        "shop_cipher": "TEST_CIPHER_0001",
+        "page_size": "10",
+        "access_token": "t"
+      },
+      "body": "{\"status\":\"ACTIVATE\",\"seller_skus\":[\"SKU-1\"]}",
+      "string_to_sign": "test_app_secret_not_real/product/202502/products/searchapp_keytest_app_key_not_realpage_size10shop_cipherTEST_CIPHER_0001timestamp1700000000{\"status\":\"ACTIVATE\",\"seller_skus\":[\"SKU-1\"]}test_app_secret_not_real",
+      "sign": "b48e40da14f328b94c03bc88a23dabc9a34c2522fd0cb0ff01870bcadb3669f2"
+    },
+    {
+      "name": "POST with empty body",
+      "app_secret": "test_app_secret_not_real",
+      "path": "/fulfillment/202309/packages/1153000000000000001/ship",
+      "query": {
+        "app_key": "test_app_key_not_real",
+        "timestamp": "1700000000",
+        "shop_cipher": "TEST_CIPHER_0001"
+      },
+      "body": null,
+      "string_to_sign": "test_app_secret_not_real/fulfillment/202309/packages/1153000000000000001/shipapp_keytest_app_key_not_realshop_cipherTEST_CIPHER_0001timestamp1700000000test_app_secret_not_real",
+      "sign": "77495e3e89f2edd3415c9ecf780fee534e5279009942c2982b9ceb53efb2dafa"
+    },
+    {
+      "name": "PUT JSON body with non-ASCII characters (UTF-8 bytes signed as sent)",
+      "app_secret": "test_app_secret_not_real",
+      "path": "/event/202309/webhooks",
+      "query": {
+        "app_key": "test_app_key_not_real",
+        "timestamp": "1700000000",
+        "shop_cipher": "TEST_CIPHER_0001"
+      },
+      "body": "{\"address\":\"https://example.test/hook\",\"event_type\":\"ORDER_STATUS_CHANGE\",\"note\":\"Cửa hàng\"}",
+      "string_to_sign": "test_app_secret_not_real/event/202309/webhooksapp_keytest_app_key_not_realshop_cipherTEST_CIPHER_0001timestamp1700000000{\"address\":\"https://example.test/hook\",\"event_type\":\"ORDER_STATUS_CHANGE\",\"note\":\"Cửa hàng\"}test_app_secret_not_real",
+      "sign": "6f2dab9e412947de23c4759df6ea57a7a63c5972099105d52dc290d4be06b32f"
+    }
+  ],
+  "apiNotSigned": [
+    {
+      "name": "multipart/form-data body",
+      "rule": "sign.ts throws: the multipart exclusion/inclusion rule is not stated in any readable official source"
+    }
+  ],
+  "webhook": [
+    {
+      "name": "ORDER_STATUS_CHANGE sample",
+      "app_key": "test_app_key_not_real",
+      "app_secret": "test_app_secret_not_real",
+      "raw_body": "{\"type\":1,\"tts_notification_id\":\"test-notification-0001\",\"shop_id\":\"7000000000000000001\",\"timestamp\":1700000000,\"data\":{\"order_id\":\"576000000000000001\",\"order_status\":\"AWAITING_SHIPMENT\"}}",
+      "signature_header": "Authorization",
+      "signature": "a09663a7a898c8ba14a3dae4cc429383e3e8dbb409a90d99b2881f5381f1d10c"
+    }
+  ]
+}

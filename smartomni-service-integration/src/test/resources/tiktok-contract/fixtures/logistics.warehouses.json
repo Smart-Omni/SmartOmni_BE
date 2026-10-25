@@ -1,0 +1,82 @@
+{
+  "operation": "logistics.warehouses",
+  "schema": "schemas/ops/logistics.warehouses.response.json",
+  "classification": "synthetic-from-official-oas",
+  "note": "Values are synthetic and generated from the official OAS response shape; they are not captured TikTok traffic. Error cases are TEST FAULTS: no readable official source documents their code/message values.",
+  "cases": [
+    {
+      "case": "success",
+      "response": {
+        "code": 0,
+        "data": {
+          "warehouses": [
+            {
+              "address": {
+                "address_line1": "TEST_address_line1",
+                "address_line2": "TEST_address_line2",
+                "address_line3": "TEST_address_line3",
+                "address_line4": "TEST_address_line4",
+                "city": "TEST_city",
+                "contact_person": "TEST_contact_person",
+                "distict": "TEST_distict",
+                "first_name": "TEST_first_name",
+                "first_name_local_script": "TEST_first_name_local_script",
+                "full_address": "TEST_full_address",
+                "geolocation": {
+                  "latitude": "TEST_latitude",
+                  "longitude": "TEST_longitude"
+                },
+                "last_name": "TEST_last_name",
+                "last_name_local_script": "TEST_last_name_local_script",
+                "phone_number": "TEST_phone_number",
+                "postal_code": "TEST_postal_code",
+                "region": "TEST_region",
+                "region_code": "TEST_region_code",
+                "state": "TEST_state",
+                "town": "TEST_town"
+              },
+              "effect_status": "TEST_effect_status",
+              "entity_id": "TEST_entity_id",
+              "id": "TEST_id",
+              "is_default": false,
+              "name": "TEST_name",
+              "sub_type": "TEST_sub_type",
+              "type": "TEST_type"
+            }
+          ]
+        },
+        "message": "Success",
+        "request_id": "TEST-logistics.warehouses-success"
+      },
+      "expect": "valid"
+    },
+    {
+      "case": "empty",
+      "response": {
+        "code": 0,
+        "data": {
+          "warehouses": []
+        },
+        "message": "Success",
+        "request_id": "TEST-logistics.warehouses-empty"
+      },
+      "expect": "valid"
+    },
+    {
+      "case": "invalid_input",
+      "classification": "test_fault_undocumented",
+      "trigger": "send a malformed path parameter",
+      "requestMustFailValidation": false
+    },
+    {
+      "case": "token_expired",
+      "classification": "test_fault_undocumented",
+      "trigger": "x-tts-access-token is past its expiry"
+    },
+    {
+      "case": "missing_scope",
+      "classification": "test_fault_undocumented",
+      "trigger": "app lacks the (unverified) scope of this operation"
+    }
+  ]
+}
