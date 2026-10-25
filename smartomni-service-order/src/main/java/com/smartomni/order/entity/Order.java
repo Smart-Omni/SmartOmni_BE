@@ -8,6 +8,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 /**
  * UC-10: Theo doi & xu ly don hang.
@@ -36,6 +37,18 @@ public class Order extends BaseTenantEntity {
     @Column(nullable = false, columnDefinition = "order_status")
     private OrderStatus status = OrderStatus.PENDING;
 
+    @Column(name = "sla_deadline")
+    private Instant slaDeadline;
+
+    @Column(name = "shipping_method")
+    private String shippingMethod;
+
+    @Column(name = "tracking_number")
+    private String trackingNumber;
+
+    @Column(name = "courier_scanned_at")
+    private Instant courierScannedAt;
+
     @Column(name = "customer_name")
     private String customerName;
 
@@ -54,6 +67,6 @@ public class Order extends BaseTenantEntity {
     private OrderSource source; // WEBHOOK | POLLING | MANUAL - FR-025
 
     public enum Platform { SHOPEE, TIKTOK_SHOP }
-    public enum OrderStatus { PENDING, TO_SHIP, SHIPPED, DELIVERING, COMPLETED, CANCELLED, RETURNED }
+    public enum OrderStatus { PENDING, TO_SHIP, SHIPPED, DELIVERING, COMPLETED, CANCELLED, RETURNED, ON_HOLD }
     public enum OrderSource { WEBHOOK, POLLING, MANUAL }
 }
