@@ -92,7 +92,7 @@ class PackagedServiceStartupIT {
                 var statement = connection.createStatement();
                 var result = statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
             assertTrue(result.next());
-            assertEquals(11, result.getInt(1));
+            assertEquals(12, result.getInt(1));
         }
     }
 }
