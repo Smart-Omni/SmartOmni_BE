@@ -6,9 +6,8 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * Interface chung cho moi san TMDT (Shopee, TikTok Shop) - ap dung Strategy Pattern
- * de ProductSyncService/PriceSyncScheduler khong phu thuoc truc tiep vao tung san.
- * Implement cu the: ShopeeClient, TiktokShopClient (goi WebClient toi Open API that).
+ * Legacy marketplace contract used by the Shopee stub. TikTok Shop uses the
+ * signed, token-aware client in {@code com.smartomni.integration.client.tiktok}.
  */
 public interface MarketplaceClient {
 

@@ -40,6 +40,23 @@ smartomni:
     aes-key: ${SMARTOMNI_ENCRYPTION_AES_KEY}
   price-sync:
     fixed-delay-ms: 900000  # 15 phut - UC-43
+    anomaly-threshold-percent: ${PRICE_ANOMALY_THRESHOLD_PERCENT:50}  # FR-092; 0 or less disables the check
+  # TikTok Shop app (SmartOmni's own app, never a shop owner's). Defaults are safe at startup; missing
+  # credentials fail only when a Tenant Admin starts a connection. Switch simulator <-> TikTok by URL/credentials only.
+  tiktok:
+    app-key: ${TIKTOK_APP_KEY:}
+    app-secret: ${TIKTOK_APP_SECRET:}
+    authorization-url: ${TIKTOK_AUTHORIZATION_URL:}   # seller consent page (format UNVERIFIED)
+    redirect-uri: ${TIKTOK_REDIRECT_URI:}             # frontend callback page that POSTs code/state back
+    token-base-url: ${TIKTOK_TOKEN_BASE_URL:https://auth.tiktok-shops.com}
+    open-api-base-url: ${TIKTOK_OPEN_API_BASE_URL:https://open-api.tiktokglobalshop.com}
+    state-ttl: ${TIKTOK_STATE_TTL:10m}
+    required-scopes: ${TIKTOK_REQUIRED_SCOPES:}       # comma separated; empty disables the scope check
+    token-rejected-codes: ${TIKTOK_TOKEN_REJECTED_CODES:}  # comma separated envelope codes
+    product-page-size: ${TIKTOK_PRODUCT_PAGE_SIZE:50}      # Search Products page_size
+    product-url-template: ${TIKTOK_PRODUCT_URL_TEMPLATE:}  # e.g. http://localhost:3090/<buyer-product-route>/{productId}; empty = no URL stored
+  notifications:
+    local-email-sink-file: ${SMARTOMNI_LOCAL_EMAIL_SINK_FILE:${java.io.tmpdir}/smartomni-local-email-sink/connection-alerts.log}
 
 logging:
   level:

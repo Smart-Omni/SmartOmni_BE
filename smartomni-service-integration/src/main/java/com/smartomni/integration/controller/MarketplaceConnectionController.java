@@ -2,7 +2,7 @@ package com.smartomni.integration.controller;
 
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.integration.dto.ConnectMarketplaceRequest;
-import com.smartomni.integration.entity.MarketplaceConnection;
+import com.smartomni.integration.dto.MarketplaceConnectionDto;
 import com.smartomni.integration.service.MarketplaceConnectionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +17,7 @@ public class MarketplaceConnectionController {
     private final MarketplaceConnectionService connectionService;
 
     @PostMapping
-    public ApiResponse<MarketplaceConnection> connect(@Valid @RequestBody ConnectMarketplaceRequest request) {
-        return ApiResponse.success("Ket noi san TMDT thanh cong", connectionService.connect(request));
+    public ApiResponse<MarketplaceConnectionDto> connect(@Valid @RequestBody ConnectMarketplaceRequest request) {
+        return ApiResponse.success("Ket noi san TMDT thanh cong", MarketplaceConnectionDto.from(connectionService.connect(request)));
     }
 }
