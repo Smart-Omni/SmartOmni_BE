@@ -10,6 +10,7 @@ import com.smartomni.integration.entity.WebhookEventLog;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
 import com.smartomni.integration.repository.WebhookEventLogRepository;
 import com.smartomni.integration.service.AesEncryptionService;
+import com.smartomni.integration.service.tiktok.TiktokFulfillmentService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +53,9 @@ public class TiktokWebhookController {
     private final AesEncryptionService encryptionService;
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private TiktokFulfillmentService fulfillmentService;
 
     @PostMapping("/webhooks")
     public ResponseEntity<?> receiveWebhook(
@@ -128,14 +132,23 @@ public class TiktokWebhookController {
         // 5. Ghi log Audit Webhook (webhook_events_log) trạng thái hợp lệ & đã xếp hàng
         saveAuditLog(tenantId, payload, rawPayload, true, true);
 
-        // 6. Đẩy message vào RabbitMQ để Order Service xử lý bất đồng bộ
+        // 6. Xử lý chuyên biệt theo event type: PACKAGE_STATUS_CHANGE
+        if (payload.getType() != null && payload.getType() == 3 && fulfillmentService != null) {
+            try {
+                fulfillmentService.handlePackageStatusChange(tenantId, payload);
+            } catch (Exception ex) {
+                log.error("Lỗi khi xử lý PACKAGE_STATUS_CHANGE webhook: {}", ex.getMessage(), ex);
+            }
+        }
+
+        // 7. Đẩy message vào RabbitMQ để Order Service xử lý bất đồng bộ
         try {
             rabbitTemplate.convertAndSend(ORDER_EXCHANGE, ORDER_ROUTING_KEY, rawPayload);
         } catch (Exception ex) {
             log.error("Lỗi khi đẩy message webhook vào RabbitMQ: {}", ex.getMessage(), ex);
         }
 
-        // 7. Phản hồi nhanh 200 OK cho TikTok Shop
+        // 8. Phản hồi nhanh 200 OK cho TikTok Shop
         return ResponseEntity.ok(Map.of("code", 0, "message", "success"));
     }
 

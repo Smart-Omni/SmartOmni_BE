@@ -212,4 +212,68 @@ class OrderLifecycleTest {
 
         verify(sellerWalletLedgerRepository, never()).save(any(SellerWalletLedger.class));
     }
+
+    @Test
+    @DisplayName("updateOrderTracking: Cập nhật tracking_number, shipping_provider và chuyển trạng thái SHIPPED khi IN_TRANSIT")
+    void updateOrderTracking_inTransit_updatesTrackingAndTransitionsToShipped() {
+        sampleOrder.setStatus(Order.OrderStatus.TO_SHIP);
+        sampleOrder.setTrackingNumber(null);
+        sampleOrder.setCourierScannedAt(null);
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Instant scannedTime = Instant.parse("2026-03-25T10:00:00Z");
+        com.smartomni.common.dto.UpdateOrderTrackingRequest request = com.smartomni.common.dto.UpdateOrderTrackingRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("TIKTOK_SHOP")
+                .platformOrderId(PLATFORM_ORDER_ID)
+                .trackingNumber("TRK-VN-8888")
+                .shippingProvider("J&T Express")
+                .packageStatus("IN_TRANSIT")
+                .courierScannedAt(scannedTime)
+                .build();
+
+        Order updated = orderService.updateOrderTracking(request);
+
+        assertNotNull(updated);
+        assertEquals("TRK-VN-8888", updated.getTrackingNumber());
+        assertEquals("J&T Express", updated.getShippingMethod());
+        assertEquals(scannedTime, updated.getCourierScannedAt());
+        assertEquals(Order.OrderStatus.SHIPPED, updated.getStatus());
+
+        // Verify ghi lịch sử đổi trạng thái sang SHIPPED
+        verify(orderStatusHistoryRepository).save(any(OrderStatusHistory.class));
+    }
+
+    @Test
+    @DisplayName("updateOrderTracking: Trạng thái PACKED chỉ cập nhật mã vận đơn, chưa cập nhật courierScannedAt")
+    void updateOrderTracking_packed_updatesTrackingOnly() {
+        sampleOrder.setStatus(Order.OrderStatus.TO_SHIP);
+        sampleOrder.setTrackingNumber(null);
+        sampleOrder.setCourierScannedAt(null);
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.smartomni.common.dto.UpdateOrderTrackingRequest request = com.smartomni.common.dto.UpdateOrderTrackingRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("TIKTOK_SHOP")
+                .platformOrderId(PLATFORM_ORDER_ID)
+                .trackingNumber("TRK-VN-9999")
+                .shippingProvider("SPX Express")
+                .packageStatus("PACKED")
+                .build();
+
+        Order updated = orderService.updateOrderTracking(request);
+
+        assertNotNull(updated);
+        assertEquals("TRK-VN-9999", updated.getTrackingNumber());
+        assertEquals("SPX Express", updated.getShippingMethod());
+        assertNull(updated.getCourierScannedAt());
+        assertEquals(Order.OrderStatus.TO_SHIP, updated.getStatus());
+    }
 }
+

@@ -1,5 +1,6 @@
 package com.smartomni.order.service;
 
+import com.smartomni.common.dto.UpdateOrderTrackingRequest;
 import com.smartomni.common.dto.WebhookOrderPayload;
 import com.smartomni.common.exception.ResourceNotFoundException;
 import com.smartomni.order.client.InventoryServiceClient;
@@ -165,6 +166,90 @@ public class OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("Đơn hàng không tồn tại: platform=" + platform + ", id=" + platformOrderId));
         Order.OrderStatus newStatus = TiktokOrderStatusMapper.map(rawPlatformStatus);
         return updateOrderStatus(order, newStatus, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+    }
+
+    /**
+     * Cập nhật thông tin vận đơn (tracking_number, shipping_method, courier_scanned_at)
+     * từ sự kiện PACKAGE_STATUS_CHANGE của sàn TMĐT (Bước 4.1).
+     */
+    @Transactional
+    public Order updateOrderTracking(UpdateOrderTrackingRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request must not be null");
+        }
+        Long tenantId = request.getTenantId();
+        Order.Platform platform = request.getPlatform() != null && !request.getPlatform().isBlank()
+                ? Order.Platform.valueOf(request.getPlatform().toUpperCase())
+                : Order.Platform.TIKTOK_SHOP;
+
+        java.util.List<String> orderIds = new java.util.ArrayList<>();
+        if (request.getOrderIdList() != null && !request.getOrderIdList().isEmpty()) {
+            orderIds.addAll(request.getOrderIdList());
+        } else if (request.getPlatformOrderId() != null && !request.getPlatformOrderId().isBlank()) {
+            orderIds.add(request.getPlatformOrderId());
+        }
+
+        if (orderIds.isEmpty()) {
+            log.warn("Không tìm thấy platformOrderId trong request cập nhật tracking: {}", request);
+            return null;
+        }
+
+        Order lastUpdatedOrder = null;
+        for (String platformOrderId : orderIds) {
+            Optional<Order> orderOpt;
+            if (tenantId != null && tenantId > 0) {
+                orderOpt = orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(tenantId, platform, platformOrderId);
+            } else {
+                orderOpt = orderRepository.findByPlatformAndPlatformOrderId(platform, platformOrderId);
+            }
+
+            if (orderOpt.isEmpty()) {
+                log.warn("Không tìm thấy đơn hàng để cập nhật tracking: tenantId={}, platform={}, orderId={}",
+                        tenantId, platform, platformOrderId);
+                continue;
+            }
+
+            Order order = orderOpt.get();
+
+            // 1. Cập nhật mã vận đơn trackingNumber
+            if (request.getTrackingNumber() != null && !request.getTrackingNumber().isBlank()) {
+                order.setTrackingNumber(request.getTrackingNumber());
+            }
+
+            // 2. Cập nhật đơn vị vận chuyển shippingMethod
+            if (request.getShippingProvider() != null && !request.getShippingProvider().isBlank()) {
+                order.setShippingMethod(request.getShippingProvider());
+            }
+
+            // 3. Cập nhật courierScannedAt & trạng thái khi package chuyển sang IN_TRANSIT / PICKED_UP
+            String pkgStatus = request.getPackageStatus();
+            boolean isHandover = pkgStatus != null && (
+                    pkgStatus.equalsIgnoreCase("IN_TRANSIT")
+                            || pkgStatus.equalsIgnoreCase("PICKED_UP")
+                            || pkgStatus.equalsIgnoreCase("SHIPPED"));
+
+            if (isHandover) {
+                if (order.getCourierScannedAt() == null) {
+                    order.setCourierScannedAt(request.getCourierScannedAt() != null
+                            ? request.getCourierScannedAt()
+                            : Instant.now());
+                }
+                // Nếu trạng thái hiện tại là TO_SHIP hoặc PENDING hoặc ON_HOLD -> chuyển sang SHIPPED
+                if (order.getStatus() == Order.OrderStatus.TO_SHIP
+                        || order.getStatus() == Order.OrderStatus.PENDING
+                        || order.getStatus() == Order.OrderStatus.ON_HOLD) {
+                    log.info("Đơn hàng {} đã được bưu tá quét (packageStatus={}) -> Cập nhật trạng thái SHIPPED",
+                            order.getPlatformOrderId(), pkgStatus);
+                    updateOrderStatus(order, Order.OrderStatus.SHIPPED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+                }
+            }
+
+            lastUpdatedOrder = orderRepository.save(order);
+            log.info("Đã cập nhật thông tin vận đơn cho đơn hàng id={}, orderId={}, trackingNumber={}, courierScannedAt={}",
+                    order.getId(), order.getPlatformOrderId(), order.getTrackingNumber(), order.getCourierScannedAt());
+        }
+
+        return lastUpdatedOrder;
     }
 
     private boolean isBeforeCourierHandover(Order.OrderStatus previousStatus, Order order) {
