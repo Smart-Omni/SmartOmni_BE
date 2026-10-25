@@ -23,6 +23,12 @@ public interface MarketplaceConnectionRepository extends JpaRepository<Marketpla
     /** Find connection by TikTok shop_cipher. */
     Optional<MarketplaceConnection> findFirstByShopCipher(String shopCipher);
 
+    /** Find connection by TikTok shop_id. */
+    Optional<MarketplaceConnection> findFirstByShopId(String shopId);
+
+    /** Find connection by TikTok seller_open_id. */
+    Optional<MarketplaceConnection> findFirstBySellerOpenId(String sellerOpenId);
+
     /**
      * Compare-and-swap token rotation: succeeds (1) only if nobody rotated since {@code expectedVersion}
      * and the connection is still CONNECTED. Both tokens are replaced in one statement.

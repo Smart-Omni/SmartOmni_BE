@@ -27,6 +27,7 @@ public class TiktokShopApiExecutor {
     private final TiktokProperties properties;
     private final MarketplaceConnectionRepository connectionRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public TiktokShopApiExecutor(TiktokTokenService tokens, TiktokOpenApiClient client, TiktokProperties properties,
                                  MarketplaceConnectionRepository connectionRepository) {
         this.tokens = tokens;
