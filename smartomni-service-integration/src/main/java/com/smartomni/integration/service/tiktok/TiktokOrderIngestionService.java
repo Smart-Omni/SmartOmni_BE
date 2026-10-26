@@ -106,6 +106,22 @@ public class TiktokOrderIngestionService {
                         ? lineItem.getSalePrice()
                         : (lineItem.getOriginalPrice() != null ? lineItem.getOriginalPrice() : BigDecimal.ZERO);
 
+                // Trích xuất imageUrl từ line item của TikTok Shop (fallback sang CatalogMappingService)
+                String imageUrl = lineItem.getSkuImage();
+                if (imageUrl == null || imageUrl.isBlank()) {
+                    try {
+                        if (sellerSku != null && !sellerSku.isBlank()) {
+                            imageUrl = catalogMappingService.findImageUrl(tenantId, "tiktok_shop", sellerSku).orElse(null);
+                        }
+                        if (imageUrl == null && externalSkuId != null && !externalSkuId.isBlank()) {
+                            imageUrl = catalogMappingService.findImageUrl(tenantId, "tiktok_shop", externalSkuId).orElse(null);
+                        }
+                    } catch (Exception ex) {
+                        log.warn("Lỗi khi tra cứu image_url từ catalog mapping: tenantId={}, orderId={}, sellerSku={}, externalSkuId={}: {}",
+                                tenantId, order.getOrderId(), sellerSku, externalSkuId, ex.getMessage());
+                    }
+                }
+
                 items.add(WebhookOrderPayload.OrderItemPayload.builder()
                         .skuId(internalSkuId)
                         .externalSkuId(externalSkuId)
@@ -113,6 +129,7 @@ public class TiktokOrderIngestionService {
                         .productName(lineItem.getProductName())
                         .quantity(lineItem.getQuantity() != null ? lineItem.getQuantity() : 1)
                         .unitPrice(unitPrice)
+                        .imageUrl(imageUrl)
                         .build());
             }
         }

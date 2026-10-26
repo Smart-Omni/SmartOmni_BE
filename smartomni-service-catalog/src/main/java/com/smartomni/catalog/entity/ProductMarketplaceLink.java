@@ -59,5 +59,8 @@ public class ProductMarketplaceLink extends BaseTenantEntity {
     @Column(name = "external_status")
     private String externalStatus;
 
+    @Column(name = "image_url", length = 1024)
+    private String imageUrl;
+
     public enum Platform { SHOPEE, TIKTOK_SHOP, STOREFRONT }
 }

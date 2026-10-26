@@ -168,6 +168,7 @@ public class TiktokOrderDetailResponse {
         private String skuName;
 
         @JsonProperty("sku_image")
+        @com.fasterxml.jackson.annotation.JsonAlias({"image_url", "item_image"})
         private String skuImage;
 
         @JsonProperty("quantity")

@@ -51,7 +51,7 @@ class TiktokOrderIngestionServiceTest {
     }
 
     @Test
-    @DisplayName("Chuyển đổi order thành công, map SKU chuẩn xác và publish vào RabbitMQ")
+    @DisplayName("Chuyển đổi order thành công, map SKU chuẩn xác, trích xuất imageUrl và publish vào RabbitMQ")
     void ingestOrder_success_allSkusMapped() {
         // Line items
         TiktokOrderDetailResponse.LineItem item1 = TiktokOrderDetailResponse.LineItem.builder()
@@ -59,6 +59,7 @@ class TiktokOrderIngestionServiceTest {
                 .skuId("EXT-SKU-100")
                 .sellerSku("SELLER-SKU-100")
                 .productName("Áo thun SmartOmni")
+                .skuImage("https://p16-tiktokcdn.com/item1.jpg")
                 .quantity(2)
                 .salePrice(new BigDecimal("150000"))
                 .build();
@@ -68,6 +69,7 @@ class TiktokOrderIngestionServiceTest {
                 .skuId("EXT-SKU-200")
                 .sellerSku(null) // Chỉ có skuId
                 .productName("Quần jean SmartOmni")
+                .skuImage(null) // Fallback qua catalogMappingService.findImageUrl
                 .quantity(1)
                 .salePrice(new BigDecimal("350000"))
                 .build();
@@ -92,6 +94,8 @@ class TiktokOrderIngestionServiceTest {
                 .thenReturn(Optional.of(1001L));
         when(catalogMappingService.findInternalSkuId(TENANT_ID, "tiktok_shop", "EXT-SKU-200"))
                 .thenReturn(Optional.of(1002L));
+        when(catalogMappingService.findImageUrl(TENANT_ID, "tiktok_shop", "EXT-SKU-200"))
+                .thenReturn(Optional.of("https://p16-tiktokcdn.com/fallback-item2.jpg"));
 
         // Execute
         WebhookOrderPayload result = ingestionService.ingestOrder(TENANT_ID, order);
@@ -114,10 +118,12 @@ class TiktokOrderIngestionServiceTest {
         assertEquals("SELLER-SKU-100", result.getItems().get(0).getSellerSku());
         assertEquals(2, result.getItems().get(0).getQuantity());
         assertEquals(new BigDecimal("150000"), result.getItems().get(0).getUnitPrice());
+        assertEquals("https://p16-tiktokcdn.com/item1.jpg", result.getItems().get(0).getImageUrl());
 
         assertEquals(1002L, result.getItems().get(1).getSkuId());
         assertEquals("EXT-SKU-200", result.getItems().get(1).getExternalSkuId());
         assertEquals(1, result.getItems().get(1).getQuantity());
+        assertEquals("https://p16-tiktokcdn.com/fallback-item2.jpg", result.getItems().get(1).getImageUrl());
 
         // Verify RabbitTemplate call
         ArgumentCaptor<WebhookOrderPayload> payloadCaptor = ArgumentCaptor.forClass(WebhookOrderPayload.class);
@@ -192,6 +198,7 @@ class TiktokOrderIngestionServiceTest {
                             "sku_id": "EXT-SKU-99",
                             "seller_sku": "SELLER-SKU-99",
                             "product_name": "Non bao hiem",
+                            "sku_image": "https://p16-tiktokcdn.com/webhook-item.jpg",
                             "quantity": 1,
                             "sale_price": 250000
                         }
@@ -219,6 +226,7 @@ class TiktokOrderIngestionServiceTest {
         assertEquals("456 Le Loi, Da Nang", result.getShippingAddress());
         assertEquals(1, result.getItems().size());
         assertEquals(888L, result.getItems().get(0).getSkuId());
+        assertEquals("https://p16-tiktokcdn.com/webhook-item.jpg", result.getItems().get(0).getImageUrl());
 
         verify(rabbitTemplate).convertAndSend(
                 eq(TiktokOrderIngestionService.ORDER_EXCHANGE),

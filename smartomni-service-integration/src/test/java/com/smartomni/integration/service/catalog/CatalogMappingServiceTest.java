@@ -18,6 +18,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -220,5 +221,88 @@ class CatalogMappingServiceTest {
 
         Long skuId = catalogMappingService.resolveInternalSkuId(1L, "tiktok_shop", "SKU-ROW-TEST");
         assertEquals(500L, skuId);
+    }
+
+    @Test
+    @DisplayName("findImageUrl thành công khi SKU đã được map image_url qua external_sku_id")
+    void findImageUrl_success_whenExternalSkuMapped() {
+        String tenantId = "1";
+        String platform = "tiktok_shop";
+        String externalSku = "TTSKU-IMG-001";
+        String expectedImageUrl = "https://example.com/product-image.png";
+
+        when(jdbcTemplate.query(
+                anyString(),
+                any(RowMapper.class),
+                eq(1L),
+                eq("tiktok_shop"),
+                eq(externalSku),
+                eq(externalSku),
+                eq(externalSku)
+        )).thenReturn(List.of(expectedImageUrl));
+
+        Optional<String> actualImageUrl = catalogMappingService.findImageUrl(tenantId, platform, externalSku);
+
+        assertTrue(actualImageUrl.isPresent());
+        assertEquals(expectedImageUrl, actualImageUrl.get());
+
+        verify(jdbcTemplate).query(
+                contains("SELECT image_url FROM product_marketplace_links"),
+                any(RowMapper.class),
+                eq(1L),
+                eq("tiktok_shop"),
+                eq(externalSku),
+                eq(externalSku),
+                eq(externalSku)
+        );
+    }
+
+    @Test
+    @DisplayName("findImageUrl thành công với Platform enum và seller_sku")
+    void findImageUrl_success_withPlatformEnum() {
+        Long tenantId = 5L;
+        String sellerSku = "SELLER-SKU-IMG";
+        String expectedImageUrl = "https://example.com/seller-sku.jpg";
+
+        when(jdbcTemplate.query(
+                anyString(),
+                any(RowMapper.class),
+                eq(tenantId),
+                eq("tiktok_shop"),
+                eq(sellerSku),
+                eq(sellerSku),
+                eq(sellerSku)
+        )).thenReturn(List.of(expectedImageUrl));
+
+        Optional<String> actualImageUrl = catalogMappingService.findImageUrl(tenantId, MarketplaceConnection.Platform.TIKTOK_SHOP, sellerSku);
+
+        assertTrue(actualImageUrl.isPresent());
+        assertEquals(expectedImageUrl, actualImageUrl.get());
+    }
+
+    @Test
+    @DisplayName("findImageUrl trả về Optional.empty khi không tìm thấy image_url")
+    void findImageUrl_returnsEmpty_whenNotMapped() {
+        when(jdbcTemplate.query(
+                anyString(),
+                any(RowMapper.class),
+                eq(1L),
+                eq("tiktok_shop"),
+                eq("NO-IMG-SKU"),
+                eq("NO-IMG-SKU"),
+                eq("NO-IMG-SKU")
+        )).thenReturn(Collections.emptyList());
+
+        Optional<String> actualImageUrl = catalogMappingService.findImageUrl(1L, "tiktok_shop", "NO-IMG-SKU");
+
+        assertFalse(actualImageUrl.isPresent());
+    }
+
+    @Test
+    @DisplayName("findImageUrl ném BusinessException khi tenantId không hợp lệ")
+    void findImageUrl_throwsBadRequest_whenInvalidTenantId() {
+        assertThrows(BusinessException.class, () ->
+                catalogMappingService.findImageUrl("invalid-tenant", "tiktok_shop", "SKU-001")
+        );
     }
 }

@@ -23,4 +23,7 @@ public class OrderItem extends BaseTenantEntity {
 
     @Column(name = "unit_price")
     private BigDecimal unitPrice;
+
+    @Column(name = "image_url", length = 1024)
+    private String imageUrl;
 }

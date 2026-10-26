@@ -81,5 +81,9 @@ public class WebhookOrderPayload {
 
         @JsonProperty("unit_price")
         private BigDecimal unitPrice;
+
+        @JsonProperty("image_url")
+        @com.fasterxml.jackson.annotation.JsonAlias("imageUrl")
+        private String imageUrl;
     }
 }

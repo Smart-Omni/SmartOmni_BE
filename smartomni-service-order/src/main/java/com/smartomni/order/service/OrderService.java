@@ -96,6 +96,7 @@ public class OrderService {
                 item.setSkuId(itemPayload.getSkuId());
                 item.setQuantity(itemPayload.getQuantity());
                 item.setUnitPrice(itemPayload.getUnitPrice());
+                item.setImageUrl(itemPayload.getImageUrl());
                 orderItemRepository.save(item);
 
                 // FR-027, FR-028: gọi Inventory Service trừ kho nếu đã map được internal skuId
