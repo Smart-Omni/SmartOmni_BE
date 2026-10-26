@@ -36,9 +36,6 @@ public class TiktokReturnService {
     private final ObjectMapper objectMapper;
     private final ReturnEvidenceService returnEvidenceService;
 
-    public TiktokReturnService(TiktokReturnClient returnClient, OrderServiceClient orderServiceClient, ObjectMapper objectMapper) {
-        this(returnClient, orderServiceClient, objectMapper, new ReturnEvidenceService());
-    }
 
     /**
      * Tra cứu danh sách yêu cầu trả hàng từ sàn qua API.

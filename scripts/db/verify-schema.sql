@@ -493,4 +493,66 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_constraint WHERE connamespace='public'::regnamespace AND conname='uq_sales_outlier_exclusions') THEN RAISE EXCEPTION 'Missing constraint: uq_sales_outlier_exclusions'; END IF;
   IF NOT EXISTS (SELECT FROM pg_constraint WHERE connamespace='public'::regnamespace AND conname='uq_product_recommendations_cache') THEN RAISE EXCEPTION 'Missing constraint: uq_product_recommendations_cache'; END IF;
 END $$;
+-- =========================================================
+-- Kiểm tra có điều kiện: các cột bổ sung từ V13 / V14
+-- Nếu cột chưa tồn tại (ví dụ: chạy sau baseline V5), bỏ qua.
+-- Nếu cột đã tồn tại, kiểm tra kiểu dữ liệu đúng.
+-- =========================================================
+DO $$
+DECLARE actual_type text;
+BEGIN
+  -- V13: product_marketplace_links.image_url
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='product_marketplace_links'
+    AND a.attname='image_url' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'character varying(1024)' THEN
+    RAISE EXCEPTION 'Schema mismatch product_marketplace_links.image_url: expected character varying(1024), actual %', actual_type;
+  END IF;
+
+  -- V13: order_items.image_url
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='order_items'
+    AND a.attname='image_url' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'character varying(1024)' THEN
+    RAISE EXCEPTION 'Schema mismatch order_items.image_url: expected character varying(1024), actual %', actual_type;
+  END IF;
+
+  -- V14: orders.return_reason
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='orders'
+    AND a.attname='return_reason' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'character varying(255)' THEN
+    RAISE EXCEPTION 'Schema mismatch orders.return_reason: expected character varying(255), actual %', actual_type;
+  END IF;
+
+  -- V14: orders.reject_reason
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='orders'
+    AND a.attname='reject_reason' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'character varying(500)' THEN
+    RAISE EXCEPTION 'Schema mismatch orders.reject_reason: expected character varying(500), actual %', actual_type;
+  END IF;
+
+  -- V14: orders.evidence_urls
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='orders'
+    AND a.attname='evidence_urls' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'text' THEN
+    RAISE EXCEPTION 'Schema mismatch orders.evidence_urls: expected text, actual %', actual_type;
+  END IF;
+
+  -- V14: orders.restock_status
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='orders'
+    AND a.attname='restock_status' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'character varying(50)' THEN
+    RAISE EXCEPTION 'Schema mismatch orders.restock_status: expected character varying(50), actual %', actual_type;
+  END IF;
+END $$;
 COMMIT;
