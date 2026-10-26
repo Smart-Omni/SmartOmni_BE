@@ -293,30 +293,88 @@ public class OrderService {
         }
 
         Order order = orderOpt.get();
+        ProcessReturnRequest.ReturnAction returnAction = request.getReturnAction();
         String returnStatus = request.getReturnStatus();
-        boolean isReturnCompleted = returnStatus != null && (
-                returnStatus.toUpperCase().contains("COMPLETE")
-                        || returnStatus.toUpperCase().contains("SUCCESS")
-                        || returnStatus.toUpperCase().contains("APPROVED")
-                        || returnStatus.equalsIgnoreCase("RETURNED"));
+        boolean isRestockRequired = Boolean.TRUE.equals(request.getRestockRequired());
 
-        if (isReturnCompleted) {
-            log.info("Xác nhận trả hàng thành công cho orderId={}, returnId={}. Chuyển trạng thái sang RETURNED",
-                    platformOrderId, request.getReturnId());
-            updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+        // Cập nhật lý do và bằng chứng nếu có
+        if (request.getReturnReason() != null && !request.getReturnReason().isBlank()) {
+            order.setReturnReason(request.getReturnReason());
+        }
+        if (request.getRejectReason() != null && !request.getRejectReason().isBlank()) {
+            order.setRejectReason(request.getRejectReason());
+        }
+        if (request.getEvidenceUrls() != null && !request.getEvidenceUrls().isEmpty()) {
+            order.setEvidenceUrls(String.join(",", request.getEvidenceUrls()));
+        }
 
-            if (Boolean.TRUE.equals(request.getRestockRequired())) {
-                log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
-                restockOrderItems(order);
+        if (returnAction != null) {
+            switch (returnAction) {
+                case RECEIVE_APPROVE -> {
+                    log.info("Xác nhận trả hàng thành công (RECEIVE_APPROVE) cho orderId={}, returnId={}",
+                            platformOrderId, request.getReturnId());
+                    updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+                    if (isRestockRequired) {
+                        log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
+                        restockOrderItems(order);
+                        order.setRestockStatus("RESTOCKED");
+                    } else {
+                        order.setRestockStatus("SKIPPED");
+                    }
+                }
+                case REFUND_ONLY -> {
+                    log.info("Hoàn tiền không hoàn hàng vật lý (REFUND_ONLY) cho orderId={}, returnId={}. Nghiêm cấm hoàn kho.",
+                            platformOrderId, request.getReturnId());
+                    updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+                    order.setRestockStatus("NO_RESTOCK_REFUND_ONLY");
+                    // Nghiêm cấm gọi restock
+                }
+                case RECEIVE_REJECT, RECEIVE_REJECTED -> {
+                    log.warn("Từ chối nhận hàng hoàn / trả hàng (RECEIVE_REJECT) cho orderId={}, returnId={}, rejectReason={}. Nghiêm cấm hoàn kho.",
+                            platformOrderId, request.getReturnId(), request.getRejectReason());
+                    updateOrderStatus(order, Order.OrderStatus.ON_HOLD, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+                    order.setRestockStatus("REJECTED");
+                    // Nghiêm cấm gọi restock
+                }
+                case DISPUTE_CLAIM, DISPUTE_APPROVED -> {
+                    log.info("Xử lý khiếu nại sàn ({}) cho orderId={}, returnId={}. Nghiêm cấm hoàn kho.",
+                            returnAction, platformOrderId, request.getReturnId());
+                    Order.OrderStatus targetStatus = (returnAction == ProcessReturnRequest.ReturnAction.DISPUTE_APPROVED)
+                            ? Order.OrderStatus.RETURNED
+                            : Order.OrderStatus.ON_HOLD;
+                    updateOrderStatus(order, targetStatus, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+                    order.setRestockStatus("DISPUTED");
+                    // Nghiêm cấm gọi restock
+                }
             }
         } else {
-            log.info("Tiếp nhận yêu cầu trả hàng (đang xử lý): orderId={}, returnStatus={}", platformOrderId, returnStatus);
-            if (order.getStatus() != Order.OrderStatus.RETURNED && order.getStatus() != Order.OrderStatus.CANCELLED) {
-                updateOrderStatus(order, Order.OrderStatus.ON_HOLD, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+            boolean isReturnCompleted = returnStatus != null && (
+                    returnStatus.toUpperCase().contains("COMPLETE")
+                            || returnStatus.toUpperCase().contains("SUCCESS")
+                            || returnStatus.toUpperCase().contains("APPROVED")
+                            || returnStatus.equalsIgnoreCase("RETURNED"));
+
+            if (isReturnCompleted) {
+                log.info("Xác nhận trả hàng thành công cho orderId={}, returnId={}. Chuyển trạng thái sang RETURNED",
+                        platformOrderId, request.getReturnId());
+                updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+
+                if (isRestockRequired && !"REFUND_ONLY".equalsIgnoreCase(request.getReturnType())) {
+                    log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
+                    restockOrderItems(order);
+                    order.setRestockStatus("RESTOCKED");
+                } else {
+                    order.setRestockStatus("SKIPPED");
+                }
+            } else {
+                log.info("Tiếp nhận yêu cầu trả hàng (đang xử lý): orderId={}, returnStatus={}", platformOrderId, returnStatus);
+                if (order.getStatus() != Order.OrderStatus.RETURNED && order.getStatus() != Order.OrderStatus.CANCELLED) {
+                    updateOrderStatus(order, Order.OrderStatus.ON_HOLD, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+                }
             }
         }
 
-        return order;
+        return orderRepository.save(order);
     }
 
 

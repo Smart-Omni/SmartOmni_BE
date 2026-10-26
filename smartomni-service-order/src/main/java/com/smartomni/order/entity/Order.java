@@ -66,6 +66,18 @@ public class Order extends BaseTenantEntity {
     @Column(nullable = false, columnDefinition = "order_source")
     private OrderSource source; // WEBHOOK | POLLING | MANUAL - FR-025
 
+    @Column(name = "return_reason", length = 255)
+    private String returnReason;
+
+    @Column(name = "reject_reason", length = 500)
+    private String rejectReason;
+
+    @Column(name = "evidence_urls", columnDefinition = "TEXT")
+    private String evidenceUrls;
+
+    @Column(name = "restock_status", length = 50)
+    private String restockStatus;
+
     public enum Platform { SHOPEE, TIKTOK_SHOP }
     public enum OrderStatus { PENDING, TO_SHIP, SHIPPED, DELIVERING, COMPLETED, CANCELLED, RETURNED, ON_HOLD }
     public enum OrderSource { WEBHOOK, POLLING, MANUAL }

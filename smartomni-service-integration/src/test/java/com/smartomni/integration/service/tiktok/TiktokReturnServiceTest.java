@@ -117,11 +117,12 @@ class TiktokReturnServiceTest {
 
         ProcessReturnRequest sent = captor.getValue();
         assertEquals(RETURN_ID, sent.getReturnId());
+        assertEquals(ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE, sent.getReturnAction());
         assertTrue(sent.getRestockRequired());
     }
 
     @Test
-    @DisplayName("handleReturnStatusChange: hoàn tiền không trả hàng (REFUND_ONLY) thì restockRequired = false")
+    @DisplayName("handleReturnStatusChange: hoàn tiền không trả hàng (REFUND_ONLY) thì returnAction = REFUND_ONLY & restockRequired = false")
     void testHandleReturnStatusChangeRefundOnly() {
         ObjectNode data = objectMapper.createObjectNode();
         data.put("return_id", RETURN_ID);
@@ -135,7 +136,54 @@ class TiktokReturnServiceTest {
 
         assertNotNull(request);
         assertEquals("REFUND_ONLY", request.getReturnType());
+        assertEquals(ProcessReturnRequest.ReturnAction.REFUND_ONLY, request.getReturnAction());
         assertFalse(request.getRestockRequired());
+
+        verify(orderServiceClient, times(1)).processReturn(any(ProcessReturnRequest.class));
+    }
+
+    @Test
+    @DisplayName("handleReturnStatusChange: khi từ chối nhận hàng (SELLER_REJECTED) thì returnAction = RECEIVE_REJECT, có rejectReason và evidenceUrls")
+    void testHandleReturnStatusChangeReceiveReject() {
+        ObjectNode data = objectMapper.createObjectNode();
+        data.put("return_id", RETURN_ID);
+        data.put("order_id", ORDER_ID);
+        data.put("return_type", "RETURN_AND_REFUND");
+        data.put("return_status", "SELLER_REJECTED");
+        data.put("reject_reason", "Sản phẩm bị mở seal và rách tem niêm phong");
+        data.putArray("evidence_urls")
+                .add("https://cdn.smartomni.com/evidence1.jpg")
+                .add("https://cdn.smartomni.com/evidence2.jpg");
+
+        ProcessReturnRequest request = returnService.handleReturnStatusChange(TENANT_ID, data);
+
+        assertNotNull(request);
+        assertEquals("SELLER_REJECTED", request.getReturnStatus());
+        assertEquals(ProcessReturnRequest.ReturnAction.RECEIVE_REJECT, request.getReturnAction());
+        assertEquals("Sản phẩm bị mở seal và rách tem niêm phong", request.getRejectReason());
+        assertEquals(2, request.getEvidenceUrls().size());
+        assertEquals("https://cdn.smartomni.com/evidence1.jpg", request.getEvidenceUrls().get(0));
+        assertFalse(request.getRestockRequired(), "Từ chối nhận hàng hoàn tất thì nghiêm cấm restock");
+
+        verify(orderServiceClient, times(1)).processReturn(any(ProcessReturnRequest.class));
+    }
+
+    @Test
+    @DisplayName("handleReturnStatusChange: khi sàn xử lý khiếu nại (DISPUTE_IN_PROGRESS) thì returnAction = DISPUTE_CLAIM & restockRequired = false")
+    void testHandleReturnStatusChangeDisputeClaim() {
+        ObjectNode data = objectMapper.createObjectNode();
+        data.put("return_id", RETURN_ID);
+        data.put("order_id", ORDER_ID);
+        data.put("return_type", "RETURN_AND_REFUND");
+        data.put("return_status", "DISPUTE_IN_PROGRESS");
+        data.put("return_reason", "Người mua khiếu nại quyết định từ chối của người bán");
+
+        ProcessReturnRequest request = returnService.handleReturnStatusChange(TENANT_ID, data);
+
+        assertNotNull(request);
+        assertEquals("DISPUTE_IN_PROGRESS", request.getReturnStatus());
+        assertEquals(ProcessReturnRequest.ReturnAction.DISPUTE_CLAIM, request.getReturnAction());
+        assertFalse(request.getRestockRequired(), "Đang tranh chấp khiếu nại nghiêm cấm restock");
 
         verify(orderServiceClient, times(1)).processReturn(any(ProcessReturnRequest.class));
     }

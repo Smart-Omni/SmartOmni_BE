@@ -8,9 +8,11 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * DTO yêu cầu xử lý hoàn tiền / trả hàng (Return & Refund Management - Bước 4.2).
+ * DTO yêu cầu xử lý hoàn tiền / trả hàng (Return & Refund Management - Bước 4.2, Bước 5.2).
  */
 @Data
 @Builder
@@ -43,9 +45,28 @@ public class ProcessReturnRequest {
     @JsonProperty("return_reason")
     private String returnReason;
 
+    @JsonProperty("reject_reason")
+    private String rejectReason;
+
+    @JsonProperty("return_action")
+    private ReturnAction returnAction;
+
+    @Builder.Default
+    @JsonProperty("evidence_urls")
+    private List<String> evidenceUrls = new ArrayList<>();
+
     @JsonProperty("refund_amount")
     private BigDecimal refundAmount;
 
     @JsonProperty("restock_required")
     private Boolean restockRequired;
+
+    public enum ReturnAction {
+        RECEIVE_APPROVE,
+        RECEIVE_REJECT,
+        RECEIVE_REJECTED,
+        REFUND_ONLY,
+        DISPUTE_CLAIM,
+        DISPUTE_APPROVED
+    }
 }

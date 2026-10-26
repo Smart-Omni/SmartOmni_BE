@@ -340,6 +340,126 @@ class OrderLifecycleTest {
         // Verify không hoàn kho
         verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
     }
+
+    @Test
+    @DisplayName("handleOrderReturn: RECEIVE_APPROVE + restockRequired = true -> RETURNED và gọi restock")
+    void handleOrderReturn_receiveApprove_restocksInventory() {
+        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderItem item1 = new OrderItem();
+        item1.setSkuId(101L);
+        item1.setQuantity(2);
+
+        when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(item1));
+        when(inventoryServiceClient.restock(eq(101L), eq(2))).thenReturn(ApiResponse.success(null));
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("TIKTOK_SHOP")
+                .platformOrderId(PLATFORM_ORDER_ID)
+                .returnId("ret-approve-1")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE)
+                .returnStatus("RETURN_COMPLETED")
+                .restockRequired(true)
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
+        assertEquals("RESTOCKED", updated.getRestockStatus());
+        verify(inventoryServiceClient, times(1)).restock(101L, 2);
+    }
+
+    @Test
+    @DisplayName("handleOrderReturn: REFUND_ONLY -> RETURNED và NGHIÊM CẤM gọi restock")
+    void handleOrderReturn_refundOnly_strictlyNeverRestocks() {
+        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("TIKTOK_SHOP")
+                .platformOrderId(PLATFORM_ORDER_ID)
+                .returnId("ret-refund-only")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.REFUND_ONLY)
+                .returnType("REFUND_ONLY")
+                .returnStatus("REFUND_COMPLETE")
+                .restockRequired(false)
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
+        assertEquals("NO_RESTOCK_REFUND_ONLY", updated.getRestockStatus());
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
+    }
+
+    @Test
+    @DisplayName("handleOrderReturn: RECEIVE_REJECT -> ON_HOLD, lưu rejectReason & evidenceUrls và NGHIÊM CẤM restock")
+    void handleOrderReturn_receiveRejected_strictlyNeverRestocks() {
+        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("TIKTOK_SHOP")
+                .platformOrderId(PLATFORM_ORDER_ID)
+                .returnId("ret-reject-1")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_REJECT)
+                .returnStatus("SELLER_REJECTED")
+                .rejectReason("Hàng bị bể vỡ do va đập, không đúng nguyên trạng")
+                .evidenceUrls(List.of("https://cdn.smartomni.com/ev1.jpg", "https://cdn.smartomni.com/ev2.jpg"))
+                .restockRequired(false)
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.ON_HOLD, updated.getStatus());
+        assertEquals("REJECTED", updated.getRestockStatus());
+        assertEquals("Hàng bị bể vỡ do va đập, không đúng nguyên trạng", updated.getRejectReason());
+        assertTrue(updated.getEvidenceUrls().contains("https://cdn.smartomni.com/ev1.jpg"));
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
+    }
+
+    @Test
+    @DisplayName("handleOrderReturn: DISPUTE_CLAIM -> ON_HOLD và NGHIÊM CẤM gọi restock")
+    void handleOrderReturn_disputeClaim_strictlyNeverRestocks() {
+        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("TIKTOK_SHOP")
+                .platformOrderId(PLATFORM_ORDER_ID)
+                .returnId("ret-dispute-1")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.DISPUTE_CLAIM)
+                .returnStatus("DISPUTE_IN_PROGRESS")
+                .restockRequired(false)
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.ON_HOLD, updated.getStatus());
+        assertEquals("DISPUTED", updated.getRestockStatus());
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
+    }
 }
 
 
