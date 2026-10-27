@@ -62,6 +62,23 @@ public class InventoryService {
         createOutboxEventsForAllLinkedPlatforms(inventory);
     }
 
+    @Transactional
+    public void restock(Long skuId, int quantity) {
+        Long tenantId = TenantContext.getTenantId();
+        Inventory inventory = inventoryRepository.findBySkuId(skuId)
+                .orElseGet(() -> {
+                    Inventory inv = new Inventory();
+                    inv.setTenantId(tenantId);
+                    inv.setSkuId(skuId);
+                    inv.setQuantityOnHand(0);
+                    return inv;
+                });
+        inventory.setQuantityOnHand(inventory.getQuantityOnHand() + quantity);
+        inventoryRepository.save(inventory);
+
+        createOutboxEventsForAllLinkedPlatforms(inventory);
+    }
+
     private void createOutboxEventsForAllLinkedPlatforms(Inventory inventory) {
         // TODO: goi Catalog Service de lay danh sach platform da lien ket voi SKU nay,
         // sau do tao 1 InventoryOutboxEvent (status=PENDING) cho MOI platform.
