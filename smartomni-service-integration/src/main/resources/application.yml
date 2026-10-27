@@ -41,6 +41,18 @@ smartomni:
   price-sync:
     fixed-delay-ms: 900000  # 15 phut - UC-43
     anomaly-threshold-percent: ${PRICE_ANOMALY_THRESHOLD_PERCENT:50}  # FR-092; 0 or less disables the check
+  # Shopee Open Platform app (SmartOmni's developer app credentials). Defaults to live Shopee simulator.
+  shopee:
+    partner-id: ${SHOPEE_PARTNER_ID:1001141}
+    partner-key: ${SHOPEE_PARTNER_KEY:shopee_mock_secret_key_2026}
+    base-url: ${SHOPEE_BASE_URL:https://shopee-simulator.onrender.com}
+    authorization-url: ${SHOPEE_AUTHORIZATION_URL:https://shopee-simulator.onrender.com/api/v2/shop/auth_partner}
+    redirect-uri: ${SHOPEE_REDIRECT_URI:http://localhost:5174/merchant/channels/shopee/callback}
+    token-get-path: ${SHOPEE_TOKEN_GET_PATH:/api/v2/auth/token/get}
+    token-refresh-path: ${SHOPEE_TOKEN_REFRESH_PATH:/api/v2/auth/access_token/get}
+    shop-info-path: ${SHOPEE_SHOP_INFO_PATH:/api/v2/shop/get_shop_info}
+    state-ttl: ${SHOPEE_STATE_TTL:10m}
+    request-timeout: ${SHOPEE_REQUEST_TIMEOUT:10s}
   # TikTok Shop app (SmartOmni's own app, never a shop owner's). Defaults are safe at startup; missing
   # credentials fail only when a Tenant Admin starts a connection. Switch simulator <-> TikTok by URL/credentials only.
   tiktok:
