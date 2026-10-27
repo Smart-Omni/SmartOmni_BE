@@ -131,6 +131,29 @@ class ShopeeWebhookDispatcherTest {
     }
 
     @Test
+    @DisplayName("Code 3: triggers direct ShopeeOrderSyncService when available")
+    void dispatch_Code3_TriggersDirectSync() throws Exception {
+        com.smartomni.integration.service.order.ShopeeOrderSyncService syncService =
+                mock(com.smartomni.integration.service.order.ShopeeOrderSyncService.class);
+        ShopeeWebhookDispatcher customDispatcher =
+                new ShopeeWebhookDispatcher(repository, rabbitTemplate, objectMapper, syncService, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        String dataJson = "{\"ordersn\":\"261019TEST01\",\"status\":\"READY_TO_SHIP\"}";
+        String raw = "{\"code\":3,\"shop_id\":727720655,\"timestamp\":1714000500,\"data\":" + dataJson + "}";
+        ShopeeWebhookEvent event = ShopeeWebhookEvent.builder()
+                .code(3)
+                .shopId(727720655L)
+                .timestamp(1714000500L)
+                .data(objectMapper.readTree(dataJson))
+                .build();
+
+        ShopeeWebhookDispatcher.DispatchOutcome outcome = customDispatcher.dispatch(1L, event, raw);
+
+        assertEquals(ShopeeWebhookDispatcher.DispatchOutcome.ENQUEUED_ORDER, outcome);
+        verify(syncService).syncOrder(connection, "261019TEST01");
+    }
+
+    @Test
     @DisplayName("Code 4: order_tracking_no_push publishes tracking message to RabbitMQ")
     @SuppressWarnings("unchecked")
     void dispatch_Code4_EnqueuesTrackingEvent() throws Exception {
