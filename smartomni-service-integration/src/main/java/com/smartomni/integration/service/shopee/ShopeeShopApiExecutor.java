@@ -54,8 +54,20 @@ public class ShopeeShopApiExecutor {
         }
     }
 
+    public ShopeeHttpTransport.Response callRaw(Long connectionId, String method, String path,
+                                                Map<String, String> extraQuery, String body) {
+        ShopeeTokenService.Credentials creds = tokens.credentials(connectionId);
+        return doCallRaw(method, path, extraQuery, body, creds.accessToken(), creds.shopId());
+    }
+
     private JsonNode doCall(String method, String path, Map<String, String> extraQuery, String body,
                             String accessToken, Long shopId) {
+        ShopeeHttpTransport.Response response = doCallRaw(method, path, extraQuery, body, accessToken, shopId);
+        return ShopeeEnvelope.decode(mapper, response);
+    }
+
+    private ShopeeHttpTransport.Response doCallRaw(String method, String path, Map<String, String> extraQuery,
+                                                   String body, String accessToken, Long shopId) {
         Instant now = clock.instant();
         long timestamp = now.getEpochSecond();
         String sign = ShopeeApiSigner.signShop(properties.getPartnerKey(), properties.getPartnerId(),
@@ -75,10 +87,8 @@ public class ShopeeShopApiExecutor {
                 ? Map.of("Content-Type", "application/json")
                 : Map.of();
 
-        ShopeeHttpTransport.Response response = transport.send(method,
+        return transport.send(method,
                 ShopeeEnvelope.buildUri(properties.getBaseUrl(), path, query),
                 headers, body);
-
-        return ShopeeEnvelope.decode(mapper, response);
     }
 }
