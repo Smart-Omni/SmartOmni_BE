@@ -5,6 +5,7 @@ import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.integration.config.RabbitMQConfig;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
+import com.smartomni.integration.service.order.ShopeeOrderSyncService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -37,12 +38,21 @@ public class ShopeeWebhookDispatcher {
     private final MarketplaceConnectionRepository connectionRepository;
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
+    private final ShopeeOrderSyncService orderSyncService;
     private final Clock clock;
 
     public ShopeeWebhookDispatcher(MarketplaceConnectionRepository connectionRepository,
                                    RabbitTemplate rabbitTemplate,
-                                   ObjectMapper objectMapper) {
-        this(connectionRepository, rabbitTemplate, objectMapper, Clock.systemUTC());
+                                   ObjectMapper objectMapper,
+                                   ShopeeOrderSyncService orderSyncService) {
+        this(connectionRepository, rabbitTemplate, objectMapper, orderSyncService, Clock.systemUTC());
+    }
+
+    public ShopeeWebhookDispatcher(MarketplaceConnectionRepository connectionRepository,
+                                   RabbitTemplate rabbitTemplate,
+                                   ObjectMapper objectMapper,
+                                   Clock clock) {
+        this(connectionRepository, rabbitTemplate, objectMapper, null, clock);
     }
 
     @Transactional
@@ -62,7 +72,7 @@ public class ShopeeWebhookDispatcher {
                 return DispatchOutcome.HANDLED_DEAUTH;
 
             case 3: // order_status_push
-                enqueueOrderEvent(tenantId, event, rawPayload);
+                handleOrderPush(tenantId, event, rawPayload);
                 return DispatchOutcome.ENQUEUED_ORDER;
 
             case 4: // order_tracking_no_push
@@ -112,6 +122,22 @@ public class ShopeeWebhookDispatcher {
                         log.warn("Shopee connection marked REVOKED for tenant={}, shopId={}", tenantId, event.getShopId());
                     });
         }
+    }
+
+    private void handleOrderPush(Long tenantId, ShopeeWebhookEvent event, String rawPayload) {
+        if (event.orderSn() != null && orderSyncService != null) {
+            try (var scope = TenantContext.openScope(tenantId, null, null)) {
+                var connOpt = connectionRepository.findByTenantIdAndPlatform(tenantId, MarketplaceConnection.Platform.SHOPEE);
+                if (connOpt.isPresent()) {
+                    orderSyncService.syncOrder(connOpt.get(), event.orderSn());
+                    return;
+                }
+            } catch (Exception ex) {
+                log.warn("Direct order sync failed for ordersn={}, falling back to raw enqueue: {}",
+                        event.orderSn(), ex.getMessage());
+            }
+        }
+        enqueueOrderEvent(tenantId, event, rawPayload);
     }
 
     private void enqueueOrderEvent(Long tenantId, ShopeeWebhookEvent event, String rawPayload) {
