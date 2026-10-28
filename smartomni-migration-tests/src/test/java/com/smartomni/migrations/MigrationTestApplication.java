@@ -32,6 +32,11 @@ public class MigrationTestApplication {
     }
 
     @Bean
+    public com.smartomni.auth.service.EmailService emailService() {
+        return org.mockito.Mockito.mock(com.smartomni.auth.service.EmailService.class);
+    }
+
+    @Bean
     public org.springframework.data.redis.core.StringRedisTemplate stringRedisTemplate() {
         org.springframework.data.redis.core.StringRedisTemplate template = org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class);
         org.springframework.data.redis.core.ValueOperations ops = org.mockito.Mockito.mock(org.springframework.data.redis.core.ValueOperations.class);

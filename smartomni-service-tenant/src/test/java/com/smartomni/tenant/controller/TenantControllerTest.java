@@ -1,6 +1,7 @@
 package com.smartomni.tenant.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartomni.common.exception.BusinessException;
 import com.smartomni.common.exception.GlobalExceptionHandler;
 import com.smartomni.common.security.JwtTokenProvider;
 import com.smartomni.common.tenant.TenantContext;
@@ -20,6 +21,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -126,6 +128,7 @@ class TenantControllerTest {
         TenantOnboardingRequest request = TenantOnboardingRequest.builder()
                 .companyName("Smart Store")
                 .subdomain("smart-store")
+                .adminEmail("admin@smartstore.vn")
                 .contactEmail("admin@smartstore.vn")
                 .contactPhone("0909090909")
                 .planType("FREE")
@@ -137,6 +140,9 @@ class TenantControllerTest {
                 .subdomain("smart-store")
                 .status("ACTIVE")
                 .planType("FREE")
+                .adminUserId(99L)
+                .adminEmail("admin@smartstore.vn")
+                .adminFullName("Smart Store Admin")
                 .features(TenantProfileResponse.PlanFeatureDto.builder()
                         .planName("FREE")
                         .maxShops(1)
@@ -156,9 +162,98 @@ class TenantControllerTest {
                 .andExpect(jsonPath("$.data.companyName").value("Smart Store"))
                 .andExpect(jsonPath("$.data.subdomain").value("smart-store"))
                 .andExpect(jsonPath("$.data.planType").value("FREE"))
+                .andExpect(jsonPath("$.data.adminUserId").value(99))
+                .andExpect(jsonPath("$.data.adminEmail").value("admin@smartstore.vn"))
+                .andExpect(jsonPath("$.data.adminFullName").value("Smart Store Admin"))
                 .andExpect(jsonPath("$.data.features.maxShops").value(1))
                 .andExpect(jsonPath("$.data.features.maxSkus").value(100))
                 .andExpect(jsonPath("$.data.features.aiFeaturesEnabled").value(false));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/tenants: Thành công khi gọi trực tiếp endpoint gốc")
+    void testCreateTenantRoot_Success() throws Exception {
+        TenantOnboardingRequest request = TenantOnboardingRequest.builder()
+                .companyName("Direct Store")
+                .subdomain("direct-store")
+                .adminEmail("owner@directstore.vn")
+                .adminFullName("Direct Owner")
+                .adminPassword("SecretPassword123")
+                .planType("PRO")
+                .build();
+
+        TenantProfileResponse response = TenantProfileResponse.builder()
+                .id(2L)
+                .companyName("Direct Store")
+                .subdomain("direct-store")
+                .status("ACTIVE")
+                .planType("PRO")
+                .adminUserId(102L)
+                .adminEmail("owner@directstore.vn")
+                .adminFullName("Direct Owner")
+                .build();
+
+        when(tenantService.onboardTenant(any(TenantOnboardingRequest.class))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/tenants")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.adminUserId").value(102))
+                .andExpect(jsonPath("$.data.adminEmail").value("owner@directstore.vn"))
+                .andExpect(jsonPath("$.data.adminFullName").value("Direct Owner"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/tenants: Báo lỗi 409 Conflict khi email admin đã tồn tại")
+    void testCreateTenant_DuplicateAdminEmail_ThrowsConflict() throws Exception {
+        TenantOnboardingRequest request = TenantOnboardingRequest.builder()
+                .companyName("Dup Shop")
+                .subdomain("dup-shop")
+                .adminEmail("dup@admin.com")
+                .planType("FREE")
+                .build();
+
+        when(tenantService.onboardTenant(any(TenantOnboardingRequest.class)))
+                .thenThrow(new BusinessException("Email quản trị viên đã tồn tại trong hệ thống", HttpStatus.CONFLICT, "EMAIL_ALREADY_EXISTS"));
+
+        mockMvc.perform(post("/api/v1/tenants")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("Email quản trị viên đã tồn tại trong hệ thống"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/tenants: Thất bại khi adminEmail bị để trống (400 Bad Request)")
+    void testOnboarding_ValidationFailure_BlankAdminEmail() throws Exception {
+        TenantOnboardingRequest request = TenantOnboardingRequest.builder()
+                .companyName("Store")
+                .subdomain("valid-subdomain")
+                .adminEmail("") // Blank
+                .build();
+
+        mockMvc.perform(post("/api/v1/tenants")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/tenants: Thất bại khi adminEmail không đúng định dạng (400 Bad Request)")
+    void testOnboarding_ValidationFailure_InvalidAdminEmailFormat() throws Exception {
+        TenantOnboardingRequest request = TenantOnboardingRequest.builder()
+                .companyName("Store")
+                .subdomain("valid-subdomain")
+                .adminEmail("invalid-email-format")
+                .build();
+
+        mockMvc.perform(post("/api/v1/tenants")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -167,7 +262,7 @@ class TenantControllerTest {
         TenantOnboardingRequest request = TenantOnboardingRequest.builder()
                 .companyName("Store")
                 .subdomain("AB") // Ngắn hơn 3 ký tự và chữ hoa
-                .contactEmail("valid@store.com")
+                .adminEmail("valid@store.com")
                 .build();
 
         mockMvc.perform(post("/api/v1/tenants/onboarding")

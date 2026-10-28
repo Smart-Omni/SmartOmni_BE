@@ -25,6 +25,11 @@ public class TenantProfileResponse {
     private String contactPhone;
     private String planType;
 
+    // Admin account details
+    private Long adminUserId;
+    private String adminEmail;
+    private String adminFullName;
+
     private PlanFeatureDto features;
     private StorefrontConfigDto storefront;
     private Instant createdAt;

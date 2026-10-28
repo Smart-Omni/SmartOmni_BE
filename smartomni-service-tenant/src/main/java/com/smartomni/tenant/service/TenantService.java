@@ -17,6 +17,10 @@ public interface TenantService {
 
     TenantProfileResponse onboardTenant(TenantOnboardingRequest request);
 
+    default TenantProfileResponse createTenant(TenantOnboardingRequest request) {
+        return onboardTenant(request);
+    }
+
     TenantProfileResponse getTenantProfile(Long tenantId);
 
     TenantProfileResponse getCurrentTenantProfile();
