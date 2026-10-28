@@ -18,6 +18,10 @@ public class ShopeeApiException extends RuntimeException {
         this.transientFailure = transientFailure;
     }
 
+    public ShopeeApiException(int httpStatus, String errorCode, String message) {
+        this(message, httpStatus, errorCode, null, httpStatus >= 500);
+    }
+
     public static ShopeeApiException transport(String message) {
         return new ShopeeApiException(message, 0, null, null, true);
     }

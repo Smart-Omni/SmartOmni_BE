@@ -129,6 +129,13 @@ public class ShopeeConnectionStore {
     }
 
     @Transactional
+    public boolean rotateTokens(Long connectionId, long expectedVersion, String access, String refresh,
+                                Instant accessExpiresAt, Instant refreshExpiresAt, Instant now) {
+        return connections.rotateTokens(connectionId, expectedVersion, access, refresh, accessExpiresAt,
+                refreshExpiresAt, now, ConnectionStatus.CONNECTED) == 1;
+    }
+
+    @Transactional
     public Optional<MarketplaceConnection> terminate(Long tenantId, Long connectionId, ConnectionStatus status,
                                                      String errorCode, Instant now) {
         MarketplaceConnection c = load(tenantId, connectionId);
