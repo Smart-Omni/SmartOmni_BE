@@ -381,7 +381,7 @@ BEGIN
   IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='platform_type') IS DISTINCT FROM ARRAY['shopee','tiktok_shop','storefront'] THEN RAISE EXCEPTION 'Enum mismatch: platform_type'; END IF;
   IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='connection_status') NOT IN (ARRAY['connected','error','disconnected'], ARRAY['connected','error','disconnected','missing_scope','refresh_failed','revoked']) THEN RAISE EXCEPTION 'Enum mismatch: connection_status'; END IF;
   IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='product_status') IS DISTINCT FROM ARRAY['active','hidden'] THEN RAISE EXCEPTION 'Enum mismatch: product_status'; END IF;
-  IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='order_status') IS DISTINCT FROM ARRAY['pending','to_ship','shipped','delivering','completed','cancelled','returned'] THEN RAISE EXCEPTION 'Enum mismatch: order_status'; END IF;
+  IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='order_status') NOT IN (ARRAY['pending','to_ship','shipped','delivering','completed','cancelled','returned'], ARRAY['pending','to_ship','shipped','delivering','completed','cancelled','returned','on_hold']) THEN RAISE EXCEPTION 'Enum mismatch: order_status'; END IF;
   IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='order_change_source') IS DISTINCT FROM ARRAY['manager','marketplace_webhook','system'] THEN RAISE EXCEPTION 'Enum mismatch: order_change_source'; END IF;
   IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='order_source') IS DISTINCT FROM ARRAY['webhook','polling','manual'] THEN RAISE EXCEPTION 'Enum mismatch: order_source'; END IF;
   IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='return_trigger_type') IS DISTINCT FROM ARRAY['refused_delivery','customer_request'] THEN RAISE EXCEPTION 'Enum mismatch: return_trigger_type'; END IF;
@@ -492,5 +492,67 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_constraint WHERE connamespace='public'::regnamespace AND conname='uq_demand_forecasts') THEN RAISE EXCEPTION 'Missing constraint: uq_demand_forecasts'; END IF;
   IF NOT EXISTS (SELECT FROM pg_constraint WHERE connamespace='public'::regnamespace AND conname='uq_sales_outlier_exclusions') THEN RAISE EXCEPTION 'Missing constraint: uq_sales_outlier_exclusions'; END IF;
   IF NOT EXISTS (SELECT FROM pg_constraint WHERE connamespace='public'::regnamespace AND conname='uq_product_recommendations_cache') THEN RAISE EXCEPTION 'Missing constraint: uq_product_recommendations_cache'; END IF;
+END $$;
+-- =========================================================
+-- Kiểm tra có điều kiện: các cột bổ sung từ V13 / V14
+-- Nếu cột chưa tồn tại (ví dụ: chạy sau baseline V5), bỏ qua.
+-- Nếu cột đã tồn tại, kiểm tra kiểu dữ liệu đúng.
+-- =========================================================
+DO $$
+DECLARE actual_type text;
+BEGIN
+  -- V13: product_marketplace_links.image_url
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='product_marketplace_links'
+    AND a.attname='image_url' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'character varying(1024)' THEN
+    RAISE EXCEPTION 'Schema mismatch product_marketplace_links.image_url: expected character varying(1024), actual %', actual_type;
+  END IF;
+
+  -- V13: order_items.image_url
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='order_items'
+    AND a.attname='image_url' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'character varying(1024)' THEN
+    RAISE EXCEPTION 'Schema mismatch order_items.image_url: expected character varying(1024), actual %', actual_type;
+  END IF;
+
+  -- V14: orders.return_reason
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='orders'
+    AND a.attname='return_reason' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'character varying(255)' THEN
+    RAISE EXCEPTION 'Schema mismatch orders.return_reason: expected character varying(255), actual %', actual_type;
+  END IF;
+
+  -- V14: orders.reject_reason
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='orders'
+    AND a.attname='reject_reason' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'character varying(500)' THEN
+    RAISE EXCEPTION 'Schema mismatch orders.reject_reason: expected character varying(500), actual %', actual_type;
+  END IF;
+
+  -- V14: orders.evidence_urls
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='orders'
+    AND a.attname='evidence_urls' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'text' THEN
+    RAISE EXCEPTION 'Schema mismatch orders.evidence_urls: expected text, actual %', actual_type;
+  END IF;
+
+  -- V14: orders.restock_status
+  SELECT format_type(a.atttypid, a.atttypmod) INTO actual_type
+  FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+  WHERE t.relnamespace='public'::regnamespace AND t.relname='orders'
+    AND a.attname='restock_status' AND a.attnum > 0 AND NOT a.attisdropped;
+  IF FOUND AND actual_type IS DISTINCT FROM 'character varying(50)' THEN
+    RAISE EXCEPTION 'Schema mismatch orders.restock_status: expected character varying(50), actual %', actual_type;
+  END IF;
 END $$;
 COMMIT;
