@@ -1,8 +1,10 @@
 package com.smartomni.auth.service.impl;
 
 import com.smartomni.auth.dto.AuthResponse;
+import com.smartomni.auth.dto.ChangePasswordRequest;
 import com.smartomni.auth.dto.LoginRequest;
 import com.smartomni.auth.dto.RefreshTokenRequest;
+import com.smartomni.auth.dto.RegisterRequest;
 import com.smartomni.auth.entity.PasswordResetToken;
 import com.smartomni.auth.entity.User;
 import com.smartomni.auth.repository.PasswordResetTokenRepository;
@@ -10,6 +12,7 @@ import com.smartomni.auth.repository.TenantLookupRepository;
 import com.smartomni.auth.repository.TenantLookupRepository.TenantLookup;
 import com.smartomni.auth.repository.UserRepository;
 import com.smartomni.auth.service.AuthService;
+import com.smartomni.auth.service.EmailService;
 import com.smartomni.auth.service.UserLoginAttemptService;
 import com.smartomni.common.constant.AppConstants;
 import com.smartomni.common.exception.BusinessException;
@@ -32,6 +35,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -57,12 +61,93 @@ public class AuthServiceImpl implements AuthService {
     private final EntityManager entityManager;
     private final StringRedisTemplate stringRedisTemplate;
     private final UserLoginAttemptService userLoginAttemptService;
+    private final EmailService emailService;
 
     @Value("${smartomni.jwt.expiration-ms:86400000}")
     private long expirationMs;
 
     @Value("${smartomni.jwt.refresh-expiration-ms:604800000}")
     private long refreshExpirationMs;
+
+    @Override
+    @Transactional
+    public AuthResponse register(RegisterRequest request) {
+        log.info("Processing register request for email: {}", request.getEmail());
+        String email = request.getEmail().trim().toLowerCase(Locale.ROOT);
+
+        setRlsContext("app.auth_email", email);
+        setRlsContext("app.user_role", "super_admin");
+
+        if (userRepository.findByEmail(email).isPresent()) {
+            throw new BusinessException("Email đã được sử dụng trong hệ thống", HttpStatus.CONFLICT, "EMAIL_ALREADY_EXISTS");
+        }
+
+        Long tenantId = null;
+        String resolvedSubdomain = null;
+
+        String requestedSubdomain = request.getSubdomain();
+        if ((requestedSubdomain == null || requestedSubdomain.trim().isEmpty()) && TenantContext.getCurrentSubdomain() != null) {
+            requestedSubdomain = TenantContext.getCurrentSubdomain();
+        }
+
+        if (requestedSubdomain != null && !requestedSubdomain.trim().isEmpty()) {
+            String targetSubdomain = requestedSubdomain.trim();
+            TenantLookup tenant = tenantLookupRepository.findBySubdomain(targetSubdomain)
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tenant với subdomain: " + targetSubdomain));
+            if (tenant.isLocked()) {
+                throw new BusinessException("Tổ chức/Tenant '" + tenant.name() + "' đã bị khóa", HttpStatus.FORBIDDEN, "TENANT_LOCKED");
+            }
+            tenantId = tenant.id();
+            resolvedSubdomain = tenant.subdomain();
+        } else if (request.getTenantId() != null) {
+            TenantLookup tenant = tenantLookupRepository.findById(request.getTenantId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tenant với id: " + request.getTenantId()));
+            if (tenant.isLocked()) {
+                throw new BusinessException("Tổ chức/Tenant '" + tenant.name() + "' đã bị khóa", HttpStatus.FORBIDDEN, "TENANT_LOCKED");
+            }
+            tenantId = tenant.id();
+            resolvedSubdomain = tenant.subdomain();
+        }
+
+        User user = User.builder()
+                .email(email)
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .fullName(request.getFullName().trim())
+                .phone(request.getPhone() != null && !request.getPhone().trim().isEmpty() ? request.getPhone().trim() : null)
+                .avatar(request.getAvatar() != null && !request.getAvatar().trim().isEmpty() ? request.getAvatar().trim() : null)
+                .role(User.UserRole.CUSTOMER)
+                .status(User.UserStatus.ACTIVE)
+                .failedLoginAttempts(0)
+                .build();
+        user.setTenantId(tenantId);
+
+        setRlsContext("app.auth_email", email);
+        setRlsContext("app.user_role", "super_admin");
+        User savedUser = userRepository.save(user);
+        log.info("Successfully registered new user ID: {}, email: {}", savedUser.getId(), savedUser.getEmail());
+
+        String accessToken = jwtTokenProvider.generateToken(savedUser.getId(), savedUser.getRole().name(), savedUser.getTenantId(), resolvedSubdomain);
+        String refreshToken = storeRefreshTokenInRedis(savedUser.getId());
+
+        AuthResponse.UserInfo userInfo = AuthResponse.UserInfo.builder()
+                .id(savedUser.getId())
+                .email(savedUser.getEmail())
+                .fullName(savedUser.getFullName())
+                .phone(savedUser.getPhone())
+                .avatar(savedUser.getAvatar())
+                .role(savedUser.getRole().name())
+                .tenantId(savedUser.getTenantId())
+                .subdomain(resolvedSubdomain)
+                .build();
+
+        return AuthResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
+                .tokenType("Bearer")
+                .expiresIn(expirationMs / 1000)
+                .userInfo(userInfo)
+                .build();
+    }
 
     @Override
     @Transactional
@@ -166,6 +251,8 @@ public class AuthServiceImpl implements AuthService {
                 .id(user.getId())
                 .email(user.getEmail())
                 .fullName(user.getFullName())
+                .phone(user.getPhone())
+                .avatar(user.getAvatar())
                 .role(user.getRole().name())
                 .tenantId(user.getTenantId())
                 .subdomain(resolvedSubdomain)
@@ -232,6 +319,8 @@ public class AuthServiceImpl implements AuthService {
                 .id(user.getId())
                 .email(user.getEmail())
                 .fullName(user.getFullName())
+                .phone(user.getPhone())
+                .avatar(user.getAvatar())
                 .role(user.getRole().name())
                 .tenantId(user.getTenantId())
                 .subdomain(resolvedSubdomain)
@@ -284,6 +373,39 @@ public class AuthServiceImpl implements AuthService {
         SecurityContextHolder.clearContext();
     }
 
+    @Override
+    @Transactional
+    public void changePassword(Long userId, ChangePasswordRequest request) {
+        if (userId == null) {
+            throw new BusinessException("Chưa đăng nhập hoặc phiên làm việc đã hết hạn", HttpStatus.UNAUTHORIZED, "UNAUTHORIZED");
+        }
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new BusinessException("Mật khẩu xác nhận không khớp với mật khẩu mới", HttpStatus.BAD_REQUEST, "PASSWORD_MISMATCH");
+        }
+        if (request.getNewPassword().equals(request.getCurrentPassword())) {
+            throw new BusinessException("Mật khẩu mới không được trùng với mật khẩu hiện tại", HttpStatus.BAD_REQUEST, "PASSWORD_SAME_AS_CURRENT");
+        }
+
+        setRlsContext("app.auth_user_id", userId.toString());
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            throw new BusinessException("Mật khẩu hiện tại không chính xác", HttpStatus.BAD_REQUEST, "INVALID_CURRENT_PASSWORD");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+        log.info("Successfully changed password for user ID: {}", userId);
+
+        // Thu hồi refresh token cũ
+        String existingRefreshToken = stringRedisTemplate.opsForValue().get(REDIS_PREFIX_USER_REFRESH + userId);
+        if (existingRefreshToken != null) {
+            stringRedisTemplate.delete(REDIS_PREFIX_REFRESH + existingRefreshToken);
+        }
+        stringRedisTemplate.delete(REDIS_PREFIX_USER_REFRESH + userId);
+    }
+
     private String storeRefreshTokenInRedis(Long userId) {
         // Xóa refresh token cũ nếu có
         String oldRefreshToken = stringRedisTemplate.opsForValue().get(REDIS_PREFIX_USER_REFRESH + userId);
@@ -310,9 +432,13 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public void forgotPassword(String email) {
-        setRlsContext("app.auth_email", email);
+        if (email == null || email.trim().isEmpty()) {
+            return;
+        }
+        String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
+        setRlsContext("app.auth_email", normalizedEmail);
         // FR-005: không tiết lộ email có tồn tại hay không vì lý do bảo mật
-        userRepository.findByEmail(email).ifPresent(user -> {
+        userRepository.findByEmail(normalizedEmail).ifPresent(user -> {
             PasswordResetToken resetToken = new PasswordResetToken();
             resetToken.setUserId(user.getId());
             resetToken.setToken(UUID.randomUUID().toString());
@@ -320,6 +446,7 @@ public class AuthServiceImpl implements AuthService {
             resetTokenRepository.save(resetToken);
 
             log.info("Generated password reset token for user id: {}", user.getId());
+            emailService.sendPasswordResetEmail(user.getEmail(), resetToken.getToken());
         });
     }
 
@@ -344,6 +471,13 @@ public class AuthServiceImpl implements AuthService {
         resetToken.setUsed(true);
         resetTokenRepository.save(resetToken);
         log.info("Successfully reset password for user id: {}", user.getId());
+
+        // Xóa refresh token cũ
+        String existingRefreshToken = stringRedisTemplate.opsForValue().get(REDIS_PREFIX_USER_REFRESH + user.getId());
+        if (existingRefreshToken != null) {
+            stringRedisTemplate.delete(REDIS_PREFIX_REFRESH + existingRefreshToken);
+        }
+        stringRedisTemplate.delete(REDIS_PREFIX_USER_REFRESH + user.getId());
     }
 
     @Override

@@ -24,12 +24,18 @@ public class TenantOnboardingRequest {
     @Pattern(regexp = "^[a-z0-9-]{3,30}$", message = "Subdomain chỉ gồm chữ thường, số và dấu gạch ngang, 3-30 ký tự")
     private String subdomain;
 
-    @Email(message = "Email không đúng định dạng")
-    private String contactEmail;
+    @NotBlank(message = "Email quản trị viên không được để trống")
+    @Email(message = "Email quản trị viên không đúng định dạng")
     private String adminEmail;
 
-    private String contactPhone;
+    private String adminFullName;
+
     private String adminPassword;
+
+    @Email(message = "Email liên hệ không đúng định dạng")
+    private String contactEmail;
+
+    private String contactPhone;
 
     @Builder.Default
     private String planType = "FREE";
@@ -49,6 +55,20 @@ public class TenantOnboardingRequest {
         }
     }
 
+    public String getAdminEmail() {
+        if (adminEmail != null && !adminEmail.isBlank()) {
+            return adminEmail;
+        }
+        return contactEmail;
+    }
+
+    public void setAdminEmail(String adminEmail) {
+        this.adminEmail = adminEmail;
+        if (this.contactEmail == null) {
+            this.contactEmail = adminEmail;
+        }
+    }
+
     public String getContactEmail() {
         if (contactEmail != null && !contactEmail.isBlank()) {
             return contactEmail;
@@ -56,10 +76,10 @@ public class TenantOnboardingRequest {
         return adminEmail;
     }
 
-    public void setAdminEmail(String adminEmail) {
-        this.adminEmail = adminEmail;
-        if (this.contactEmail == null) {
-            this.contactEmail = adminEmail;
+    public void setContactEmail(String contactEmail) {
+        this.contactEmail = contactEmail;
+        if (this.adminEmail == null) {
+            this.adminEmail = contactEmail;
         }
     }
 

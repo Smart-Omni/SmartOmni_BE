@@ -38,6 +38,12 @@ public class User extends BaseTenantEntity {
     @Column(name = "full_name")
     private String fullName;
 
+    @Column(name = "phone", length = 50)
+    private String phone;
+
+    @Column(name = "avatar", length = 500)
+    private String avatar;
+
     @Enumerated(EnumType.STRING)
     @JdbcType(LowercasePostgreSQLEnumJdbcType.class)
     @Column(nullable = false, columnDefinition = "user_role")

@@ -57,7 +57,9 @@ public class SecurityConfig {
                     new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate),
                     UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/v1/auth/change-password", "/api/auth/change-password").authenticated()
                 .requestMatchers("/api/v1/auth/**", "/api/auth/**", "/actuator/**").permitAll()
+                .requestMatchers("/api/v1/users/**", "/api/users/**").authenticated()
                 .anyRequest().authenticated()
             );
         return http.build();
