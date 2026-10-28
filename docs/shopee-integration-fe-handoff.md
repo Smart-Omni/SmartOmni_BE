@@ -418,16 +418,16 @@ Authorization: Bearer <TenantStaffOrAdminJWT>
 
 ##### 1. Get Shipping Parameters
 ```http
-GET /api/v1/orders/{orderId}/shipping-parameter
+GET /api/marketplace-connections/shopee/orders/{orderSn}/shipping-parameter
 Authorization: Bearer <TenantStaffOrAdminJWT>
 ```
+*(Also proxied via canonical orders endpoint: `GET /api/v1/orders/{orderId}/shipping-parameter`)*
+
 - **Response `200 OK`**:
 ```json
 {
   "success": true,
   "data": {
-    "orderId": "ORD-501",
-    "externalOrderId": "241027SP1042",
     "dropoff": { "branchList": [{ "branchId": 101, "name": "SPX Buu Cuc Cau Giay" }] },
     "pickup": {
       "addressList": [{ "addressId": 901, "address": "123 Xuan Thuy, Cau Giay, Hanoi" }],
@@ -439,7 +439,7 @@ Authorization: Bearer <TenantStaffOrAdminJWT>
 
 ##### 2. Confirm Ship Order
 ```http
-POST /api/v1/orders/{orderId}/ship
+POST /api/marketplace-connections/shopee/orders/{orderSn}/ship
 Authorization: Bearer <TenantStaffOrAdminJWT>
 Content-Type: application/json
 
@@ -449,20 +449,30 @@ Content-Type: application/json
   "pickupTimeId": "slot_morning"
 }
 ```
+*(Also proxied via canonical orders endpoint: `POST /api/v1/orders/{orderId}/ship`)*
+
 - **Response `200 OK`**:
 ```json
 {
   "success": true,
   "message": "Order shipped successfully",
-  "data": { "status": "shipped", "trackingNumber": "SPXVN0293848201" }
+  "data": {
+    "orderSn": "241027SP1042",
+    "status": "shipped",
+    "trackingNumber": "SPXVN0293848201",
+    "shipByDate": 1714200000,
+    "remainingSeconds": 79200
+  }
 }
 ```
 
 ##### 3. Download Airway Bill (AWB) Thermal PDF
 ```http
-GET /api/v1/orders/{orderId}/shipping-document
+GET /api/marketplace-connections/shopee/orders/{orderSn}/shipping-document
 Authorization: Bearer <TenantStaffOrAdminJWT>
 ```
+*(Also proxied via canonical orders endpoint: `GET /api/v1/orders/{orderId}/shipping-document`)*
+
 - **Response**: Binary `application/pdf` with header `Content-Disposition: inline; filename="AWB-241027SP1042.pdf"`. Contains thermal 100x150mm layout with SPX Code128 barcode.
 
 ---
@@ -498,9 +508,11 @@ Authorization: Bearer <TenantStaffOrAdminJWT>
 
 ##### 1. Get Order Escrow Breakdown
 ```http
-GET /api/v1/orders/{orderId}/escrow
+GET /api/marketplace-connections/shopee/orders/{orderSn}/escrow
 Authorization: Bearer <TenantStaffOrAdminJWT>
 ```
+*(Also available via: `GET /api/v1/orders/{orderId}/escrow`)*
+
 - **Response `200 OK`**:
 ```json
 {
@@ -522,7 +534,7 @@ Authorization: Bearer <TenantStaffOrAdminJWT>
 
 ##### 2. Dispute Return Request
 ```http
-POST /api/v1/returns/{returnSn}/dispute
+POST /api/marketplace-connections/shopee/returns/{returnSn}/dispute
 Authorization: Bearer <TenantStaffOrAdminJWT>
 Content-Type: application/json
 
@@ -535,6 +547,7 @@ Content-Type: application/json
   ]
 }
 ```
+*(Also available via: `POST /api/v1/returns/{returnSn}/dispute`)*
 - **Response `200 OK`**: Returns updated return status `UNDER_SHOPEE_REVIEW`.
 
 ---
