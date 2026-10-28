@@ -24,4 +24,10 @@ public class InventoryController {
         inventoryService.deductStock(skuId, quantity);
         return ApiResponse.success("Tru ton kho thanh cong", null);
     }
+
+    @PostMapping("/{skuId}/restock")
+    public ApiResponse<Void> restock(@PathVariable Long skuId, @RequestParam int quantity) {
+        inventoryService.restock(skuId, quantity);
+        return ApiResponse.success("Hoan tra ton kho thanh cong", null);
+    }
 }
