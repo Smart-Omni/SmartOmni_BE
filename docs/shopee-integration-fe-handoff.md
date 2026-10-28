@@ -75,14 +75,21 @@ flowchart TD
 
 #### Status & Implemented Backend
 - **Branch**: `feature/INT-02-shopee-authorization` on `SmartOmmi_BE`
-- **Commits**: `658fd9e`, `eed6bfb`, `e97c040`, `5baa96c`, `42a8e72`
-- **Features**: HMAC-SHA256 signature generator (`ShopeeApiSigner`), AES-256-GCM encrypted tokens, single-use anti-CSRF state machine, DB migration `V12__shopee_connection.sql`, 4 unit test suites passing offline.
+- **Commits**: `658fd9e`, `eed6bfb`, `e97c040`, `5baa96c`, `42a8e72`, `2447bfa`
+- **Features**: HMAC-SHA256 signature generator (`ShopeeApiSigner`), AES-256-GCM encrypted tokens, single-use anti-CSRF state machine, DB migration `V15__shopee_connection.sql`, 4 unit test suites passing offline.
 
 #### UI Availability Audit in `SmartOmni_FE`
-- **Status**: **Available (Integrated)**
-- **Audit Findings**:
-  - Added "Connect via Shopee Simulator" action in `ShopWorkspace.jsx` (`/merchant/shops`).
-  - Added [`ShopeeCallbackPage.jsx`](file:///Users/nguyetminh/Dev/SmartOmni/SmartOmni_FE/src/features/portal/ShopeeCallbackPage.jsx) at `/merchant/channels/shopee/callback` and `/auth/callback`.
+> [!WARNING]
+> **FE UI Gap Identified:**
+> - `SmartOmni_FE` (on `main`) currently lacks real Shopee OAuth integration.
+> - `ShopWorkspace.jsx` only supports local demo mock connections with simulated state.
+> - **Required FE Work for Phase 1**:
+>   1. **"Connect Shopee" Action**: Add a button on `/merchant/channels` or `/merchant/shops` that calls `POST /api/marketplace-connections/shopee/authorization` with `Authorization: Bearer <jwt_token>`.
+>   2. **Browser Redirect**: Read `data.authorizationUrl` from the response and execute `window.location.href = data.authorizationUrl` to send seller to Shopee consent screen.
+>   3. **Callback Page Component**: Register a route at `/merchant/channels/shopee/callback` to handle the return redirect from Shopee Simulator.
+>   4. **Token Exchange Post**: Extract query params `code`, `shop_id`, and `state`, then call `POST /api/marketplace-connections/shopee/callback` with `Authorization: Bearer <jwt_token>`.
+>   5. **Cancellation/Error Handling**: Check for query param `?error=...&error_description=...` if user cancels on the Shopee consent screen and render an informative alert.
+>   6. **Success Navigation**: Upon success, update the active shop state in the UI store and navigate user back to `/merchant/shops`.
 
 #### Backend API Contract for Frontend Team
 ```http
@@ -556,9 +563,9 @@ Content-Type: application/json
 
 | Phase | Milestone | Scope | UI Status in FE | Backend Status |
 |---|---|---|:---:|:---:|
-| **Phase 1** | **OAuth 2.0 Auth Kernel** | Authorization, Tokens, AES Encryption | ✅ Available | ✅ **Completed** |
-| **Phase 2** | **Catalog & 2-Tier Variation Sync** | `get_item_list`, `get_model_list`, price sync | ⚠️ Needs Real FE Wiring | ✅ **Completed** |
-| **Phase 3** | **Push Webhooks Engine** | HMAC Webhook verification, RabbitMQ | ℹ️ Infra / Logging | ✅ **Completed** |
-| **Phase 4** | **Order Lifecycle & Inventory Outbox** | Order mapping, Outbox stock deduction | ⚠️ Needs Real API Wiring | ✅ **Completed** |
-| **Phase 5** | **Logistics Fulfillment & AWB PDF** | Ship order, AWB thermal PDF, 48h SLA | ⚠️ Needs Shipping Modal & PDF | ✅ **Completed** |
+| **Phase 1** | **OAuth 2.0 Auth Kernel** | Authorization, Tokens, AES Encryption | ⚠️ Needs Real OAuth & Callback Route | ✅ **Completed** |
+| **Phase 2** | **Catalog & 2-Tier Variation Sync** | `get_item_list`, `get_model_list`, price sync | ⚠️ Needs Import UI & Anomaly Review | ✅ **Completed** |
+| **Phase 3** | **Push Webhooks Engine** | HMAC Webhook verification, RabbitMQ | ℹ️ Infra / Connection Status Badge | ✅ **Completed** |
+| **Phase 4** | **Order Lifecycle & Inventory Outbox** | Order mapping, Outbox stock deduction | ⚠️ Needs Real Order Sync & Cancel UI | ✅ **Completed** |
+| **Phase 5** | **Logistics Fulfillment & AWB PDF** | Ship order, AWB thermal PDF, 48h SLA | ⚠️ Needs Shipping Modal & PDF Download | ✅ **Completed** |
 | **Phase 6** | **Escrow Reconciliation & Returns** | Escrow breakdown, Return dispute proof | ⚠️ Needs Escrow Modal & Dispute Form | ✅ **Completed** |
