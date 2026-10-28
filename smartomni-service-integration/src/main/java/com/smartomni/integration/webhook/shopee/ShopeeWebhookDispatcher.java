@@ -6,9 +6,10 @@ import com.smartomni.integration.config.RabbitMQConfig;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
 import com.smartomni.integration.service.order.ShopeeOrderSyncService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +23,6 @@ import java.util.Map;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ShopeeWebhookDispatcher {
 
     public enum DispatchOutcome {
@@ -40,6 +40,19 @@ public class ShopeeWebhookDispatcher {
     private final ObjectMapper objectMapper;
     private final ShopeeOrderSyncService orderSyncService;
     private final Clock clock;
+
+    @Autowired
+    public ShopeeWebhookDispatcher(MarketplaceConnectionRepository connectionRepository,
+                                   RabbitTemplate rabbitTemplate,
+                                   ObjectMapper objectMapper,
+                                   ShopeeOrderSyncService orderSyncService,
+                                   @Qualifier("integrationBusinessClock") Clock clock) {
+        this.connectionRepository = connectionRepository;
+        this.rabbitTemplate = rabbitTemplate;
+        this.objectMapper = objectMapper;
+        this.orderSyncService = orderSyncService;
+        this.clock = clock;
+    }
 
     public ShopeeWebhookDispatcher(MarketplaceConnectionRepository connectionRepository,
                                    RabbitTemplate rabbitTemplate,

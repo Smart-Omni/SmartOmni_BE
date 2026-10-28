@@ -1,8 +1,9 @@
 package com.smartomni.integration.webhook.shopee;
 
 import com.smartomni.integration.config.ShopeeProperties;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -24,7 +25,6 @@ import java.util.HexFormat;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class ShopeeWebhookValidator {
 
     private static final String HMAC_SHA256 = "HmacSHA256";
@@ -32,6 +32,13 @@ public class ShopeeWebhookValidator {
 
     private final ShopeeProperties properties;
     private final Clock clock;
+
+    @Autowired
+    public ShopeeWebhookValidator(ShopeeProperties properties,
+                                  @Qualifier("integrationBusinessClock") Clock clock) {
+        this.properties = properties;
+        this.clock = clock;
+    }
 
     public ShopeeWebhookValidator(ShopeeProperties properties) {
         this(properties, Clock.systemUTC());

@@ -4,9 +4,10 @@ import com.smartomni.integration.client.shopee.ShopeeLogisticsClient;
 import com.smartomni.integration.client.shopee.ShopeeLogisticsClient.*;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import lombok.Builder;
-import lombok.RequiredArgsConstructor;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -18,7 +19,6 @@ import java.time.Instant;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ShopeeLogisticsService {
 
     @Value
@@ -43,6 +43,13 @@ public class ShopeeLogisticsService {
 
     private final ShopeeLogisticsClient logisticsClient;
     private final Clock clock;
+
+    @Autowired
+    public ShopeeLogisticsService(ShopeeLogisticsClient logisticsClient,
+                                  @Qualifier("integrationBusinessClock") Clock clock) {
+        this.logisticsClient = logisticsClient;
+        this.clock = clock;
+    }
 
     public ShopeeLogisticsService(ShopeeLogisticsClient logisticsClient) {
         this(logisticsClient, Clock.systemUTC());
