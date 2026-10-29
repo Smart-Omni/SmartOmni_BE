@@ -181,6 +181,11 @@ services:
       SPRING_RABBITMQ_HOST: rabbitmq
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
       SMARTOMNI_JOBS_TOKEN: ${INTERNAL_JOB_TOKEN:?Set INTERNAL_JOB_TOKEN in .env}
+      SHOPEE_PARTNER_ID: ${SHOPEE_PARTNER_ID:-1001141}
+      SHOPEE_PARTNER_KEY: ${SHOPEE_PARTNER_KEY:-shopee_mock_secret_key_2026}
+      SHOPEE_BASE_URL: ${SHOPEE_BASE_URL:-https://shopee-simulator.onrender.com}
+      SHOPEE_AUTHORIZATION_URL: ${SHOPEE_AUTHORIZATION_URL:-https://shopee-simulator.onrender.com/api/v2/shop/auth_partner}
+      SHOPEE_REDIRECT_URI: ${SHOPEE_REDIRECT_URI:-http://localhost:5174/merchant/channels/shopee/callback}
 
   ai-service:
     build:

@@ -32,6 +32,11 @@ public class MarketplaceConnectionService {
             throw new BusinessException("Use the TikTok Shop authorization flow (/api/marketplace-connections/tiktok-shop)",
                     HttpStatus.BAD_REQUEST, "TIKTOK_USE_AUTHORIZATION_FLOW");
         }
+        if (platform == MarketplaceConnection.Platform.SHOPEE) {
+            // The partner ID/key belong to the SmartOmni app: Shopee uses the authorization flow.
+            throw new BusinessException("Use the Shopee authorization flow (/api/marketplace-connections/shopee)",
+                    HttpStatus.BAD_REQUEST, "SHOPEE_USE_AUTHORIZATION_FLOW");
+        }
 
         MarketplaceConnection connection = connectionRepository
                 .findByTenantIdAndPlatform(tenantId, platform)
