@@ -1,3 +1,4 @@
+
 package com.smartomni.tenant.dto;
 
 import lombok.Getter;

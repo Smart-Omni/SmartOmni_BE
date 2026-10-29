@@ -11,3 +11,4 @@ CREATE UNIQUE INDEX uq_marketplace_connections_shopee_per_tenant
 CREATE UNIQUE INDEX uq_marketplace_connections_shopee_shop
   ON marketplace_connections (shop_id)
   WHERE platform = 'shopee' AND shop_id IS NOT NULL AND status <> 'disconnected';
+
