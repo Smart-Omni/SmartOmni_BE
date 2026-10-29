@@ -29,6 +29,8 @@
         <dependency><groupId>com.smartomni</groupId><artifactId>smartomni-service-integration</artifactId><version>${project.version}</version><scope>test</scope></dependency>
         <dependency><groupId>com.smartomni</groupId><artifactId>smartomni-service-ai</artifactId><version>${project.version}</version><scope>test</scope></dependency>
         <dependency><groupId>io.zonky.test</groupId><artifactId>embedded-postgres</artifactId><version>2.2.2</version><scope>test</scope></dependency>
+        <!-- Linux binary for GitHub Actions (ubuntu-latest) – picked automatically by OS -->
+        <dependency><groupId>io.zonky.test.postgres</groupId><artifactId>embedded-postgres-binaries-linux-amd64</artifactId><scope>test</scope></dependency>
         <!-- Embedded Postgres' archive reader requires a newer Lang than Boot 3.3 manages. -->
         <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId><version>3.20.0</version><scope>test</scope></dependency>
     </dependencies>
