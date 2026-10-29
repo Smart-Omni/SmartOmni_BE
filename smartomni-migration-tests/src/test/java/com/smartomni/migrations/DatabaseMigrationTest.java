@@ -52,7 +52,11 @@ class DatabaseMigrationTest {
             "V11__tiktok_catalog_mapping.sql", "V12__add_on_hold_to_order_status.sql",
             "V13__add_image_url_to_product_and_order_items.sql",
             "V14__add_return_evidences_and_reject_reason.sql",
+<<<<<<< HEAD
             "V15__add_user_profile_fields.sql");
+=======
+            "V15__shopee_connection.sql");
+>>>>>>> develop
 
     @BeforeAll
     static void startPostgres() throws Exception {
