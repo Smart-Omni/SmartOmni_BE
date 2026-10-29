@@ -1,6 +1,7 @@
 package com.smartomni.migrations;
 
 import com.smartomni.auth.repository.TenantLookupRepository;
+import com.smartomni.auth.service.EmailService;
 import com.smartomni.auth.service.impl.AuthServiceImpl;
 import com.smartomni.auth.service.impl.UserLoginAttemptServiceImpl;
 import com.smartomni.common.persistence.RlsDatabaseConfig;
@@ -29,6 +30,11 @@ public class MigrationTestApplication {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public EmailService emailService() {
+        return org.mockito.Mockito.mock(EmailService.class);
     }
 
     @Bean

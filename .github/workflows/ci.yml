@@ -33,6 +33,17 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
+      rabbitmq:
+        image: rabbitmq:3-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +55,11 @@ jobs:
           cache: maven
 
       - name: Build all modules
+        env:
+          MAVEN_OPTS: "-Xmx2g -XX:MaxMetaspaceSize=512m"
+          # Dummy secrets used by PackagedServiceStartupIT when launching service JARs
+          JWT_SECRET: "ci_test_signing_key_at_least_32_bytes_long"
+          SMARTOMNI_ENCRYPTION_AES_KEY: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
         run: mvn -B clean verify
 
       - name: Upload test reports

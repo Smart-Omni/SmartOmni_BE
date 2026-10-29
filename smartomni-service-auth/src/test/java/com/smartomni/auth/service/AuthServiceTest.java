@@ -61,6 +61,9 @@ class AuthServiceTest {
     @Mock
     private UserLoginAttemptService userLoginAttemptService;
 
+    @Mock
+    private EmailService emailService;
+
     private AuthServiceImpl authService;
 
     private User sampleUser;
@@ -78,7 +81,8 @@ class AuthServiceTest {
                 jwtTokenProvider,
                 entityManager,
                 stringRedisTemplate,
-                userLoginAttemptService
+                userLoginAttemptService,
+                emailService
         );
         ReflectionTestUtils.setField(authService, "expirationMs", 86400000L);
         ReflectionTestUtils.setField(authService, "refreshExpirationMs", 604800000L);
@@ -356,5 +360,145 @@ class AuthServiceTest {
         verify(valueOperations).set("auth:tenant_locked:100", "LOCKED", 24L, java.util.concurrent.TimeUnit.HOURS);
         verify(stringRedisTemplate).delete(AuthServiceImpl.REDIS_PREFIX_REFRESH + "refresh-token-1");
         verify(stringRedisTemplate).delete(AuthServiceImpl.REDIS_PREFIX_USER_REFRESH + 1L);
+    }
+
+    @Test
+    @DisplayName("Đăng ký tài khoản mới thành công")
+    void testRegister_Success() {
+        com.smartomni.auth.dto.RegisterRequest request = com.smartomni.auth.dto.RegisterRequest.builder()
+                .email("newuser@example.com")
+                .password("Password123@")
+                .fullName("Nguyen Van A")
+                .phone("0912345678")
+                .avatar("https://example.com/avatar.png")
+                .build();
+
+        when(userRepository.findByEmail("newuser@example.com")).thenReturn(Optional.empty());
+        when(passwordEncoder.encode("Password123@")).thenReturn("$2a$10$encodedPassword");
+
+        User savedUser = User.builder()
+                .email("newuser@example.com")
+                .passwordHash("$2a$10$encodedPassword")
+                .fullName("Nguyen Van A")
+                .phone("0912345678")
+                .avatar("https://example.com/avatar.png")
+                .role(User.UserRole.CUSTOMER)
+                .status(User.UserStatus.ACTIVE)
+                .build();
+        savedUser.setId(2L);
+
+        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+        when(jwtTokenProvider.generateToken(2L, "CUSTOMER", null, null)).thenReturn("jwt.token.newuser");
+
+        AuthResponse response = authService.register(request);
+
+        assertNotNull(response);
+        assertEquals("jwt.token.newuser", response.getAccessToken());
+        assertEquals("CUSTOMER", response.getUserInfo().getRole());
+        assertEquals("Nguyen Van A", response.getUserInfo().getFullName());
+        assertEquals("0912345678", response.getUserInfo().getPhone());
+        verify(userRepository).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("Đăng ký thất bại khi email đã tồn tại")
+    void testRegister_DuplicateEmail() {
+        com.smartomni.auth.dto.RegisterRequest request = com.smartomni.auth.dto.RegisterRequest.builder()
+                .email("admin@smartshop.vn")
+                .password("Password123@")
+                .fullName("Admin Duplicate")
+                .build();
+
+        when(userRepository.findByEmail("admin@smartshop.vn")).thenReturn(Optional.of(sampleUser));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> authService.register(request));
+        assertEquals(HttpStatus.CONFLICT, ex.getHttpStatus());
+        assertEquals("EMAIL_ALREADY_EXISTS", ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("Đổi mật khẩu thành công")
+    void testChangePassword_Success() {
+        com.smartomni.auth.dto.ChangePasswordRequest request = com.smartomni.auth.dto.ChangePasswordRequest.builder()
+                .currentPassword("OldPassword123")
+                .newPassword("NewPassword456")
+                .confirmPassword("NewPassword456")
+                .build();
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(sampleUser));
+        when(passwordEncoder.matches("OldPassword123", sampleUser.getPasswordHash())).thenReturn(true);
+        when(passwordEncoder.encode("NewPassword456")).thenReturn("$2a$10$newEncodedPassword");
+        when(valueOperations.get(AuthServiceImpl.REDIS_PREFIX_USER_REFRESH + 1L)).thenReturn("old-refresh-token");
+
+        authService.changePassword(1L, request);
+
+        assertEquals("$2a$10$newEncodedPassword", sampleUser.getPasswordHash());
+        verify(userRepository).save(sampleUser);
+        verify(stringRedisTemplate).delete(AuthServiceImpl.REDIS_PREFIX_REFRESH + "old-refresh-token");
+        verify(stringRedisTemplate).delete(AuthServiceImpl.REDIS_PREFIX_USER_REFRESH + 1L);
+    }
+
+    @Test
+    @DisplayName("Đổi mật khẩu thất bại khi mật khẩu xác nhận không khớp")
+    void testChangePassword_MismatchConfirmPassword() {
+        com.smartomni.auth.dto.ChangePasswordRequest request = com.smartomni.auth.dto.ChangePasswordRequest.builder()
+                .currentPassword("OldPassword123")
+                .newPassword("NewPassword456")
+                .confirmPassword("DifferentPassword")
+                .build();
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> authService.changePassword(1L, request));
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getHttpStatus());
+        assertEquals("PASSWORD_MISMATCH", ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("Đổi mật khẩu thất bại khi mật khẩu hiện tại không chính xác")
+    void testChangePassword_InvalidCurrentPassword() {
+        com.smartomni.auth.dto.ChangePasswordRequest request = com.smartomni.auth.dto.ChangePasswordRequest.builder()
+                .currentPassword("WrongPassword")
+                .newPassword("NewPassword456")
+                .confirmPassword("NewPassword456")
+                .build();
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(sampleUser));
+        when(passwordEncoder.matches("WrongPassword", sampleUser.getPasswordHash())).thenReturn(false);
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> authService.changePassword(1L, request));
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getHttpStatus());
+        assertEquals("INVALID_CURRENT_PASSWORD", ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("forgotPassword: tạo token và gửi email khi email tồn tại")
+    void testForgotPassword_Success() {
+        when(userRepository.findByEmail("admin@smartshop.vn")).thenReturn(Optional.of(sampleUser));
+
+        authService.forgotPassword("admin@smartshop.vn");
+
+        verify(resetTokenRepository).save(any(com.smartomni.auth.entity.PasswordResetToken.class));
+        verify(emailService).sendPasswordResetEmail(eq("admin@smartshop.vn"), anyString());
+    }
+
+    @Test
+    @DisplayName("resetPassword: cập nhật mật khẩu mới khi token hợp lệ và còn hạn")
+    void testResetPassword_Success() {
+        com.smartomni.auth.entity.PasswordResetToken resetToken = new com.smartomni.auth.entity.PasswordResetToken();
+        resetToken.setId(10L);
+        resetToken.setUserId(1L);
+        resetToken.setToken("valid-reset-token");
+        resetToken.setExpiresAt(Instant.now().plus(15, ChronoUnit.MINUTES));
+        resetToken.setUsed(false);
+
+        when(resetTokenRepository.findByTokenAndUsedFalse("valid-reset-token")).thenReturn(Optional.of(resetToken));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(sampleUser));
+        when(passwordEncoder.encode("brandNewPassword123")).thenReturn("$2a$10$brandNewHashed");
+
+        authService.resetPassword("valid-reset-token", "brandNewPassword123");
+
+        assertEquals("$2a$10$brandNewHashed", sampleUser.getPasswordHash());
+        assertTrue(resetToken.isUsed());
+        verify(userRepository).save(sampleUser);
+        verify(resetTokenRepository).save(resetToken);
     }
 }

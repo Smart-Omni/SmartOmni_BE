@@ -12,13 +12,17 @@ import com.smartomni.tenant.dto.TenantProfileResponse;
 import com.smartomni.tenant.entity.PlanFeatureFlag;
 import com.smartomni.tenant.entity.SubscriptionPlan;
 import com.smartomni.tenant.entity.Tenant;
+import com.smartomni.tenant.entity.TenantUser;
 import com.smartomni.tenant.repository.PlanFeatureFlagRepository;
 import com.smartomni.tenant.repository.SubscriptionPlanRepository;
 import com.smartomni.tenant.repository.TenantRepository;
+import com.smartomni.tenant.repository.UserRepository;
 import com.smartomni.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,8 +41,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TenantServiceImpl implements TenantService {
 
     private final TenantRepository tenantRepository;
+    private final UserRepository userRepository;
     private final SubscriptionPlanRepository subscriptionPlanRepository;
     private final PlanFeatureFlagRepository featureFlagRepository;
+    private final PasswordEncoder passwordEncoder;
     private final org.springframework.data.redis.core.StringRedisTemplate stringRedisTemplate;
     private final TenantProperties tenantProperties;
 
@@ -112,6 +118,17 @@ public class TenantServiceImpl implements TenantService {
             throw new BusinessException(check.getMessage());
         }
 
+        String adminEmail = request.getAdminEmail();
+        if (adminEmail == null || adminEmail.trim().isEmpty()) {
+            throw new BusinessException("Email quản trị viên không được để trống", HttpStatus.BAD_REQUEST, "INVALID_INPUT");
+        }
+        adminEmail = adminEmail.trim().toLowerCase();
+
+        // 2. Duplicate Check: kiểm tra email admin đã tồn tại trong hệ thống chưa (trả về 409 Conflict nếu đã tồn tại)
+        if (userRepository.findByEmail(adminEmail).isPresent()) {
+            throw new BusinessException("Email quản trị viên đã tồn tại trong hệ thống", HttpStatus.CONFLICT, "EMAIL_ALREADY_EXISTS");
+        }
+
         String planTypeStr = request.getPlanType() != null ? request.getPlanType().trim().toUpperCase() : "FREE";
         boolean isPro = "PRO".equals(planTypeStr);
         String normalizedPlanName = isPro ? "PRO" : "FREE";
@@ -156,7 +173,7 @@ public class TenantServiceImpl implements TenantService {
         tenant.setStatus(Tenant.TenantStatus.ACTIVE);
         tenant.setPlanId(plan.getId());
         tenant.setTenantId(UUID.randomUUID().toString());
-        tenant.setContactEmail(request.getContactEmail());
+        tenant.setContactEmail(request.getContactEmail() != null ? request.getContactEmail() : adminEmail);
         tenant.setContactPhone(request.getContactPhone());
         tenant.setPlanType(normalizedPlanName);
         tenant.setStoreName(company);
@@ -166,8 +183,30 @@ public class TenantServiceImpl implements TenantService {
 
         tenant = tenantRepository.save(tenant);
 
-        if (request.getContactEmail() != null) {
-            contactEmailMap.put(tenant.getId(), request.getContactEmail());
+        // 1. Tạo đồng thời tài khoản User với role TENANT_ADMIN gắn liền với TenantId mới tạo
+        String rawPassword = (request.getAdminPassword() != null && !request.getAdminPassword().isBlank())
+                ? request.getAdminPassword()
+                : UUID.randomUUID().toString();
+
+        String adminFullName = (request.getAdminFullName() != null && !request.getAdminFullName().isBlank())
+                ? request.getAdminFullName()
+                : company + " Admin";
+
+        TenantUser adminUser = TenantUser.builder()
+                .email(adminEmail)
+                .passwordHash(passwordEncoder.encode(rawPassword))
+                .fullName(adminFullName)
+                .phone(request.getContactPhone())
+                .role(TenantUser.UserRole.TENANT_ADMIN)
+                .status(TenantUser.UserStatus.ACTIVE)
+                .failedLoginAttempts(0)
+                .build();
+        adminUser.setTenantId(tenant.getId());
+
+        adminUser = userRepository.save(adminUser);
+
+        if (tenant.getContactEmail() != null) {
+            contactEmailMap.put(tenant.getId(), tenant.getContactEmail());
         }
         if (request.getContactPhone() != null) {
             contactPhoneMap.put(tenant.getId(), request.getContactPhone());
@@ -179,7 +218,11 @@ public class TenantServiceImpl implements TenantService {
                 .build();
         storefrontConfigMap.put(tenant.getId(), defaultStorefront);
 
-        return buildProfileResponse(tenant);
+        TenantProfileResponse response = buildProfileResponse(tenant);
+        response.setAdminUserId(adminUser.getId());
+        response.setAdminEmail(adminUser.getEmail());
+        response.setAdminFullName(adminUser.getFullName());
+        return response;
     }
 
     @Override
@@ -322,7 +365,7 @@ public class TenantServiceImpl implements TenantService {
                 ? tenant.getContactPhone()
                 : contactPhoneMap.get(tenant.getId());
 
-        return TenantProfileResponse.builder()
+        TenantProfileResponse response = TenantProfileResponse.builder()
                 .id(tenant.getId())
                 .tenantId(tenant.getTenantId())
                 .companyName(tenant.getName())
@@ -341,6 +384,23 @@ public class TenantServiceImpl implements TenantService {
                 .createdAt(tenant.getCreatedAt())
                 .updatedAt(tenant.getUpdatedAt())
                 .build();
+
+        if (tenant.getId() != null) {
+            userRepository.findFirstByTenantIdAndRoleOrderByCreatedAtAsc(tenant.getId(), TenantUser.UserRole.TENANT_ADMIN)
+                    .ifPresent(u -> {
+                        if (response.getAdminUserId() == null) {
+                            response.setAdminUserId(u.getId());
+                        }
+                        if (response.getAdminEmail() == null) {
+                            response.setAdminEmail(u.getEmail());
+                        }
+                        if (response.getAdminFullName() == null) {
+                            response.setAdminFullName(u.getFullName());
+                        }
+                    });
+        }
+
+        return response;
     }
 
     @Override

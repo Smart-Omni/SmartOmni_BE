@@ -38,7 +38,7 @@ public class TenantController {
         return ApiResponse.success(tenantService.getPublicStorefrontProfile(subdomain));
     }
 
-    @PostMapping("/onboarding")
+    @PostMapping({"", "/onboarding"})
     public ApiResponse<TenantProfileResponse> onboard(@Valid @RequestBody TenantOnboardingRequest request) {
         return ApiResponse.success("Khởi tạo Tenant thành công", tenantService.onboardTenant(request));
     }

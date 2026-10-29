@@ -35,7 +35,10 @@ public class AuthResponse {
     public static class UserInfo {
         private Long id;
         private String email;
+        @JsonProperty("full_name")
         private String fullName;
+        private String phone;
+        private String avatar;
         private String role;
 
         @JsonProperty("tenant_id")

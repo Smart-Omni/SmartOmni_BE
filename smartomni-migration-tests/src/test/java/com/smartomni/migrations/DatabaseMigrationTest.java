@@ -44,15 +44,22 @@ class DatabaseMigrationTest {
     private static EmbeddedPostgres postgres;
     private static final String TEST_PASSWORD = "temporary-test-password";
     private static final List<String> MIGRATIONS = List.of(
-            "V1__create_enums.sql", "V2__create_tables.sql", "V3__create_foreign_keys_and_indexes.sql",
-            "V4__create_rls_functions_and_grants.sql", "V5__enable_rls_policies.sql",
+            "V1__create_enums.sql",
+            "V2__create_tables.sql",
+            "V3__create_foreign_keys_and_indexes.sql",
+            "V4__create_rls_functions_and_grants.sql",
+            "V5__enable_rls_policies.sql",
             "V6__scope_authentication_and_background_access.sql",
-            "V7__create_order_loyalty.sql", "V8__loyalty_milestone_rewards.sql",
-            "V9__add_user_roles.sql", "V10__tiktok_shop_connection.sql",
-            "V11__tiktok_catalog_mapping.sql", "V12__add_on_hold_to_order_status.sql",
+            "V7__create_order_loyalty.sql",
+            "V8__loyalty_milestone_rewards.sql",
+            "V9__add_user_roles.sql",
+            "V10__tiktok_shop_connection.sql",
+            "V11__tiktok_catalog_mapping.sql",
+            "V12__add_on_hold_to_order_status.sql",
             "V13__add_image_url_to_product_and_order_items.sql",
             "V14__add_return_evidences_and_reject_reason.sql",
-            "V15__shopee_connection.sql");
+            "V15__shopee_connection.sql",
+            "V16__add_user_profile_fields.sql");
 
     @BeforeAll
     static void startPostgres() throws Exception {
@@ -156,22 +163,27 @@ class DatabaseMigrationTest {
             for (var future : futures) {
                 applied += future.get(60, java.util.concurrent.TimeUnit.SECONDS);
             }
-            assertEquals(15, applied);
+            assertEquals(16, applied);
         } finally {
             start.countDown();
             executor.shutdownNow();
         }
         assertEquals(0, flyway(url).migrate().migrationsExecuted);
         try (Connection admin = connect(url, "postgres")) {
-            assertEquals(47, count(admin, "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> 'flyway_schema_history'"));
-            assertEquals(47, count(admin, "SELECT count(*) FROM pg_class WHERE relnamespace='public'::regnamespace AND relkind='r' AND relrowsecurity AND relforcerowsecurity"));
-            assertEquals(24, count(admin, "SELECT count(*) FROM pg_type WHERE typnamespace='public'::regnamespace AND typtype='e'"));
-            assertTrue(count(admin, "SELECT count(*) FROM pg_constraint WHERE connamespace='public'::regnamespace AND contype='f'") > 50);
-            assertEquals(15, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(47, count(admin,
+                    "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> 'flyway_schema_history'"));
+            assertEquals(47, count(admin,
+                    "SELECT count(*) FROM pg_class WHERE relnamespace='public'::regnamespace AND relkind='r' AND relrowsecurity AND relforcerowsecurity"));
+            assertEquals(24, count(admin,
+                    "SELECT count(*) FROM pg_type WHERE typnamespace='public'::regnamespace AND typtype='e'"));
+            assertTrue(count(admin,
+                    "SELECT count(*) FROM pg_constraint WHERE connamespace='public'::regnamespace AND contype='f'") > 50);
+            assertEquals(16, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
             execute(admin, Files.readString(Path.of("..", "scripts", "db", "verify-schema.sql")));
         }
         try (Connection app = connect(url, "smartomni_app")) {
-            assertEquals(0, count(app, "SELECT count(*) FROM pg_roles WHERE rolname=current_user AND (rolsuper OR rolbypassrls)"));
+            assertEquals(0, count(app,
+                    "SELECT count(*) FROM pg_roles WHERE rolname=current_user AND (rolsuper OR rolbypassrls)"));
             assertThrows(Exception.class, () -> execute(app, "SELECT * FROM flyway_schema_history"));
             assertThrows(Exception.class, () -> execute(app, "CREATE TABLE forbidden(id bigint)"));
         }
@@ -182,7 +194,8 @@ class DatabaseMigrationTest {
         String url = newDatabase();
         try (var context = boot(url); var scope = TenantContext.openScope(null, "SUPER_ADMIN", null)) {
             TransactionTemplate transactions = context.getBean(TransactionTemplate.class);
-            EntityManager em = SharedEntityManagerCreator.createSharedEntityManager(context.getBean(EntityManagerFactory.class));
+            EntityManager em = SharedEntityManagerCreator
+                    .createSharedEntityManager(context.getBean(EntityManagerFactory.class));
             try (Connection admin = connect(url, "postgres")) {
                 execute(admin, "INSERT INTO tenants (name,subdomain) VALUES ('A','a')");
                 execute(admin, "INSERT INTO products (tenant_id,name) VALUES (1,'Seed')");
@@ -210,7 +223,8 @@ class DatabaseMigrationTest {
                 em.clear();
                 assertEquals(Product.ProductStatus.HIDDEN, em.find(Product.class, product.getId()).getStatus());
                 assertEquals(Order.OrderStatus.TO_SHIP, em.find(Order.class, order.getId()).getStatus());
-                assertEquals(InventoryOutboxEvent.Platform.SHOPEE, em.find(InventoryOutboxEvent.class, event.getId()).getPlatform());
+                assertEquals(InventoryOutboxEvent.Platform.SHOPEE,
+                        em.find(InventoryOutboxEvent.class, event.getId()).getPlatform());
             });
         }
         try (Connection admin = connect(url, "postgres")) {
@@ -226,7 +240,8 @@ class DatabaseMigrationTest {
                 execute(admin, "INSERT INTO tenants (name,subdomain) VALUES ('A','a'),('B','b')");
                 execute(admin, "INSERT INTO products (tenant_id,name) VALUES (1,'A'),(2,'B')");
             }
-            EntityManager em = SharedEntityManagerCreator.createSharedEntityManager(context.getBean(EntityManagerFactory.class));
+            EntityManager em = SharedEntityManagerCreator
+                    .createSharedEntityManager(context.getBean(EntityManagerFactory.class));
             TransactionTemplate transactions = context.getBean(TransactionTemplate.class);
             for (long tenant : List.of(1L, 2L)) {
                 try (var scope = TenantContext.openScope(tenant, "MANAGER", null)) {
@@ -238,12 +253,14 @@ class DatabaseMigrationTest {
             }
             try (var scope = TenantContext.openScope(1L, "MANAGER", null)) {
                 assertThrows(RuntimeException.class, () -> transactions.executeWithoutResult(status -> {
-                    em.createNativeQuery("insert into products (tenant_id,name) values (2,'Forbidden')").executeUpdate();
+                    em.createNativeQuery("insert into products (tenant_id,name) values (2,'Forbidden')")
+                            .executeUpdate();
                 }));
             }
             transactions.executeWithoutResult(status -> {
                 assertTrue(em.createQuery("from Product", Product.class).getResultList().isEmpty());
-                assertEquals("", em.createNativeQuery("select current_setting('app.tenant_id', true)").getSingleResult());
+                assertEquals("",
+                        em.createNativeQuery("select current_setting('app.tenant_id', true)").getSingleResult());
             });
         }
     }
@@ -255,7 +272,8 @@ class DatabaseMigrationTest {
             String hash = context.getBean(PasswordEncoder.class).encode("original-password");
             try (Connection admin = connect(url, "postgres")) {
                 execute(admin, "INSERT INTO tenants(name,subdomain) VALUES ('A','a')");
-                try (var statement = admin.prepareStatement("INSERT INTO users(tenant_id,email,password_hash,role) VALUES (1,'admin@example.test',?,'admin')")) {
+                try (var statement = admin.prepareStatement(
+                        "INSERT INTO users(tenant_id,email,password_hash,role) VALUES (1,'admin@example.test',?,'admin')")) {
                     statement.setString(1, hash);
                     statement.executeUpdate();
                 }
@@ -268,8 +286,9 @@ class DatabaseMigrationTest {
             assertNull(TenantContext.getCurrentRole());
             auth.forgotPassword(request.getEmail());
             String token;
-            try (Connection admin = connect(url, "postgres"); var statement = admin.createStatement();
-                 var result = statement.executeQuery("SELECT token FROM password_reset_tokens")) {
+            try (Connection admin = connect(url, "postgres");
+                    var statement = admin.createStatement();
+                    var result = statement.executeQuery("SELECT token FROM password_reset_tokens")) {
                 assertTrue(result.next());
                 token = result.getString(1);
             }
@@ -303,7 +322,8 @@ class DatabaseMigrationTest {
             // Lần 1: Nhập sai mật khẩu -> ném BusinessException
             assertThrows(BusinessException.class, () -> auth.login(wrongRequest));
 
-            // Kiểm tra DB: failed_login_attempts vẫn được commit là 1 dù login() bị rollback
+            // Kiểm tra DB: failed_login_attempts vẫn được commit là 1 dù login() bị
+            // rollback
             try (Connection admin = connect(url, "postgres")) {
                 assertEquals(1, count(admin, "SELECT failed_login_attempts FROM users WHERE email='user@store.test'"));
             }
@@ -316,7 +336,8 @@ class DatabaseMigrationTest {
             // Kiểm tra DB: đạt 5 lần và locked_until đã được set
             try (Connection admin = connect(url, "postgres")) {
                 assertEquals(5, count(admin, "SELECT failed_login_attempts FROM users WHERE email='user@store.test'"));
-                assertEquals(1, count(admin, "SELECT count(*) FROM users WHERE email='user@store.test' AND locked_until > now()"));
+                assertEquals(1, count(admin,
+                        "SELECT count(*) FROM users WHERE email='user@store.test' AND locked_until > now()"));
             }
 
             // Lần 6: Tài khoản bị khóa -> ném BusinessException ACCOUNT_TEMP_LOCKED
@@ -351,10 +372,12 @@ class DatabaseMigrationTest {
 
             // Khóa tenant trong database
             try (Connection admin = connect(url, "postgres")) {
-                execute(admin, "UPDATE tenants SET status='locked', locked_reason='Overdue billing' WHERE subdomain='shopsub'");
+                execute(admin,
+                        "UPDATE tenants SET status='locked', locked_reason='Overdue billing' WHERE subdomain='shopsub'");
             }
 
-            // Đăng nhập lại với subdomain -> Phát hiện tenant bị khóa và throw TENANT_LOCKED
+            // Đăng nhập lại với subdomain -> Phát hiện tenant bị khóa và throw
+            // TENANT_LOCKED
             var ex = assertThrows(BusinessException.class, () -> auth.login(request));
             assertEquals("TENANT_LOCKED", ex.getErrorCode());
         }
@@ -388,16 +411,21 @@ class DatabaseMigrationTest {
         flyway(url).migrate();
         try (Connection admin = connect(url, "postgres")) {
             execute(admin, "INSERT INTO tenants(name,subdomain) VALUES ('A','a'),('B','b')");
-            execute(admin, "INSERT INTO marketplace_connections(tenant_id,platform,shop_id) VALUES (1,'shopee','shop-a'),(1,'storefront','web')");
-            execute(admin, "INSERT INTO customer_accounts(tenant_id,email,password_hash) VALUES (1,'one@example.test','test-hash'),(2,'two@example.test','test-hash')");
-            execute(admin, "INSERT INTO users(tenant_id,email,password_hash,role) VALUES (1,'staff@example.test','test-hash','manager')");
-            execute(admin, "INSERT INTO orders(tenant_id,connection_id,platform,platform_order_id,status,total_amount,completed_at,eligible_for_points_at) VALUES "
-                    + "(1,1,'shopee','pending','pending',500999,now()-interval '10 days',now()-interval '1 day'),"
-                    + "(1,1,'shopee','too-soon','completed',500999,now()-interval '1 day',now()+interval '1 day'),"
-                    + "(1,1,'shopee','eligible','completed',500999,now()-interval '10 days',now()-interval '1 day'),"
-                    + "(1,1,'shopee','other','completed',500999,now()-interval '10 days',now()-interval '1 day')");
-            execute(admin, "INSERT INTO loyalty_reward_campaigns(tenant_id,connection_id,created_by,name,discount_percent,required_points,quantity,provisioning_mode,status,starts_at,ends_at) VALUES "
-                    + "(1,1,1,'Silver 10%',10,500,1,'import','active',now()-interval '1 day',now()+interval '30 days')");
+            execute(admin,
+                    "INSERT INTO marketplace_connections(tenant_id,platform,shop_id) VALUES (1,'shopee','shop-a'),(1,'storefront','web')");
+            execute(admin,
+                    "INSERT INTO customer_accounts(tenant_id,email,password_hash) VALUES (1,'one@example.test','test-hash'),(2,'two@example.test','test-hash')");
+            execute(admin,
+                    "INSERT INTO users(tenant_id,email,password_hash,role) VALUES (1,'staff@example.test','test-hash','manager')");
+            execute(admin,
+                    "INSERT INTO orders(tenant_id,connection_id,platform,platform_order_id,status,total_amount,completed_at,eligible_for_points_at) VALUES "
+                            + "(1,1,'shopee','pending','pending',500999,now()-interval '10 days',now()-interval '1 day'),"
+                            + "(1,1,'shopee','too-soon','completed',500999,now()-interval '1 day',now()+interval '1 day'),"
+                            + "(1,1,'shopee','eligible','completed',500999,now()-interval '10 days',now()-interval '1 day'),"
+                            + "(1,1,'shopee','other','completed',500999,now()-interval '10 days',now()-interval '1 day')");
+            execute(admin,
+                    "INSERT INTO loyalty_reward_campaigns(tenant_id,connection_id,created_by,name,discount_percent,required_points,quantity,provisioning_mode,status,starts_at,ends_at) VALUES "
+                            + "(1,1,1,'Silver 10%',10,500,1,'import','active',now()-interval '1 day',now()+interval '30 days')");
             assertThrows(Exception.class, () -> execute(admin,
                     "INSERT INTO loyalty_voucher_codes(tenant_id,connection_id,code,points_cost,expires_at) VALUES (1,2,'WEB',10,now()+interval '1 day')"));
         }
@@ -420,7 +448,8 @@ class DatabaseMigrationTest {
             execute(app, "INSERT INTO loyalty_claims(tenant_id,order_id,customer_id,points_awarded) VALUES (1,3,1,1)");
             assertEquals(500, count(app, "SELECT total_points FROM loyalty_point_accounts WHERE customer_id=1"));
             assertEquals(500, count(app, "SELECT points_awarded FROM loyalty_claims WHERE order_id=3"));
-            assertEquals(1, count(app, "SELECT count(*) FROM loyalty_point_accounts WHERE customer_id=1 AND tier='silver'"));
+            assertEquals(1,
+                    count(app, "SELECT count(*) FROM loyalty_point_accounts WHERE customer_id=1 AND tier='silver'"));
             assertEquals(1, count(app, "SELECT count(*) FROM loyalty_point_ledger WHERE reason='earn'"));
             app.commit();
 
@@ -451,19 +480,25 @@ class DatabaseMigrationTest {
 
             RlsSession.set(app, "app.tenant_id", "1");
             RlsSession.set(app, "app.user_role", "manager");
-            execute(app, "UPDATE loyalty_reward_requests SET status='issued',code='SHOP-10',issued_at=now() WHERE tenant_id=1 AND id=1");
+            execute(app,
+                    "UPDATE loyalty_reward_requests SET status='issued',code='SHOP-10',issued_at=now() WHERE tenant_id=1 AND id=1");
             assertEquals(500, count(app, "SELECT total_points FROM loyalty_point_accounts WHERE customer_id=1"));
-            assertEquals(1, count(app, "SELECT count(*) FROM loyalty_reward_requests WHERE status='issued' AND code='SHOP-10'"));
+            assertEquals(1, count(app,
+                    "SELECT count(*) FROM loyalty_reward_requests WHERE status='issued' AND code='SHOP-10'"));
             assertEquals(0, count(app, "SELECT count(*) FROM customer_accounts WHERE tenant_id=2"));
             long claimId = count(app, "SELECT id FROM loyalty_claims WHERE order_id=3");
-            execute(app, "INSERT INTO loyalty_point_ledger(tenant_id,customer_id,claim_id,reason,points_delta) VALUES (1,1," + claimId + ",'reverse',-500)");
+            execute(app,
+                    "INSERT INTO loyalty_point_ledger(tenant_id,customer_id,claim_id,reason,points_delta) VALUES (1,1,"
+                            + claimId + ",'reverse',-500)");
             assertEquals(0, count(app, "SELECT total_points FROM loyalty_point_accounts WHERE customer_id=1"));
-            assertEquals(1, count(app, "SELECT count(*) FROM loyalty_point_accounts WHERE customer_id=1 AND tier='standard'"));
+            assertEquals(1,
+                    count(app, "SELECT count(*) FROM loyalty_point_accounts WHERE customer_id=1 AND tier='standard'"));
             app.commit();
             RlsSession.set(app, "app.tenant_id", "1");
             RlsSession.set(app, "app.user_role", "manager");
             assertThrows(Exception.class, () -> execute(app,
-                    "INSERT INTO loyalty_point_ledger(tenant_id,customer_id,claim_id,reason,points_delta) VALUES (1,1," + claimId + ",'reverse',-500)"));
+                    "INSERT INTO loyalty_point_ledger(tenant_id,customer_id,claim_id,reason,points_delta) VALUES (1,1,"
+                            + claimId + ",'reverse',-500)"));
             app.rollback();
         }
     }
@@ -483,13 +518,14 @@ class DatabaseMigrationTest {
         String url = newDatabase();
         flyway(url).migrate();
         Path location = Files.createTempDirectory("failed-migration-");
-        Files.writeString(location.resolve("V99__broken.sql"), "CREATE TABLE should_rollback(id bigint); SELECT nonexistent_function();");
+        Files.writeString(location.resolve("V99__broken.sql"),
+                "CREATE TABLE should_rollback(id bigint); SELECT nonexistent_function();");
         Flyway invalid = Flyway.configure().dataSource(url, "smartomni_migrator", TEST_PASSWORD)
                 .locations("classpath:db/migration", "filesystem:" + location).load();
         assertThrows(FlywayException.class, invalid::migrate);
         try (Connection admin = connect(url, "postgres")) {
             assertEquals(0, count(admin, "SELECT count(*) FROM pg_tables WHERE tablename='should_rollback'"));
-            assertEquals(15, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(16, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
         }
     }
 
@@ -513,7 +549,7 @@ class DatabaseMigrationTest {
         Flyway baseline = Flyway.configure().dataSource(url, "smartomni_migrator", TEST_PASSWORD)
                 .defaultSchema("public").baselineVersion("5").load();
         baseline.baseline();
-        assertEquals(10, flyway(url).migrate().migrationsExecuted);
+        assertEquals(11, flyway(url).migrate().migrationsExecuted);
         try (var context = boot(url)) {
             assertNotNull(context.getBean(EntityManagerFactory.class));
         }
@@ -553,7 +589,8 @@ class DatabaseMigrationTest {
             assertThrows(Exception.class, () -> execute(admin, upgrade));
             execute(admin, "ROLLBACK");
             assertEquals(1, count(admin, "SELECT count(*) FROM products WHERE tenant_id IS NULL"));
-            assertEquals(1, count(admin, "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='products' AND column_name='id' AND data_type='integer'"));
+            assertEquals(1, count(admin,
+                    "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='products' AND column_name='id' AND data_type='integer'"));
         }
     }
 }
