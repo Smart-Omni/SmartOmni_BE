@@ -48,6 +48,35 @@ public class TiktokReturnClient {
         return convert(data, ReturnSearchResponse.class);
     }
 
+    /**
+     * Lấy thông tin chi tiết một yêu cầu trả hàng / hoàn tiền theo returnId.
+     */
+    public com.smartomni.integration.dto.tiktok.TiktokReturnResponse getReturnDetail(Long connectionId, String returnId) {
+        String path = "/return/202309/returns/" + returnId;
+        JsonNode data = executor.call(connectionId, "GET", path, Map.of(), null);
+        return convert(data, com.smartomni.integration.dto.tiktok.TiktokReturnResponse.class);
+    }
+
+    /**
+     * Duyệt đồng ý yêu cầu hoàn tiền / trả hàng.
+     */
+    public boolean approveReturn(Long connectionId, String returnId) {
+        String path = "/return/202309/returns/" + returnId + "/approve";
+        JsonNode data = executor.call(connectionId, "POST", path, Map.of(), "{}");
+        return data != null;
+    }
+
+    /**
+     * Từ chối yêu cầu trả hàng / hoàn tiền kèm lý do.
+     */
+    public boolean rejectReturn(Long connectionId, String returnId, String rejectReason) {
+        String path = "/return/202309/returns/" + returnId + "/reject";
+        com.fasterxml.jackson.databind.node.ObjectNode body = mapper.createObjectNode();
+        body.put("reject_reason", rejectReason != null ? rejectReason : "REJECTED_BY_SELLER");
+        JsonNode data = executor.call(connectionId, "POST", path, Map.of(), body.toString());
+        return data != null;
+    }
+
     private String serializeBody(Object obj) {
         if (obj == null) {
             return "{}";
