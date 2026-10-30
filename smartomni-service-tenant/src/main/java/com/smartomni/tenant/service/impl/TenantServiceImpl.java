@@ -113,6 +113,65 @@ public class TenantServiceImpl implements TenantService {
     @Override
     @Transactional
     public TenantProfileResponse onboardTenant(TenantOnboardingRequest request) {
+        String rawRole = request.getRoleChoice();
+        String roleChoice = (rawRole != null && !rawRole.isBlank()) ? rawRole.trim().toUpperCase() : "TENANT_ADMIN";
+        if (roleChoice.startsWith("ROLE_")) {
+            roleChoice = roleChoice.substring(5);
+        }
+
+        boolean isStaff = "STAFF".equals(roleChoice) || "MANAGER".equals(roleChoice);
+
+        if (isStaff) {
+            // Luồng Onboarding cho STAFF: kiểm tra Tenant đã tồn tại và liên kết tài khoản Staff vào Tenant đó ở trạng thái chờ kích hoạt / gán quyền
+            if (request.getSubdomain() == null || request.getSubdomain().trim().isEmpty()) {
+                throw new BusinessException("Subdomain không được để trống", HttpStatus.BAD_REQUEST, "INVALID_INPUT");
+            }
+            String cleanSubdomain = request.getSubdomain().trim().toLowerCase();
+            Tenant tenant = tenantRepository.findBySubdomain(cleanSubdomain)
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tenant với subdomain: " + cleanSubdomain));
+
+            if (tenant.getStatus() == Tenant.TenantStatus.LOCKED) {
+                throw new BusinessException("Tổ chức/Tenant '" + tenant.getName() + "' đã bị khóa", HttpStatus.FORBIDDEN, "TENANT_LOCKED");
+            }
+
+            String staffEmail = request.getEmail();
+            if (staffEmail == null || staffEmail.trim().isEmpty()) {
+                throw new BusinessException("Email không được để trống", HttpStatus.BAD_REQUEST, "INVALID_INPUT");
+            }
+            staffEmail = staffEmail.trim().toLowerCase();
+
+            if (userRepository.findByEmail(staffEmail).isPresent()) {
+                throw new BusinessException("Email đã tồn tại trong hệ thống", HttpStatus.CONFLICT, "EMAIL_ALREADY_EXISTS");
+            }
+
+            String rawPassword = (request.getPassword() != null && !request.getPassword().isBlank())
+                    ? request.getPassword()
+                    : UUID.randomUUID().toString();
+
+            String fullName = (request.getFullName() != null && !request.getFullName().isBlank())
+                    ? request.getFullName()
+                    : "Staff User";
+
+            TenantUser staffUser = TenantUser.builder()
+                    .email(staffEmail)
+                    .passwordHash(passwordEncoder.encode(rawPassword))
+                    .fullName(fullName)
+                    .phone(request.getPhone())
+                    .role(TenantUser.UserRole.MANAGER)
+                    .status(TenantUser.UserStatus.DISABLED) // Trạng thái chờ kích hoạt / gán quyền
+                    .failedLoginAttempts(0)
+                    .build();
+            staffUser.setTenantId(tenant.getId());
+            staffUser = userRepository.save(staffUser);
+
+            TenantProfileResponse response = buildProfileResponse(tenant);
+            response.setAdminUserId(staffUser.getId());
+            response.setAdminEmail(staffUser.getEmail());
+            response.setAdminFullName(staffUser.getFullName());
+            return response;
+        }
+
+        // Luồng Onboarding cho TENANT_ADMIN: Khởi tạo mới Tenant + Tạo tài khoản User gán Role TENANT_ADMIN trong cùng 1 @Transactional
         SubdomainCheckResponse check = checkSubdomain(request.getSubdomain());
         if (!check.isAvailable()) {
             throw new BusinessException(check.getMessage());

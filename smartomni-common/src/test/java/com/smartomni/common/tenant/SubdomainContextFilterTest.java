@@ -133,4 +133,24 @@ class SubdomainContextFilterTest {
         assertEquals("jwt-store", capturedSubdomain.get());
         assertEquals("jwt-store", TenantContext.getCurrentSubdomain(), "Subdomain ban đầu không bị xóa bởi filter");
     }
+
+    @Test
+    @DisplayName("shouldNotFilter trả về true cho /api/v1/auth/** và /api/v1/tenants/onboarding")
+    void testShouldNotFilterForAuthAndOnboarding() {
+        MockHttpServletRequest authReq = new MockHttpServletRequest();
+        authReq.setRequestURI("/api/v1/auth/register");
+        assertTrue(filter.shouldNotFilter(authReq));
+
+        MockHttpServletRequest loginReq = new MockHttpServletRequest();
+        loginReq.setRequestURI("/api/v1/auth/login");
+        assertTrue(filter.shouldNotFilter(loginReq));
+
+        MockHttpServletRequest onboardingReq = new MockHttpServletRequest();
+        onboardingReq.setRequestURI("/api/v1/tenants/onboarding");
+        assertTrue(filter.shouldNotFilter(onboardingReq));
+
+        MockHttpServletRequest protectedReq = new MockHttpServletRequest();
+        protectedReq.setRequestURI("/api/v1/products");
+        assertFalse(filter.shouldNotFilter(protectedReq));
+    }
 }

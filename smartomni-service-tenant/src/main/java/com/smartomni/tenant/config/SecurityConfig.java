@@ -40,6 +40,8 @@ public class SecurityConfig {
                         "/api/tenants/check-subdomain",
                         "/api/v1/tenants/onboarding",
                         "/api/tenants/onboarding",
+                        "/api/v1/tenants/register/onboarding",
+                        "/api/tenants/register/onboarding",
                         "/api/v1/tenants/public/**",
                         "/api/tenants/public/**",
                         "/actuator/**"

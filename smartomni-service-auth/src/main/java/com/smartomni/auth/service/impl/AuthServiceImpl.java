@@ -72,7 +72,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        log.info("Processing register request for email: {}", request.getEmail());
+        log.info("Processing standard register request for email: {}", request.getEmail());
         String email = request.getEmail().trim().toLowerCase(Locale.ROOT);
 
         setRlsContext("app.auth_email", email);
@@ -82,33 +82,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("Email đã được sử dụng trong hệ thống", HttpStatus.CONFLICT, "EMAIL_ALREADY_EXISTS");
         }
 
-        Long tenantId = null;
-        String resolvedSubdomain = null;
-
-        String requestedSubdomain = request.getSubdomain();
-        if ((requestedSubdomain == null || requestedSubdomain.trim().isEmpty()) && TenantContext.getCurrentSubdomain() != null) {
-            requestedSubdomain = TenantContext.getCurrentSubdomain();
-        }
-
-        if (requestedSubdomain != null && !requestedSubdomain.trim().isEmpty()) {
-            String targetSubdomain = requestedSubdomain.trim();
-            TenantLookup tenant = tenantLookupRepository.findBySubdomain(targetSubdomain)
-                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tenant với subdomain: " + targetSubdomain));
-            if (tenant.isLocked()) {
-                throw new BusinessException("Tổ chức/Tenant '" + tenant.name() + "' đã bị khóa", HttpStatus.FORBIDDEN, "TENANT_LOCKED");
-            }
-            tenantId = tenant.id();
-            resolvedSubdomain = tenant.subdomain();
-        } else if (request.getTenantId() != null) {
-            TenantLookup tenant = tenantLookupRepository.findById(request.getTenantId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tenant với id: " + request.getTenantId()));
-            if (tenant.isLocked()) {
-                throw new BusinessException("Tổ chức/Tenant '" + tenant.name() + "' đã bị khóa", HttpStatus.FORBIDDEN, "TENANT_LOCKED");
-            }
-            tenantId = tenant.id();
-            resolvedSubdomain = tenant.subdomain();
-        }
-
+        // Luồng 1: Đăng ký Chuẩn cho Customer/General User không gắn Tenant (tenant_id = null)
         User user = User.builder()
                 .email(email)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
@@ -119,14 +93,14 @@ public class AuthServiceImpl implements AuthService {
                 .status(User.UserStatus.ACTIVE)
                 .failedLoginAttempts(0)
                 .build();
-        user.setTenantId(tenantId);
+        user.setTenantId(null);
 
         setRlsContext("app.auth_email", email);
         setRlsContext("app.user_role", "super_admin");
         User savedUser = userRepository.save(user);
-        log.info("Successfully registered new user ID: {}, email: {}", savedUser.getId(), savedUser.getEmail());
+        log.info("Successfully registered new standard user ID: {}, email: {}", savedUser.getId(), savedUser.getEmail());
 
-        String accessToken = jwtTokenProvider.generateToken(savedUser.getId(), savedUser.getRole().name(), savedUser.getTenantId(), resolvedSubdomain);
+        String accessToken = jwtTokenProvider.generateToken(savedUser.getId(), savedUser.getRole().name(), null, null);
         String refreshToken = storeRefreshTokenInRedis(savedUser.getId());
 
         AuthResponse.UserInfo userInfo = AuthResponse.UserInfo.builder()
@@ -136,8 +110,8 @@ public class AuthServiceImpl implements AuthService {
                 .phone(savedUser.getPhone())
                 .avatar(savedUser.getAvatar())
                 .role(savedUser.getRole().name())
-                .tenantId(savedUser.getTenantId())
-                .subdomain(resolvedSubdomain)
+                .tenantId(null)
+                .subdomain(null)
                 .build();
 
         return AuthResponse.builder()
