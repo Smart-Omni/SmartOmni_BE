@@ -161,12 +161,31 @@ public class TiktokConnectionService {
      */
     public void markRevoked(Long connectionId) {
         Long tenantId = requireTenant().tenantId();
+        markRevoked(tenantId, connectionId);
+    }
+
+    /**
+     * Revokes access given tenantId and connectionId (e.g. from a verified Webhook).
+     */
+    public void markRevoked(Long tenantId, Long connectionId) {
         Optional<MarketplaceConnection> changed = store.terminate(tenantId, connectionId, ConnectionStatus.REVOKED,
                 "REVOKED", clock.instant());
         if (changed.isPresent()) {
             log.warn("TikTok connection revoked: tenant={} connection={}", tenantId, connectionId);
             notifier.reconnectRequired(tenantId, connectionId, "REVOKED");
         }
+    }
+
+    /**
+     * Revokes access given a shopId, sellerOpenId, or shopCipher from Webhook payload.
+     */
+    public void markRevoked(String shopIdOrSellerOpenId) {
+        if (shopIdOrSellerOpenId == null || shopIdOrSellerOpenId.isBlank()) {
+            return;
+        }
+        store.findByShopIdentifier(shopIdOrSellerOpenId).ifPresent(conn -> {
+            markRevoked(conn.getTenantId(), conn.getId());
+        });
     }
 
     // ---- helpers

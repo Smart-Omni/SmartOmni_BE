@@ -3,6 +3,8 @@ package com.smartomni.integration.client.tiktok;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.smartomni.integration.config.TiktokProperties;
 import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.Product;
 import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.ProductPage;
@@ -11,6 +13,7 @@ import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.WarehouseList;
 import com.smartomni.integration.service.tiktok.TiktokShopApiExecutor;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -84,6 +87,66 @@ public class TiktokCatalogClient {
 
     public List<Warehouse> listWarehouses(Long connectionId) {
         return convert(executor.call(connectionId, "GET", WAREHOUSES_PATH, Map.of(), null), WarehouseList.class).warehouses();
+    }
+
+    /**
+     * Updates product stock on TikTok Shop (POST /product/202309/products/{product_id}/stocks/update).
+     */
+    public void updateStock(Long connectionId, String productId, String skuId, Integer quantity) {
+        String path = "/product/202309/products/" + productId + "/stocks/update";
+        ObjectNode body = mapper.createObjectNode();
+        ArrayNode skus = body.putArray("skus");
+        ObjectNode skuEntry = skus.addObject();
+        skuEntry.put("id", skuId);
+        ArrayNode stockInfos = skuEntry.putArray("stock_infos");
+        ObjectNode stockInfo = stockInfos.addObject();
+        stockInfo.put("available_stock", quantity != null ? quantity : 0);
+
+        executor.call(connectionId, "POST", path, Map.of(), body.toString());
+    }
+
+    public void updateStock(String shopId, String productId, String skuId, Integer quantity) {
+        String path = "/product/202309/products/" + productId + "/stocks/update";
+        ObjectNode body = mapper.createObjectNode();
+        ArrayNode skus = body.putArray("skus");
+        ObjectNode skuEntry = skus.addObject();
+        skuEntry.put("id", skuId);
+        ArrayNode stockInfos = skuEntry.putArray("stock_infos");
+        ObjectNode stockInfo = stockInfos.addObject();
+        stockInfo.put("available_stock", quantity != null ? quantity : 0);
+
+        executor.callByShopCipher(shopId, "POST", path, Map.of(), body.toString());
+    }
+
+    /**
+     * Updates product price on TikTok Shop (POST /product/202309/products/{product_id}/prices/update).
+     */
+    public void updatePrice(Long connectionId, String productId, String skuId, BigDecimal originalPrice, BigDecimal salePrice) {
+        String path = "/product/202309/products/" + productId + "/prices/update";
+        ObjectNode body = mapper.createObjectNode();
+        ArrayNode skus = body.putArray("skus");
+        ObjectNode skuEntry = skus.addObject();
+        skuEntry.put("id", skuId);
+        ObjectNode priceObj = skuEntry.putObject("price");
+        BigDecimal targetPrice = originalPrice != null ? originalPrice : (salePrice != null ? salePrice : BigDecimal.ZERO);
+        priceObj.put("amount", targetPrice.toPlainString());
+        priceObj.put("currency", "VND");
+
+        executor.call(connectionId, "POST", path, Map.of(), body.toString());
+    }
+
+    public void updatePrice(String shopId, String productId, String skuId, BigDecimal originalPrice, BigDecimal salePrice) {
+        String path = "/product/202309/products/" + productId + "/prices/update";
+        ObjectNode body = mapper.createObjectNode();
+        ArrayNode skus = body.putArray("skus");
+        ObjectNode skuEntry = skus.addObject();
+        skuEntry.put("id", skuId);
+        ObjectNode priceObj = skuEntry.putObject("price");
+        BigDecimal targetPrice = originalPrice != null ? originalPrice : (salePrice != null ? salePrice : BigDecimal.ZERO);
+        priceObj.put("amount", targetPrice.toPlainString());
+        priceObj.put("currency", "VND");
+
+        executor.callByShopCipher(shopId, "POST", path, Map.of(), body.toString());
     }
 
     private <T> T convert(JsonNode data, Class<T> type) {

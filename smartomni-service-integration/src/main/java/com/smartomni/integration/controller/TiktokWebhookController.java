@@ -61,6 +61,13 @@ public class TiktokWebhookController {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private TiktokReturnService returnService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.smartomni.integration.service.tiktok.TiktokConnectionService connectionService;
+
+    public void setConnectionService(com.smartomni.integration.service.tiktok.TiktokConnectionService connectionService) {
+        this.connectionService = connectionService;
+    }
+
     @PostMapping("/webhooks")
     public ResponseEntity<?> receiveWebhook(
             @RequestHeader(value = "Authorization", required = false) String authorizationHeader,
@@ -133,8 +140,32 @@ public class TiktokWebhookController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid signature or timestamp skew exceeded");
         }
 
-        // 5. Ghi log Audit Webhook (webhook_events_log) trạng thái hợp lệ & đã xếp hàng
-        saveAuditLog(tenantId, payload, rawPayload, true, true);
+        // 5. Kiểm tra sự kiện deauthorization / thu hồi quyền kết nối
+        boolean isDeauth = isDeauthorizationEvent(payload, rawPayload);
+        if (isDeauth) {
+            log.warn("TikTok Webhook DEAUTHORIZATION received: shop_id={}, tenant_id={}", shopId, tenantId);
+            if (connectionService != null) {
+                try {
+                    connectionService.markRevoked(tenantId, connection.getId());
+                } catch (Exception ex) {
+                    log.error("Lỗi khi gọi markRevoked qua connectionService: {}", ex.getMessage(), ex);
+                }
+            } else {
+                try (var scope = TenantContext.openScope(tenantId, null, null)) {
+                    connection.setStatus(MarketplaceConnection.ConnectionStatus.REVOKED);
+                    connection.setLastErrorCode("REVOKED");
+                    connection.setLastErrorAt(Instant.now());
+                    connection.setAccessTokenEncrypted(null);
+                    connection.setRefreshTokenEncrypted(null);
+                    connectionRepository.save(connection);
+                }
+            }
+            saveAuditLog(tenantId, payload, rawPayload, true, false, "DEAUTHORIZATION");
+            return ResponseEntity.ok(Map.of("code", 0, "message", "success"));
+        }
+
+        // Ghi log Audit Webhook (webhook_events_log) trạng thái hợp lệ & đã xếp hàng
+        saveAuditLog(tenantId, payload, rawPayload, true, true, null);
 
         // 6. Xử lý chuyên biệt theo event type: PACKAGE_STATUS_CHANGE hoặc RETURN_STATUS_CHANGE
         if (payload.getType() != null && payload.getType() == 3 && fulfillmentService != null) {
@@ -177,12 +208,16 @@ public class TiktokWebhookController {
     }
 
     private void saveAuditLog(Long tenantId, TiktokWebhookPayload payload, String rawPayload, boolean signatureValid, boolean queued) {
+        saveAuditLog(tenantId, payload, rawPayload, signatureValid, queued, null);
+    }
+
+    private void saveAuditLog(Long tenantId, TiktokWebhookPayload payload, String rawPayload, boolean signatureValid, boolean queued, String overrideEventType) {
         try (var scope = TenantContext.openScope(tenantId, null, null)) {
             WebhookEventLog eventLog = new WebhookEventLog();
             eventLog.setTenantId(tenantId);
             eventLog.setPlatform(MarketplaceConnection.Platform.TIKTOK_SHOP);
-            eventLog.setEventId(payload.getTtsNotificationId());
-            eventLog.setEventType(resolveEventType(payload.getType()));
+            eventLog.setEventId(payload != null ? payload.getTtsNotificationId() : null);
+            eventLog.setEventType(overrideEventType != null ? overrideEventType : resolveEventType(payload != null ? payload.getType() : null));
             eventLog.setSignatureValid(signatureValid);
             eventLog.setRawPayload(rawPayload);
             eventLog.setQueued(queued);
@@ -190,8 +225,25 @@ public class TiktokWebhookController {
             eventLog.setReceivedAt(Instant.now());
             webhookEventLogRepository.save(eventLog);
         } catch (Exception e) {
-            log.warn("Không thể lưu webhook audit log cho eventId={}: {}", payload.getTtsNotificationId(), e.getMessage());
+            log.warn("Không thể lưu webhook audit log cho eventId={}: {}", payload != null ? payload.getTtsNotificationId() : "null", e.getMessage());
         }
+    }
+
+    private boolean isDeauthorizationEvent(TiktokWebhookPayload payload, String rawPayload) {
+        if (rawPayload != null) {
+            String upper = rawPayload.toUpperCase();
+            if (upper.contains("EVENT_AUTHORIZED_CANCEL")
+                    || upper.contains("DEAUTHORIZATION")
+                    || upper.contains("SELLER_DEAUTHORIZATION")
+                    || upper.contains("SHOP_DEAUTHORIZED")
+                    || upper.contains("AUTHORIZED_CANCEL")) {
+                return true;
+            }
+        }
+        if (payload != null && payload.getType() != null && payload.getType() == 16) {
+            return true;
+        }
+        return false;
     }
 
     private String resolveEventType(Integer type) {

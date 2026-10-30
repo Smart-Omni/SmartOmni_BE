@@ -20,12 +20,32 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class PriceSyncScheduler {
 
     private final MarketplaceConnectionRepository connectionRepository;
     private final TiktokPriceSyncService tiktokPriceSync;
     private final TransactionTemplate transactionTemplate;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.smartomni.integration.service.catalog.ShopeePriceSyncService shopeePriceSync;
+
+    public PriceSyncScheduler(MarketplaceConnectionRepository connectionRepository,
+                              TiktokPriceSyncService tiktokPriceSync,
+                              TransactionTemplate transactionTemplate) {
+        this.connectionRepository = connectionRepository;
+        this.tiktokPriceSync = tiktokPriceSync;
+        this.transactionTemplate = transactionTemplate;
+    }
+
+    public PriceSyncScheduler(MarketplaceConnectionRepository connectionRepository,
+                              TiktokPriceSyncService tiktokPriceSync,
+                              TransactionTemplate transactionTemplate,
+                              com.smartomni.integration.service.catalog.ShopeePriceSyncService shopeePriceSync) {
+        this.connectionRepository = connectionRepository;
+        this.tiktokPriceSync = tiktokPriceSync;
+        this.transactionTemplate = transactionTemplate;
+        this.shopeePriceSync = shopeePriceSync;
+    }
 
     public void syncPricesForAllTenants() {
         log.debug("Bat dau chu ky dong bo gia tu dong (UC-43)");
@@ -36,16 +56,23 @@ public class PriceSyncScheduler {
                     .findByStatus(MarketplaceConnection.ConnectionStatus.CONNECTED));
         }
         for (MarketplaceConnection connection : connections) {
-            if (connection.getPlatform() != MarketplaceConnection.Platform.TIKTOK_SHOP) {
-                continue;
-            }
-            try (var scope = TenantContext.openScope(connection.getTenantId(), "manager", null)) {
-                TiktokPriceSyncService.Result result = tiktokPriceSync.sync(connection);
-                log.info("TikTok price sync tenant={} connection={}: {}", connection.getTenantId(), connection.getId(), result);
-            } catch (Exception ex) {
-                // FR-090 (A1): giu gia cu; lan chay ke tiep se thu lai
-                log.warn("Dong bo gia that bai cho tenant={}, platform={}: {}",
-                        connection.getTenantId(), connection.getPlatform(), ex.getClass().getSimpleName());
+            if (connection.getPlatform() == MarketplaceConnection.Platform.TIKTOK_SHOP) {
+                try (var scope = TenantContext.openScope(connection.getTenantId(), "manager", null)) {
+                    TiktokPriceSyncService.Result result = tiktokPriceSync.sync(connection);
+                    log.info("TikTok price sync tenant={} connection={}: {}", connection.getTenantId(), connection.getId(), result);
+                } catch (Exception ex) {
+                    // FR-090 (A1): giu gia cu; lan chay ke tiep se thu lai
+                    log.warn("Dong bo gia that bai cho tenant={}, platform={}: {}",
+                            connection.getTenantId(), connection.getPlatform(), ex.getClass().getSimpleName());
+                }
+            } else if (connection.getPlatform() == MarketplaceConnection.Platform.SHOPEE && shopeePriceSync != null) {
+                try (var scope = TenantContext.openScope(connection.getTenantId(), "manager", null)) {
+                    var result = shopeePriceSync.sync(connection);
+                    log.info("Shopee price sync tenant={} connection={}: {}", connection.getTenantId(), connection.getId(), result);
+                } catch (Exception ex) {
+                    log.warn("Dong bo gia that bai cho tenant={}, platform={}: {}",
+                            connection.getTenantId(), connection.getPlatform(), ex.getClass().getSimpleName());
+                }
             }
         }
     }
