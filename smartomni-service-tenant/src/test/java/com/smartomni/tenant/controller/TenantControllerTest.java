@@ -227,6 +227,66 @@ class TenantControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/v1/tenants/onboarding: Thành công cho luồng STAFF tham gia Tenant có sẵn")
+    void testOnboarding_StaffRole_Success() throws Exception {
+        TenantOnboardingRequest request = TenantOnboardingRequest.builder()
+                .subdomain("smart-store")
+                .adminEmail("staff@smartstore.vn")
+                .adminFullName("Staff Nguyen")
+                .roleChoice("STAFF")
+                .build();
+
+        TenantProfileResponse response = TenantProfileResponse.builder()
+                .id(1L)
+                .companyName("Smart Store")
+                .subdomain("smart-store")
+                .status("ACTIVE")
+                .adminUserId(105L)
+                .adminEmail("staff@smartstore.vn")
+                .adminFullName("Staff Nguyen")
+                .build();
+
+        when(tenantService.onboardTenant(any(TenantOnboardingRequest.class))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/tenants/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.adminUserId").value(105))
+                .andExpect(jsonPath("$.data.adminEmail").value("staff@smartstore.vn"))
+                .andExpect(jsonPath("$.data.adminFullName").value("Staff Nguyen"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/tenants/register/onboarding: Endpoint alias hoạt động thành công")
+    void testRegisterOnboardingAlias_Success() throws Exception {
+        TenantOnboardingRequest request = TenantOnboardingRequest.builder()
+                .companyName("Alias Store")
+                .subdomain("alias-store")
+                .adminEmail("admin@aliasstore.vn")
+                .roleChoice("TENANT_ADMIN")
+                .build();
+
+        TenantProfileResponse response = TenantProfileResponse.builder()
+                .id(3L)
+                .companyName("Alias Store")
+                .subdomain("alias-store")
+                .adminUserId(108L)
+                .adminEmail("admin@aliasstore.vn")
+                .build();
+
+        when(tenantService.onboardTenant(any(TenantOnboardingRequest.class))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/tenants/register/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.adminUserId").value(108));
+    }
+
+    @Test
     @DisplayName("POST /api/v1/tenants: Thất bại khi adminEmail bị để trống (400 Bad Request)")
     void testOnboarding_ValidationFailure_BlankAdminEmail() throws Exception {
         TenantOnboardingRequest request = TenantOnboardingRequest.builder()

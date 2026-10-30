@@ -28,6 +28,22 @@ public class TenantFilter extends OncePerRequestFilter {
     }
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        String servletPath = request.getServletPath();
+        return isBypassed(uri) || isBypassed(servletPath);
+    }
+
+    private boolean isBypassed(String path) {
+        if (path == null) {
+            return false;
+        }
+        return path.startsWith("/api/v1/auth/") || path.startsWith("/api/auth/")
+                || path.equals("/api/v1/auth") || path.equals("/api/auth")
+                || path.startsWith("/api/v1/tenants/onboarding") || path.startsWith("/api/tenants/onboarding");
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request,
                                      HttpServletResponse response,
                                      FilterChain filterChain) throws ServletException, IOException {

@@ -259,6 +259,113 @@ public class TenantServiceImplTest {
     }
 
     @Test
+    @DisplayName("onboardTenant: Luồng STAFF thành công gán vào Tenant có sẵn ở trạng thái DISABLED")
+    void testOnboardTenant_StaffRole_Success() {
+        Tenant existingTenant = new Tenant();
+        existingTenant.setId(10L);
+        existingTenant.setName("Existing Store");
+        existingTenant.setSubdomain("existing-store");
+        existingTenant.setStatus(Tenant.TenantStatus.ACTIVE);
+        existingTenant.setPlanType("FREE");
+
+        TenantOnboardingRequest request = TenantOnboardingRequest.builder()
+                .subdomain("existing-store")
+                .adminEmail("staff@existingstore.vn")
+                .adminFullName("Staff Member")
+                .adminPassword("StaffPass123@")
+                .contactPhone("0911223344")
+                .roleChoice("STAFF")
+                .build();
+
+        when(tenantRepository.findBySubdomain("existing-store")).thenReturn(Optional.of(existingTenant));
+        when(userRepository.findByEmail("staff@existingstore.vn")).thenReturn(Optional.empty());
+        when(passwordEncoder.encode("StaffPass123@")).thenReturn("hashed_staff_password");
+        when(userRepository.save(any(TenantUser.class))).thenAnswer(i -> {
+            TenantUser u = i.getArgument(0);
+            u.setId(205L);
+            return u;
+        });
+
+        TenantProfileResponse response = tenantService.onboardTenant(request);
+
+        assertNotNull(response);
+        assertEquals(10L, response.getId());
+        assertEquals("existing-store", response.getSubdomain());
+        assertEquals(205L, response.getAdminUserId());
+        assertEquals("staff@existingstore.vn", response.getAdminEmail());
+        assertEquals("Staff Member", response.getAdminFullName());
+
+        verify(userRepository).save(argThat(user ->
+                user.getRole() == TenantUser.UserRole.MANAGER
+                        && user.getStatus() == TenantUser.UserStatus.DISABLED
+                        && user.getTenantId().equals(10L)
+        ));
+        verify(tenantRepository, never()).save(any(Tenant.class));
+    }
+
+    @Test
+    @DisplayName("onboardTenant: Luồng STAFF thất bại khi không tìm thấy Tenant")
+    void testOnboardTenant_StaffRole_TenantNotFound() {
+        TenantOnboardingRequest request = TenantOnboardingRequest.builder()
+                .subdomain("nonexistent-store")
+                .adminEmail("staff@notfound.vn")
+                .roleChoice("STAFF")
+                .build();
+
+        when(tenantRepository.findBySubdomain("nonexistent-store")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> tenantService.onboardTenant(request));
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("onboardTenant: Luồng STAFF thất bại khi Tenant đã bị khóa")
+    void testOnboardTenant_StaffRole_TenantLocked() {
+        Tenant lockedTenant = new Tenant();
+        lockedTenant.setId(11L);
+        lockedTenant.setName("Locked Shop");
+        lockedTenant.setSubdomain("locked-shop");
+        lockedTenant.setStatus(Tenant.TenantStatus.LOCKED);
+
+        TenantOnboardingRequest request = TenantOnboardingRequest.builder()
+                .subdomain("locked-shop")
+                .adminEmail("staff@lockedshop.vn")
+                .roleChoice("STAFF")
+                .build();
+
+        when(tenantRepository.findBySubdomain("locked-shop")).thenReturn(Optional.of(lockedTenant));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> tenantService.onboardTenant(request));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getHttpStatus());
+        assertEquals("TENANT_LOCKED", ex.getErrorCode());
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("onboardTenant: Luồng STAFF thất bại khi email đã tồn tại")
+    void testOnboardTenant_StaffRole_DuplicateEmail() {
+        Tenant existingTenant = new Tenant();
+        existingTenant.setId(10L);
+        existingTenant.setName("Existing Store");
+        existingTenant.setSubdomain("existing-store");
+        existingTenant.setStatus(Tenant.TenantStatus.ACTIVE);
+
+        TenantOnboardingRequest request = TenantOnboardingRequest.builder()
+                .subdomain("existing-store")
+                .adminEmail("staff-dup@store.vn")
+                .roleChoice("STAFF")
+                .build();
+
+        when(tenantRepository.findBySubdomain("existing-store")).thenReturn(Optional.of(existingTenant));
+        when(userRepository.findByEmail("staff-dup@store.vn")).thenReturn(Optional.of(new TenantUser()));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> tenantService.onboardTenant(request));
+        assertEquals(HttpStatus.CONFLICT, ex.getHttpStatus());
+        assertEquals("EMAIL_ALREADY_EXISTS", ex.getErrorCode());
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("onboardTenant: Ném BusinessException 400 khi adminEmail để trống")
     void testOnboardTenant_BlankAdminEmail_ThrowsBadRequest() {
         TenantOnboardingRequest request = TenantOnboardingRequest.builder()
