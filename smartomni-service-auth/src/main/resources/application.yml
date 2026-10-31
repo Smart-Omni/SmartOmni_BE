@@ -1,6 +1,26 @@
 server:
   port: 8081
 
+springdoc:
+  swagger-ui:
+    disable-swagger-default-url: true
+    urls-primary-name: Auth
+    urls:
+      - name: Auth
+        url: /v3/api-docs/auth
+      - name: Tenant
+        url: /v3/api-docs/tenant
+      - name: Catalog
+        url: /v3/api-docs/catalog
+      - name: Inventory
+        url: /v3/api-docs/inventory
+      - name: Order
+        url: /v3/api-docs/order
+      - name: Integration
+        url: /v3/api-docs/integration
+      - name: AI
+        url: /v3/api-docs/ai
+
 spring:
   application:
     name: smartomni-service-auth

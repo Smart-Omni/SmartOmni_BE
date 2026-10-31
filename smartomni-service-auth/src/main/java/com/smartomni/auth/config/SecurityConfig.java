@@ -57,6 +57,7 @@ public class SecurityConfig {
                     new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate),
                     UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                 .requestMatchers(
                         "/api/v1/auth/register", "/api/auth/register",
                         "/api/v1/auth/login", "/api/auth/login",
