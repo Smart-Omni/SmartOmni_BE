@@ -1,1 +1,2 @@
 com.smartomni.common.security.ServiceSecurityAutoConfiguration
+com.smartomni.common.security.OpenApiSecurityAutoConfiguration
