@@ -1,0 +1,268 @@
+
+erDiagram
+    SUBSCRIPTION_PLAN {
+        bigint plan_id PK
+        string plan_name
+        decimal price
+        int duration_days
+        string status
+    }
+
+    PLAN_FEATURE_FLAG {
+        bigint feature_flag_id PK
+        bigint plan_id FK
+        string feature_code
+        boolean is_enabled
+    }
+
+    TENANT {
+        bigint tenant_id PK
+        bigint plan_id FK
+        string tenant_name
+        string status
+        datetime created_at
+    }
+
+    USER_ACCOUNT {
+        bigint user_id PK
+        bigint tenant_id FK
+        string email
+        string password_hash
+        string role
+        string status
+    }
+
+    MARKETPLACE_CONNECTION {
+        bigint connection_id PK
+        bigint tenant_id FK
+        string platform
+        string shop_id
+        string status
+    }
+
+    PRODUCT {
+        bigint product_id PK
+        bigint tenant_id FK
+        string product_name
+        string description
+        string status
+    }
+
+    PRODUCT_SKU {
+        bigint sku_id PK
+        bigint product_id FK
+        string sku_code
+        string variant_name
+        decimal base_price
+    }
+
+    SKU_MARKETPLACE_LINK {
+        bigint link_id PK
+        bigint sku_id FK
+        bigint connection_id FK
+        string external_item_id
+        string external_sku_id
+    }
+
+    PRICE_SYNC_CONFIG {
+        bigint config_id PK
+        bigint sku_id FK
+        boolean is_enabled
+        decimal target_price
+    }
+
+    PRICE_SYNC_HISTORY {
+        bigint history_id PK
+        bigint config_id FK
+        bigint sku_id FK
+        decimal old_price
+        decimal new_price
+        datetime synced_at
+    }
+
+    INVENTORY {
+        bigint inventory_id PK
+        bigint sku_id FK
+        int available_quantity
+        int reserved_quantity
+        datetime updated_at
+    }
+
+    STOCK_MOVEMENT {
+        bigint movement_id PK
+        bigint inventory_id FK
+        string movement_type
+        int quantity
+        datetime created_at
+    }
+
+    INVENTORY_OUTBOX_EVENT {
+        bigint event_id PK
+        bigint inventory_id FK
+        string event_type
+        string payload
+        string status
+        datetime created_at
+    }
+
+    WEBHOOK_EVENT {
+        bigint webhook_id PK
+        bigint connection_id FK
+        string event_type
+        string payload
+        string status
+        datetime received_at
+    }
+
+    ORDER_SYNC_RUN {
+        bigint sync_run_id PK
+        bigint connection_id FK
+        string status
+        datetime started_at
+        datetime completed_at
+    }
+
+    ORDER {
+        bigint order_id PK
+        bigint connection_id FK
+        bigint webhook_id FK
+        bigint sync_run_id FK
+        string external_order_id
+        decimal total_amount
+        string status
+        datetime ordered_at
+    }
+
+    ORDER_ITEM {
+        bigint order_item_id PK
+        bigint order_id FK
+        bigint sku_id FK
+        int quantity
+        decimal unit_price
+    }
+
+    ORDER_STATUS_HISTORY {
+        bigint history_id PK
+        bigint order_id FK
+        bigint user_id FK
+        string old_status
+        string new_status
+        datetime changed_at
+    }
+
+    SHIPMENT {
+        bigint shipment_id PK
+        bigint order_id FK
+        bigint return_request_id FK
+        string tracking_number
+        string carrier
+        string status
+    }
+
+    SHIPMENT_TRACKING_EVENT {
+        bigint tracking_event_id PK
+        bigint shipment_id FK
+        string tracking_status
+        string location
+        datetime event_time
+    }
+
+    RETURN_REQUEST {
+        bigint return_request_id PK
+        bigint order_id FK
+        bigint reviewed_by FK
+        string reason
+        string status
+        datetime requested_at
+    }
+
+    RETURN_ITEM {
+        bigint return_item_id PK
+        bigint return_request_id FK
+        bigint order_item_id FK
+        int quantity
+        string condition
+    }
+
+    DISPUTE {
+        bigint dispute_id PK
+        bigint return_request_id FK
+        string reason
+        string status
+        datetime created_at
+    }
+
+    SELLER_PAYOUT {
+        bigint payout_id PK
+        bigint order_id FK
+        decimal payout_amount
+        string status
+        datetime payout_date
+    }
+
+    AI_MODEL_VERSION {
+        bigint model_version_id PK
+        string model_name
+        string version
+        string status
+        datetime created_at
+    }
+
+    DEMAND_FORECAST {
+        bigint forecast_id PK
+        bigint sku_id FK
+        bigint model_version_id FK
+        date forecast_date
+        int predicted_quantity
+        datetime created_at
+    }
+
+    SUBSCRIPTION_PLAN ||--o{ TENANT : subscribes
+    SUBSCRIPTION_PLAN ||--o{ PLAN_FEATURE_FLAG : enables
+
+    TENANT ||--o{ USER_ACCOUNT : employs
+    TENANT ||--o{ MARKETPLACE_CONNECTION : connects
+    TENANT ||--o{ PRODUCT : owns
+
+    PRODUCT ||--|{ PRODUCT_SKU : contains
+    PRODUCT_SKU ||--o{ SKU_MARKETPLACE_LINK : listed_as
+    MARKETPLACE_CONNECTION ||--o{ SKU_MARKETPLACE_LINK : maps
+
+    PRODUCT_SKU ||--o{ PRICE_SYNC_CONFIG : configures
+    PRICE_SYNC_CONFIG ||--o{ PRICE_SYNC_HISTORY : records
+
+    PRODUCT_SKU ||--|| INVENTORY : stocked_as
+    INVENTORY ||--o{ STOCK_MOVEMENT : changes
+    INVENTORY ||--o{ INVENTORY_OUTBOX_EVENT : publishes
+
+    MARKETPLACE_CONNECTION ||--o{ WEBHOOK_EVENT : receives
+    MARKETPLACE_CONNECTION ||--o{ ORDER_SYNC_RUN : synchronizes
+    MARKETPLACE_CONNECTION ||--o{ ORDER : originates
+
+    WEBHOOK_EVENT |o--o{ ORDER : updates
+    ORDER_SYNC_RUN |o--o{ ORDER : discovers
+
+    ORDER ||--|{ ORDER_ITEM : contains
+    ORDER ||--o{ ORDER_STATUS_HISTORY : tracks
+    USER_ACCOUNT |o--o{ ORDER_STATUS_HISTORY : modifies
+
+    PRODUCT_SKU ||--o{ ORDER_ITEM : purchased_as
+    ORDER_ITEM |o--o{ STOCK_MOVEMENT : deducts
+
+    ORDER ||--o{ SHIPMENT : fulfilled_by
+    SHIPMENT ||--o{ SHIPMENT_TRACKING_EVENT : tracks
+
+    ORDER ||--o{ RETURN_REQUEST : has
+    USER_ACCOUNT |o--o{ RETURN_REQUEST : reviews
+    RETURN_REQUEST ||--|{ RETURN_ITEM : contains
+    ORDER_ITEM ||--o{ RETURN_ITEM : returned_as
+
+    RETURN_REQUEST |o--o{ SHIPMENT : ships_back
+    RETURN_REQUEST ||--o{ DISPUTE : escalates
+
+    RETURN_ITEM |o--o{ STOCK_MOVEMENT : restocks
+
+    ORDER ||--o{ SELLER_PAYOUT : settles
+
+    AI_MODEL_VERSION ||--o{ DEMAND_FORECAST : generates
+    PRODUCT_SKU ||--o{ DEMAND_FORECAST : forecasts

@@ -1,0 +1,53 @@
+@startuml
+title SmartOmni — System Context
+left to right direction
+skinparam componentStyle rectangle
+rectangle "SmartOmni System" as System
+actor "Customer ( Guest )" as Guest
+actor "E-commerce Marketplace (Shopee / TikTok Shop)" as Marketplace
+actor "Tenant Admin" as TenantAdmin
+actor "Staff" as Staff
+actor "Super Admin" as SuperAdmin
+actor "SaaS Payment Gateway" as PaymentGateway
+actor "Email Delivery Provider" as EmailProvider
+
+Guest --> System : Order claim details
+System --> Guest : Product information and marketplace links
+System --> Guest : AI consultation and recommendations
+System --> Guest : Authentication and order claim results
+Marketplace --> System : Customer-service messages
+Marketplace --> System : Order, waybill and return events
+Marketplace --> System : Product, price and warehouse data
+Marketplace --> System : Authorization, scope and token data
+System --> Marketplace : Inventory and price updates
+System --> Marketplace : Shipment, cancellation and dispute details
+System --> Marketplace : Customer-service replies
+System --> Marketplace : Voucher creation request
+System --> Marketplace : Authorization and catalog data requests
+Guest --> System : Registration and login details
+System --> Guest : Order status, loyalty points and tier
+Marketplace --> System : Voucher creation result
+TenantAdmin --> System : Product inquiry
+TenantAdmin --> System : Subscription change request
+TenantAdmin --> System : Voucher issuance details
+TenantAdmin --> System : Support ticket
+TenantAdmin --> System : Staff accounts and role assignments
+TenantAdmin --> System : Tenant and shop configuration
+System --> TenantAdmin : Voucher issuance and support results
+System --> TenantAdmin : Business reports and AI insights
+System --> TenantAdmin : Tenant, connection and subscription status
+System --> Staff : Forecasts and inventory alerts
+System --> Staff : Order, inventory and waybill information
+System --> Staff : Inbox messages and complaint classification
+System --> SuperAdmin : Audit records and security alerts
+System --> SuperAdmin : Tenant and platform status
+System --> EmailProvider : Password reset and notification content
+Staff --> System : Customer-service reply content
+Staff --> System : Order, shipment and return details
+Staff --> System : Product, SKU, price and stock records
+SuperAdmin --> System : Support resolution details
+SuperAdmin --> System : Tenant and plan configuration
+PaymentGateway --> System : Payment confirmation
+EmailProvider --> System : Delivery status
+System --> PaymentGateway : Subscription payment details
+@enduml
