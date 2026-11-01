@@ -1,0 +1,242 @@
+@startuml
+title SmartOmni — Use Case Diagram
+left to right direction
+skinparam packageStyle rectangle
+actor "Email Service" as EmailService
+actor "Tenant Admin" as TenantAdmin
+actor "Marketplace (Shopee / TikTok Shop)" as Marketplace
+actor "Payment Gateway (VNPay)" as PaymentGateway
+actor "Guest" as Guest
+actor "Authenticated User" as AuthenticatedUser
+actor "Super Admin" as SuperAdmin
+actor "Staff" as Staff
+actor "Customer" as Customer
+rectangle "SMARTOMNI PLATFORM" {
+  usecase "Log out of account" as UC1
+  usecase "Reset password" as UC2
+  usecase "Register tenant" as UC3
+  usecase "Update store profile" as UC4
+  usecase "Customize Storefront appearance" as UC5
+  usecase "Update store policies" as UC6
+  usecase "Add staff account" as UC7
+  usecase "Manage staff accounts" as UC8
+  usecase "View subscription plans" as UC9
+  usecase "Request subscription refund" as UC10
+  usecase "Authorize shop connection" as UC11
+  usecase "View shop connection alerts" as UC12
+  usecase "View customers by loyalty tier" as UC13
+  usecase "Issue vouchers to a loyalty tier" as UC14
+  usecase "View voucher issuance results" as UC15
+  usecase "Enter sales events" as UC16
+  usecase "View demand forecasts" as UC17
+  usecase "View inventory alerts" as UC18
+  usecase "View business dashboard" as UC19
+  usecase "Enter business costs" as UC20
+  usecase "View actual profit" as UC21
+  usecase "Ask AI Advisor" as UC22
+  usecase "View strategic advice" as UC23
+  usecase "View activity and security logs" as UC24
+  usecase "Retry failed payment" as UC25
+  usecase "Log in to account" as UC26
+  usecase "View payment history" as UC27
+  usecase "Set up subdomain" as UC28
+  usecase "Pay for subscription via VNPay" as UC29
+  usecase "Select voucher recipient tier" as UC30
+  usecase "Select discount percentage" as UC31
+  usecase "Change subscription plan" as UC32
+  usecase "Reauthorize connected shop" as UC33
+  usecase "Browse product catalog" as UC34
+  usecase "Search for products" as UC35
+  usecase "View product recommendations" as UC36
+  usecase "Ask the product chatbot" as UC37
+  usecase "Open product page on marketplace" as UC38
+  usecase "View product details" as UC39
+  usecase "Claim order for loyalty points" as UC40
+  usecase "Issue vouchers to a loyalty tier" as UC41
+  usecase "Verify email address" as UC42
+  usecase "Check order claim eligibility" as UC43
+  usecase "Select voucher recipient tier" as UC44
+  usecase "Select discount percentage" as UC45
+  usecase "Register customer account" as UC46
+  usecase "View order claim history" as UC47
+  usecase "View loyalty points and tier" as UC48
+  usecase "Retry inventory sync" as UC49
+  usecase "Receive marketplace orders and status updates" as UC50
+  usecase "Sync marketplace conversations" as UC51
+  usecase "Sync inventory to marketplace" as UC52
+  usecase "View tenant list" as UC53
+  usecase "Lock tenant" as UC54
+  usecase "Unlock tenant" as UC55
+  usecase "Configure plans and limits" as UC56
+  usecase "Configure plan features" as UC57
+  usecase "View activity and security logs" as UC58
+  usecase "View operational alerts" as UC59
+  usecase "View product import results" as UC60
+  usecase "Edit internal product details" as UC61
+  usecase "Correct incorrect SKU mapping" as UC62
+  usecase "View price history" as UC63
+  usecase "View price discrepancy alerts" as UC64
+  usecase "View inventory" as UC65
+  usecase "Record incoming stock" as UC66
+  usecase "Adjust inventory" as UC67
+  usecase "Correct warehouse and SKU mapping" as UC68
+  usecase "Cancel order" as UC69
+  usecase "Map SKU to marketplace product" as UC70
+  usecase "View inventory sync errors" as UC71
+  usecase "View order details" as UC72
+  usecase "View order list" as UC73
+  usecase "Import products from marketplace" as UC74
+  usecase "View marketplace prices and promotions" as UC75
+  usecase "Download or print shipping label" as UC76
+  usecase "View shipment status" as UC77
+  usecase "Arrange shipment" as UC78
+  usecase "Send reply through marketplace" as UC79
+  usecase "Add returned goods to sellable stock" as UC80
+  usecase "Process returned goods" as UC81
+  usecase "Reply to conversation" as UC82
+  usecase "Add returned goods to quarantined stock" as UC83
+  usecase "Upload inspection video" as UC84
+  usecase "Assess returned goods condition" as UC85
+  usecase "Restock returned goods appropriately" as UC86
+  usecase "Record receipt of returned goods" as UC87
+  usecase "View return requests" as UC88
+  usecase "View dispute status" as UC89
+  usecase "View messages and attachments" as UC90
+  usecase "View invoices" as UC91
+  usecase "View conversations" as UC92
+  usecase "View message delivery status" as UC93
+  usecase "Enter sales events" as UC94
+  usecase "Mark complaint as resolved" as UC95
+  usecase "View complaint classification" as UC96
+}
+
+AuthenticatedUser -- UC40
+AuthenticatedUser -- UC41
+AuthenticatedUser -- UC42
+AuthenticatedUser -- UC43
+AuthenticatedUser -- UC44
+AuthenticatedUser -- UC45
+AuthenticatedUser -- UC46
+AuthenticatedUser -- UC47
+AuthenticatedUser -- UC48
+Customer -- UC40
+Customer -- UC41
+Customer -- UC42
+Customer -- UC43
+Customer -- UC44
+Customer -- UC45
+Customer -- UC46
+Customer -- UC47
+Customer -- UC48
+EmailService -- UC12
+Guest -- UC34
+Guest -- UC35
+Guest -- UC36
+Guest -- UC37
+Guest -- UC38
+Guest -- UC39
+Marketplace -- UC49
+Marketplace -- UC50
+Marketplace -- UC51
+Marketplace -- UC52
+Marketplace -- UC74
+Staff -- UC60
+Staff -- UC61
+Staff -- UC62
+Staff -- UC63
+Staff -- UC64
+Staff -- UC65
+Staff -- UC66
+Staff -- UC67
+Staff -- UC68
+Staff -- UC69
+Staff -- UC70
+Staff -- UC71
+Staff -- UC72
+Staff -- UC73
+Staff -- UC74
+Staff -- UC75
+Staff -- UC76
+Staff -- UC77
+Staff -- UC78
+Staff -- UC79
+Staff -- UC80
+Staff -- UC81
+Staff -- UC82
+Staff -- UC83
+Staff -- UC84
+Staff -- UC85
+Staff -- UC86
+Staff -- UC87
+Staff -- UC88
+Staff -- UC89
+Staff -- UC90
+Staff -- UC92
+Staff -- UC93
+Staff -- UC94
+Staff -- UC95
+Staff -- UC96
+SuperAdmin -- UC53
+SuperAdmin -- UC54
+SuperAdmin -- UC55
+SuperAdmin -- UC56
+SuperAdmin -- UC57
+SuperAdmin -- UC58
+SuperAdmin -- UC59
+TenantAdmin -- UC1
+TenantAdmin -- UC10
+TenantAdmin -- UC11
+TenantAdmin -- UC12
+TenantAdmin -- UC13
+TenantAdmin -- UC14
+TenantAdmin -- UC15
+TenantAdmin -- UC16
+TenantAdmin -- UC17
+TenantAdmin -- UC18
+TenantAdmin -- UC19
+TenantAdmin -- UC2
+TenantAdmin -- UC20
+TenantAdmin -- UC21
+TenantAdmin -- UC22
+TenantAdmin -- UC23
+TenantAdmin -- UC24
+TenantAdmin -- UC25
+TenantAdmin -- UC26
+TenantAdmin -- UC27
+TenantAdmin -- UC28
+TenantAdmin -- UC29
+TenantAdmin -- UC3
+TenantAdmin -- UC30
+TenantAdmin -- UC31
+TenantAdmin -- UC32
+TenantAdmin -- UC33
+TenantAdmin -- UC4
+TenantAdmin -- UC5
+TenantAdmin -- UC6
+TenantAdmin -- UC7
+TenantAdmin -- UC8
+TenantAdmin -- UC9
+TenantAdmin -- UC91
+UC10 ..> UC27 : <<extend>>
+UC14 ..> UC30 : <<include>>
+UC14 ..> UC31 : <<include>>
+UC2 ..> UC26 : <<extend>>
+UC25 ..> UC29 : <<extend>>
+UC29 ..> UC32 : <<extend>>
+UC3 ..> UC28 : <<include>>
+UC40 ..> UC43 : <<include>>
+UC41 ..> UC44 : <<include>>
+UC41 ..> UC45 : <<include>>
+UC46 ..> UC42 : <<include>>
+UC49 ..> UC52 : <<extend>>
+UC62 ..> UC70 : <<extend>>
+UC68 ..> UC71 : <<extend>>
+UC69 ..> UC72 : <<extend>>
+UC76 ..> UC78 : <<extend>>
+UC81 ..> UC84 : <<include>>
+UC81 ..> UC85 : <<include>>
+UC81 ..> UC86 : <<include>>
+UC81 ..> UC87 : <<include>>
+UC82 ..> UC79 : <<include>>
+UC95 ..> UC96 : <<extend>>
+@enduml
