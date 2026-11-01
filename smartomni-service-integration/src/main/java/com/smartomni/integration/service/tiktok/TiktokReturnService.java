@@ -48,6 +48,45 @@ public class TiktokReturnService {
     }
 
     /**
+     * Lấy thông tin chi tiết một yêu cầu trả hàng từ TikTok Shop API.
+     */
+    public com.smartomni.integration.dto.tiktok.TiktokReturnResponse getReturnDetail(Long connectionId, String returnId) {
+        if (connectionId == null || connectionId <= 0) {
+            throw new BusinessException("connectionId must be positive", HttpStatus.BAD_REQUEST, "INVALID_CONNECTION_ID");
+        }
+        if (returnId == null || returnId.isBlank()) {
+            throw new BusinessException("returnId must not be blank", HttpStatus.BAD_REQUEST, "INVALID_RETURN_ID");
+        }
+        return returnClient.getReturnDetail(connectionId, returnId);
+    }
+
+    /**
+     * Duyệt chấp thuận yêu cầu trả hàng / hoàn tiền.
+     */
+    public boolean approveReturn(Long connectionId, String returnId) {
+        if (connectionId == null || connectionId <= 0) {
+            throw new BusinessException("connectionId must be positive", HttpStatus.BAD_REQUEST, "INVALID_CONNECTION_ID");
+        }
+        if (returnId == null || returnId.isBlank()) {
+            throw new BusinessException("returnId must not be blank", HttpStatus.BAD_REQUEST, "INVALID_RETURN_ID");
+        }
+        return returnClient.approveReturn(connectionId, returnId);
+    }
+
+    /**
+     * Từ chối yêu cầu trả hàng / hoàn tiền kèm lý do.
+     */
+    public boolean rejectReturn(Long connectionId, String returnId, String rejectReason) {
+        if (connectionId == null || connectionId <= 0) {
+            throw new BusinessException("connectionId must be positive", HttpStatus.BAD_REQUEST, "INVALID_CONNECTION_ID");
+        }
+        if (returnId == null || returnId.isBlank()) {
+            throw new BusinessException("returnId must not be blank", HttpStatus.BAD_REQUEST, "INVALID_RETURN_ID");
+        }
+        return returnClient.rejectReturn(connectionId, returnId, rejectReason);
+    }
+
+    /**
      * Xử lý webhook RETURN_STATUS_CHANGE / REVERSE_STATUS_CHANGE từ TikTok Shop.
      *
      * @param tenantId       ID của tenant sở hữu shop

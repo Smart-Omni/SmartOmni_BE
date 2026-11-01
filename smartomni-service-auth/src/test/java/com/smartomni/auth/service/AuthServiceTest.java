@@ -397,6 +397,8 @@ class AuthServiceTest {
         assertEquals("CUSTOMER", response.getUserInfo().getRole());
         assertEquals("Nguyen Van A", response.getUserInfo().getFullName());
         assertEquals("0912345678", response.getUserInfo().getPhone());
+        assertNull(response.getUserInfo().getTenantId());
+        assertNull(response.getUserInfo().getSubdomain());
         verify(userRepository).save(any(User.class));
     }
 

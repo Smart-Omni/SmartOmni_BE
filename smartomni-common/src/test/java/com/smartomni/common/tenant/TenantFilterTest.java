@@ -63,4 +63,25 @@ class TenantFilterTest {
         assertEquals(1L, TenantContext.getTenantId());
         assertEquals("MANAGER", TenantContext.getCurrentRole());
     }
+
+    @Test
+    void shouldNotFilterBypassesPublicAuthAndOnboarding() {
+        TenantFilter filter = new TenantFilter(mock(JwtTokenProvider.class));
+
+        MockHttpServletRequest authReq = new MockHttpServletRequest();
+        authReq.setRequestURI("/api/v1/auth/register");
+        assertTrue(filter.shouldNotFilter(authReq));
+
+        MockHttpServletRequest loginReq = new MockHttpServletRequest();
+        loginReq.setRequestURI("/api/v1/auth/login");
+        assertTrue(filter.shouldNotFilter(loginReq));
+
+        MockHttpServletRequest onboardingReq = new MockHttpServletRequest();
+        onboardingReq.setRequestURI("/api/v1/tenants/onboarding");
+        assertTrue(filter.shouldNotFilter(onboardingReq));
+
+        MockHttpServletRequest protectedReq = new MockHttpServletRequest();
+        protectedReq.setRequestURI("/api/v1/orders");
+        assertFalse(filter.shouldNotFilter(protectedReq));
+    }
 }

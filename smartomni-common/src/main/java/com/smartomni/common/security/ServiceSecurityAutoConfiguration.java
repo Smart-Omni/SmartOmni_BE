@@ -58,6 +58,7 @@ public class ServiceSecurityAutoConfiguration {
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplateProvider.getIfAvailable()), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers("/actuator/health", "/webhook/**", "/internal/jobs/**").permitAll()
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated())
                 .build();
     }

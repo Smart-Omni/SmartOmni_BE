@@ -27,8 +27,9 @@ public class TiktokTenantConnections {
         String role = TenantContext.getCurrentRole();
         if (!AppConstants.ROLE_TENANT_ADMIN.equalsIgnoreCase(role)
                 && !AppConstants.ROLE_ADMIN.equalsIgnoreCase(role)
-                && !AppConstants.ROLE_MANAGER.equalsIgnoreCase(role)) {
-            throw new BusinessException("Only a Tenant Admin or Manager can sync the TikTok catalog", HttpStatus.FORBIDDEN, "CATALOG_SYNC_FORBIDDEN");
+                && !AppConstants.ROLE_MANAGER.equalsIgnoreCase(role)
+                && !"STAFF".equalsIgnoreCase(role)) {
+            throw new BusinessException("Only Tenant Admin, Manager, or Staff can access TikTok operations", HttpStatus.FORBIDDEN, "CATALOG_SYNC_FORBIDDEN");
         }
         return connected(tenantId);
     }

@@ -35,11 +35,14 @@ public class SecurityConfig {
                     new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator),
                     UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                 .requestMatchers(
                         "/api/v1/tenants/check-subdomain",
                         "/api/tenants/check-subdomain",
                         "/api/v1/tenants/onboarding",
                         "/api/tenants/onboarding",
+                        "/api/v1/tenants/register/onboarding",
+                        "/api/tenants/register/onboarding",
                         "/api/v1/tenants/public/**",
                         "/api/tenants/public/**",
                         "/actuator/**"

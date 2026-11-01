@@ -131,6 +131,15 @@ public class TiktokConnectionStore {
         return connections.findFirstByTenantIdAndPlatformOrderByIdAsc(tenantId, MarketplaceConnection.Platform.TIKTOK_SHOP);
     }
 
+    public Optional<MarketplaceConnection> findByShopIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            return Optional.empty();
+        }
+        return connections.findFirstByShopCipher(identifier)
+                .or(() -> connections.findFirstByShopId(identifier))
+                .or(() -> connections.findFirstBySellerOpenId(identifier));
+    }
+
     @Transactional(readOnly = true)
     public Optional<TokenSnapshot> loadTokens(Long tenantId, Long connectionId) {
         return connections.findById(connectionId)

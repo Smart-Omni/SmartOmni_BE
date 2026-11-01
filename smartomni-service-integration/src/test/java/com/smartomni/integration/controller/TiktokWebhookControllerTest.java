@@ -176,6 +176,52 @@ class TiktokWebhookControllerTest {
     }
 
     @Test
+    @DisplayName("200 OK: Webhook DEAUTHORIZATION marks connection REVOKED and logs audit")
+    void testReceiveWebhook_Deauthorization_MarksRevoked() throws Exception {
+        Long tenantId = 100L;
+        MarketplaceConnection connection = new MarketplaceConnection();
+        connection.setId(10L);
+        connection.setTenantId(tenantId);
+        connection.setShopCipher(SHOP_CIPHER);
+        connection.setPlatform(MarketplaceConnection.Platform.TIKTOK_SHOP);
+        connection.setStatus(MarketplaceConnection.ConnectionStatus.CONNECTED);
+
+        when(connectionRepository.findFirstByShopCipher(SHOP_CIPHER)).thenReturn(Optional.of(connection));
+
+        long timestamp = Instant.now().getEpochSecond();
+        String rawBody = String.format("""
+            {"type":16,"tts_notification_id":"notif-deauth-001","shop_id":"%s","timestamp":%d,"data":{"event":"DEAUTHORIZATION"}}
+            """, SHOP_CIPHER, timestamp);
+
+        String contentToSign = APP_SECRET + WEBHOOK_PATH + timestamp + rawBody;
+        String validSignature = webhookHmacValidator.calculateHmacSha256(contentToSign, APP_SECRET);
+
+        mockMvc.perform(post(WEBHOOK_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", validSignature)
+                        .header("Timestamp", String.valueOf(timestamp))
+                        .content(rawBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("success"));
+
+        // Verify connection status is REVOKED
+        assertEquals(MarketplaceConnection.ConnectionStatus.REVOKED, connection.getStatus());
+
+        // Verify audit log has eventType DEAUTHORIZATION
+        ArgumentCaptor<WebhookEventLog> logCaptor = ArgumentCaptor.forClass(WebhookEventLog.class);
+        verify(webhookEventLogRepository).save(logCaptor.capture());
+        WebhookEventLog savedLog = logCaptor.getValue();
+        assertNotNull(savedLog);
+        assertEquals("DEAUTHORIZATION", savedLog.getEventType());
+        assertTrue(savedLog.getSignatureValid());
+        assertFalse(savedLog.isQueued());
+
+        // Verify RabbitMQ was NOT sent for deauth
+        verify(rabbitTemplate, never()).convertAndSend(eq("smartomni.order.exchange"), eq("order.incoming"), any(Object.class));
+    }
+
+    @Test
     @DisplayName("401 Unauthorized: Từ chối khi Timestamp lệch quá 5 phút (Replay attack)")
     void testReceiveWebhook_TimestampSkewOver5Minutes_401Unauthorized() throws Exception {
         Long tenantId = 100L;
