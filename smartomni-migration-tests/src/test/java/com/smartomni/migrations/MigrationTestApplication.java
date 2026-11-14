@@ -3,6 +3,7 @@ package com.smartomni.migrations;
 import com.smartomni.auth.repository.TenantLookupRepository;
 import com.smartomni.auth.service.EmailService;
 import com.smartomni.auth.service.impl.AuthServiceImpl;
+import com.smartomni.auth.service.impl.StaffInvitationServiceImpl;
 import com.smartomni.auth.service.impl.UserLoginAttemptServiceImpl;
 import com.smartomni.common.persistence.RlsDatabaseConfig;
 import com.smartomni.common.security.JwtTokenProvider;
@@ -24,7 +25,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
         "com.smartomni.integration.entity", "com.smartomni.ai.entity"
 })
 @EnableJpaRepositories(basePackages = "com.smartomni.auth.repository")
-@Import({RlsDatabaseConfig.class, AuthServiceImpl.class, UserLoginAttemptServiceImpl.class, TenantLookupRepository.class, JwtTokenProvider.class})
+@Import({RlsDatabaseConfig.class, AuthServiceImpl.class, StaffInvitationServiceImpl.class, UserLoginAttemptServiceImpl.class, TenantLookupRepository.class, JwtTokenProvider.class})
 public class MigrationTestApplication {
 
     @Bean

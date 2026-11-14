@@ -184,4 +184,36 @@ class JwtAuthenticationFilterTest {
         verify(tokenBlacklistValidator, never()).isBlacklisted(anyString());
         verify(jwtTokenProvider, never()).validateToken(anyString());
     }
+
+    @Test
+    @DisplayName("STAFF chưa thuộc cửa hàng (tenantId=null) bị chặn ở API tenant nhưng được gọi /users/me và /users/me/invitations")
+    void unassignedStaffBlockedFromTenantApisButAllowedOnSelfEndpoints() throws Exception {
+        String token = "staff.unassigned.token";
+        when(tokenBlacklistValidator.isBlacklisted(token)).thenReturn(false);
+        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.getUserId(token)).thenReturn(20L);
+        when(jwtTokenProvider.getRole(token)).thenReturn("STAFF");
+        when(jwtTokenProvider.getTenantId(token)).thenReturn(null);
+        when(jwtTokenProvider.getSubdomain(token)).thenReturn(null);
+        when(jwtTokenProvider.getTokenVersion(token)).thenReturn(0L);
+        when(stringRedisTemplate.opsForValue()).thenReturn(values);
+        when(values.get(UserAccessState.key(20L))).thenReturn("ACTIVE:0");
+
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate);
+
+        MockHttpServletRequest tenantApiReq = new MockHttpServletRequest("GET", "/api/v1/products");
+        tenantApiReq.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse tenantApiRes = new MockHttpServletResponse();
+        filter.doFilter(tenantApiReq, tenantApiRes, filterChain);
+        assertEquals(403, tenantApiRes.getStatus());
+        assertTrue(tenantApiRes.getContentAsString().contains("STAFF_NO_TENANT"));
+        verify(filterChain, never()).doFilter(tenantApiReq, tenantApiRes);
+
+        MockHttpServletRequest selfInvitationsReq = new MockHttpServletRequest("GET", "/api/v1/users/me/invitations");
+        selfInvitationsReq.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse selfInvitationsRes = new MockHttpServletResponse();
+        filter.doFilter(selfInvitationsReq, selfInvitationsRes, filterChain);
+        assertEquals(200, selfInvitationsRes.getStatus());
+        verify(filterChain, times(1)).doFilter(selfInvitationsReq, selfInvitationsRes);
+    }
 }

@@ -1,5 +1,6 @@
 package com.smartomni.migrations;
 
+import com.smartomni.auth.dto.AuthResponse;
 import com.smartomni.auth.dto.LoginRequest;
 import com.smartomni.auth.service.AuthService;
 import com.smartomni.catalog.entity.Product;
@@ -170,22 +171,22 @@ class DatabaseMigrationTest {
             for (var future : futures) {
                 applied += future.get(60, java.util.concurrent.TimeUnit.SECONDS);
             }
-            assertEquals(18, applied);
+            assertEquals(19, applied);
         } finally {
             start.countDown();
             executor.shutdownNow();
         }
         assertEquals(0, flyway(url).migrate().migrationsExecuted);
         try (Connection admin = connect(url, "postgres")) {
-            assertEquals(47, count(admin,
+            assertEquals(48, count(admin,
                     "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> 'flyway_schema_history'"));
-            assertEquals(47, count(admin,
+            assertEquals(48, count(admin,
                     "SELECT count(*) FROM pg_class WHERE relnamespace='public'::regnamespace AND relkind='r' AND relrowsecurity AND relforcerowsecurity"));
             assertEquals(24, count(admin,
                     "SELECT count(*) FROM pg_type WHERE typnamespace='public'::regnamespace AND typtype='e'"));
             assertTrue(count(admin,
                     "SELECT count(*) FROM pg_constraint WHERE connamespace='public'::regnamespace AND contype='f'") > 50);
-            assertEquals(18, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(19, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
             assertEquals(1, count(admin, "SELECT count(*) FROM information_schema.columns WHERE table_name='users' AND column_name='token_version' AND is_nullable='NO'"));
             execute(admin, Files.readString(Path.of("..", "scripts", "db", "verify-schema.sql")));
         }
@@ -533,7 +534,7 @@ class DatabaseMigrationTest {
         assertThrows(FlywayException.class, invalid::migrate);
         try (Connection admin = connect(url, "postgres")) {
             assertEquals(0, count(admin, "SELECT count(*) FROM pg_tables WHERE tablename='should_rollback'"));
-            assertEquals(18, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(19, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
         }
     }
 
@@ -557,7 +558,7 @@ class DatabaseMigrationTest {
         Flyway baseline = Flyway.configure().dataSource(url, "smartomni_migrator", TEST_PASSWORD)
                 .defaultSchema("public").baselineVersion("5").load();
         baseline.baseline();
-        assertEquals(13, flyway(url).migrate().migrationsExecuted);
+        assertEquals(14, flyway(url).migrate().migrationsExecuted);
         try (var context = boot(url)) {
             assertNotNull(context.getBean(EntityManagerFactory.class));
         }
@@ -700,6 +701,63 @@ class DatabaseMigrationTest {
                 assertEquals(1, count(app, "SELECT count(*) FROM tenants WHERE subdomain = 'public-active'"));
                 assertEquals(0, count(app, "SELECT count(*) FROM tenants WHERE subdomain = 'locked-shop'"));
             }
+        }
+    }
+
+    @Test
+    void staffInvitationFlowEnforcesRlsAndIssuesTenantBoundToken() throws Exception {
+        String url = newDatabase();
+        try (var context = boot(url)) {
+            long tenantId;
+            long adminId;
+            try (Connection admin = connect(url, "postgres")) {
+                execute(admin, "INSERT INTO tenants(name, subdomain, plan_id, status) VALUES "
+                        + "('Invite Shop', 'invite-shop', (SELECT id FROM subscription_plans WHERE name = 'FREE'), 'active')");
+                tenantId = count(admin, "SELECT id FROM tenants WHERE subdomain = 'invite-shop'");
+                execute(admin, "INSERT INTO users(tenant_id, email, password_hash, full_name, role, status) VALUES "
+                        + "(" + tenantId + ", 'owner@invite-shop.vn', 'hash', 'Owner', 'tenant_admin', 'active')");
+                adminId = count(admin, "SELECT id FROM users WHERE email = 'owner@invite-shop.vn'");
+            }
+
+            AuthService authService = context.getBean(AuthService.class);
+            var staffInvitationService = context.getBean(com.smartomni.auth.service.StaffInvitationService.class);
+            JwtTokenProvider jwt = context.getBean(JwtTokenProvider.class);
+
+            var registerReq = com.smartomni.auth.dto.RegisterRequest.builder()
+                    .email("newstaff@smartomni.vn")
+                    .password("Password123@")
+                    .fullName("New Staff")
+                    .role("STAFF")
+                    .build();
+            AuthResponse regRes = authService.register(registerReq);
+            assertEquals("STAFF", regRes.getUserInfo().getRole());
+            assertNull(regRes.getUserInfo().getTenantId());
+
+            var loginRes = authService.login(com.smartomni.auth.dto.LoginRequest.builder()
+                    .email("newstaff@smartomni.vn")
+                    .password("Password123@")
+                    .build());
+            assertEquals("STAFF", loginRes.getUserInfo().getRole());
+            assertNull(loginRes.getUserInfo().getTenantId());
+            assertNull(jwt.getTenantId(loginRes.getAccessToken()));
+
+            var invitation = staffInvitationService.createInvitation(
+                    adminId,
+                    tenantId,
+                    new com.smartomni.auth.dto.CreateStaffInvitationRequest("newstaff@smartomni.vn", "STAFF"));
+            assertEquals("PENDING", invitation.getStatus());
+            assertEquals("invite-shop", invitation.getSubdomain());
+
+            var myInvitations = staffInvitationService.listMyInvitations(regRes.getUserInfo().getId());
+            assertEquals(1, myInvitations.size());
+
+            AuthResponse accepted = staffInvitationService.acceptInvitation(
+                    regRes.getUserInfo().getId(),
+                    invitation.getId());
+            assertEquals(tenantId, accepted.getUserInfo().getTenantId());
+            assertEquals("invite-shop", accepted.getUserInfo().getSubdomain());
+            assertEquals("STAFF", accepted.getUserInfo().getRole());
+            assertEquals(tenantId, jwt.getTenantId(accepted.getAccessToken()));
         }
     }
 }

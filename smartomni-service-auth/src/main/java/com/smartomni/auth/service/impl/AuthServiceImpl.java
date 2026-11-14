@@ -83,41 +83,46 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("Email đã được sử dụng trong hệ thống", HttpStatus.CONFLICT, "EMAIL_ALREADY_EXISTS");
         }
 
-        // B2: Phân giải cửa hàng nếu có subdomain (body hoặc Host/TenantContext) hoặc tenantId
+        User.UserRole targetRole = resolveSelfRegisterRole(request.getRole());
+
+        // B2: Với CUSTOMER, phân giải cửa hàng nếu có subdomain (body hoặc Host/TenantContext) hoặc tenantId.
+        // Với STAFF tự đăng ký (Guest), không bắt buộc subdomain/tenantId và khởi tạo tenantId = null.
         Long resolvedTenantId = null;
         String resolvedSubdomain = null;
-        String requestedSubdomain = request.getSubdomain();
-        if ((requestedSubdomain == null || requestedSubdomain.trim().isEmpty()) && TenantContext.getCurrentSubdomain() != null) {
-            requestedSubdomain = TenantContext.getCurrentSubdomain();
-        }
+        if (targetRole == User.UserRole.CUSTOMER) {
+            String requestedSubdomain = request.getSubdomain();
+            if ((requestedSubdomain == null || requestedSubdomain.trim().isEmpty()) && TenantContext.getCurrentSubdomain() != null) {
+                requestedSubdomain = TenantContext.getCurrentSubdomain();
+            }
 
-        if (requestedSubdomain != null && !requestedSubdomain.trim().isEmpty()) {
-            String targetSubdomain = requestedSubdomain.trim().toLowerCase(Locale.ROOT);
-            TenantLookup tenant = tenantLookupRepository.findBySubdomain(targetSubdomain)
-                    .orElseThrow(() -> new BusinessException(
-                            "Không tìm thấy cửa hàng với subdomain: " + targetSubdomain,
-                            HttpStatus.NOT_FOUND,
-                            "STORE_NOT_FOUND"));
-            if (tenant.isLocked()) {
-                String reason = tenant.lockedReason() != null ? tenant.lockedReason() : "Vui lòng liên hệ bộ phận hỗ trợ";
-                throw new BusinessException("Tổ chức/Tenant '" + tenant.name() + "' đã bị khóa. Lý do: " + reason,
-                        HttpStatus.FORBIDDEN, "TENANT_LOCKED");
+            if (requestedSubdomain != null && !requestedSubdomain.trim().isEmpty()) {
+                String targetSubdomain = requestedSubdomain.trim().toLowerCase(Locale.ROOT);
+                TenantLookup tenant = tenantLookupRepository.findBySubdomain(targetSubdomain)
+                        .orElseThrow(() -> new BusinessException(
+                                "Không tìm thấy cửa hàng với subdomain: " + targetSubdomain,
+                                HttpStatus.NOT_FOUND,
+                                "STORE_NOT_FOUND"));
+                if (tenant.isLocked()) {
+                    String reason = tenant.lockedReason() != null ? tenant.lockedReason() : "Vui lòng liên hệ bộ phận hỗ trợ";
+                    throw new BusinessException("Tổ chức/Tenant '" + tenant.name() + "' đã bị khóa. Lý do: " + reason,
+                            HttpStatus.FORBIDDEN, "TENANT_LOCKED");
+                }
+                resolvedTenantId = tenant.id();
+                resolvedSubdomain = tenant.subdomain();
+            } else if (request.getTenantId() != null) {
+                TenantLookup tenant = tenantLookupRepository.findById(request.getTenantId())
+                        .orElseThrow(() -> new BusinessException(
+                                "Không tìm thấy cửa hàng với id: " + request.getTenantId(),
+                                HttpStatus.NOT_FOUND,
+                                "STORE_NOT_FOUND"));
+                if (tenant.isLocked()) {
+                    String reason = tenant.lockedReason() != null ? tenant.lockedReason() : "Vui lòng liên hệ bộ phận hỗ trợ";
+                    throw new BusinessException("Tổ chức/Tenant '" + tenant.name() + "' đã bị khóa. Lý do: " + reason,
+                            HttpStatus.FORBIDDEN, "TENANT_LOCKED");
+                }
+                resolvedTenantId = tenant.id();
+                resolvedSubdomain = tenant.subdomain();
             }
-            resolvedTenantId = tenant.id();
-            resolvedSubdomain = tenant.subdomain();
-        } else if (request.getTenantId() != null) {
-            TenantLookup tenant = tenantLookupRepository.findById(request.getTenantId())
-                    .orElseThrow(() -> new BusinessException(
-                            "Không tìm thấy cửa hàng với id: " + request.getTenantId(),
-                            HttpStatus.NOT_FOUND,
-                            "STORE_NOT_FOUND"));
-            if (tenant.isLocked()) {
-                String reason = tenant.lockedReason() != null ? tenant.lockedReason() : "Vui lòng liên hệ bộ phận hỗ trợ";
-                throw new BusinessException("Tổ chức/Tenant '" + tenant.name() + "' đã bị khóa. Lý do: " + reason,
-                        HttpStatus.FORBIDDEN, "TENANT_LOCKED");
-            }
-            resolvedTenantId = tenant.id();
-            resolvedSubdomain = tenant.subdomain();
         }
 
         User user = User.builder()
@@ -126,7 +131,7 @@ public class AuthServiceImpl implements AuthService {
                 .fullName(request.getFullName().trim())
                 .phone(request.getPhone() != null && !request.getPhone().trim().isEmpty() ? request.getPhone().trim() : null)
                 .avatar(request.getAvatar() != null && !request.getAvatar().trim().isEmpty() ? request.getAvatar().trim() : null)
-                .role(User.UserRole.CUSTOMER)
+                .role(targetRole)
                 .status(User.UserStatus.ACTIVE)
                 .failedLoginAttempts(0)
                 .build();
@@ -535,5 +540,22 @@ public class AuthServiceImpl implements AuthService {
         if (!UserAccessState.publishActive(stringRedisTemplate, user.getId(), user.getTokenVersion())) {
             throw new InvalidTokenException("Phiên đăng nhập đã bị thu hồi");
         }
+    }
+
+    private User.UserRole resolveSelfRegisterRole(String rawRole) {
+        if (rawRole == null || rawRole.trim().isEmpty()) {
+            return User.UserRole.CUSTOMER;
+        }
+        String normalized = rawRole.trim().toUpperCase(Locale.ROOT);
+        if ("CUSTOMER".equals(normalized)) {
+            return User.UserRole.CUSTOMER;
+        }
+        if ("STAFF".equals(normalized)) {
+            return User.UserRole.STAFF;
+        }
+        throw new BusinessException(
+                "Vai trò đăng ký không hợp lệ. Chỉ cho phép CUSTOMER hoặc STAFF",
+                HttpStatus.BAD_REQUEST,
+                "INVALID_ROLE");
     }
 }

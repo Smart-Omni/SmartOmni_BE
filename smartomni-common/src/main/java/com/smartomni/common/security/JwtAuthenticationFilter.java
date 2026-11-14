@@ -74,6 +74,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
 
+                // Chặn STAFF chưa thuộc cửa hàng (tenantId == null) truy cập các API dữ liệu của tenant
+                if ("STAFF".equalsIgnoreCase(role) && tenantId == null && !isAllowedForUnassignedStaff(request)) {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"success\":false,\"message\":\"Tài khoản nhân viên chưa thuộc cửa hàng nào\",\"code\":\"STAFF_NO_TENANT\"}");
+                    return;
+                }
+
                 TenantContext.setCurrentUserId(userId);
                 TenantContext.setCurrentRole(role);
                 if (tenantId != null) {
@@ -113,5 +121,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private boolean isAllowedForUnassignedStaff(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        if (path == null || path.isEmpty()) {
+            path = request.getServletPath();
+        }
+        if (path == null) {
+            return false;
+        }
+        return "/api/v1/users/me".equals(path)
+                || path.startsWith("/api/v1/users/me/")
+                || path.startsWith("/api/v1/auth/");
     }
 }

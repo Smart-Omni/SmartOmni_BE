@@ -37,4 +37,6 @@ public class RegisterRequest {
 
     @JsonProperty("tenant_id")
     private Long tenantId;
+
+    private String role;
 }

@@ -446,6 +446,62 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("Đăng ký tài khoản STAFF (Guest) không cần cửa hàng -> tenantId = null, role = STAFF")
+    void testRegister_WithStaffRole_Success() {
+        com.smartomni.auth.dto.RegisterRequest request = com.smartomni.auth.dto.RegisterRequest.builder()
+                .email("staff.guest@smartshop.vn")
+                .password("Password123@")
+                .fullName("Staff Guest")
+                .role("STAFF")
+                .build();
+
+        when(userRepository.findByEmail("staff.guest@smartshop.vn")).thenReturn(Optional.empty());
+        when(passwordEncoder.encode("Password123@")).thenReturn("$2a$10$encodedPassword");
+
+        User savedUser = User.builder()
+                .email("staff.guest@smartshop.vn")
+                .passwordHash("$2a$10$encodedPassword")
+                .fullName("Staff Guest")
+                .role(User.UserRole.STAFF)
+                .status(User.UserStatus.ACTIVE)
+                .build();
+        savedUser.setId(7L);
+        savedUser.setTenantId(null);
+
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> {
+            User u = inv.getArgument(0);
+            assertEquals(User.UserRole.STAFF, u.getRole());
+            assertNull(u.getTenantId());
+            return savedUser;
+        });
+        when(jwtTokenProvider.generateToken(7L, "STAFF", null, null, 0L)).thenReturn("jwt.token.staff");
+
+        AuthResponse response = authService.register(request);
+
+        assertEquals("jwt.token.staff", response.getAccessToken());
+        assertEquals("STAFF", response.getUserInfo().getRole());
+        assertNull(response.getUserInfo().getTenantId());
+        assertNull(response.getUserInfo().getSubdomain());
+    }
+
+    @Test
+    @DisplayName("Đăng ký thất bại 400 INVALID_ROLE khi tự đăng ký role TENANT_ADMIN")
+    void testRegister_WithInvalidRole_ThrowsBadRequest() {
+        com.smartomni.auth.dto.RegisterRequest request = com.smartomni.auth.dto.RegisterRequest.builder()
+                .email("hacker@smartshop.vn")
+                .password("Password123@")
+                .fullName("Hacker")
+                .role("TENANT_ADMIN")
+                .build();
+
+        when(userRepository.findByEmail("hacker@smartshop.vn")).thenReturn(Optional.empty());
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> authService.register(request));
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getHttpStatus());
+        assertEquals("INVALID_ROLE", ex.getErrorCode());
+    }
+
+    @Test
     @DisplayName("Đăng ký thất bại 404 STORE_NOT_FOUND khi subdomain không tồn tại")
     void testRegister_WithUnknownSubdomain_ThrowsNotFound() {
         com.smartomni.auth.dto.RegisterRequest request = com.smartomni.auth.dto.RegisterRequest.builder()
