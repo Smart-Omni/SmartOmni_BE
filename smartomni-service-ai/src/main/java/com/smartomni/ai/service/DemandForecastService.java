@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -81,6 +82,17 @@ public class DemandForecastService {
     }
 
     public List<DemandForecast> getForecastsForSku(Long tenantId, Long skuId) {
-        return demandForecastRepository.findByTenantIdAndSkuId(tenantId, skuId);
+        return getForecastsForSku(tenantId, skuId, null, null);
+    }
+
+    public List<DemandForecast> getForecastsForSku(Long tenantId, Long skuId, LocalDate fromDate, Integer days) {
+        LocalDate effectiveFrom = fromDate != null ? fromDate : LocalDate.now();
+        if (days != null && days > 0) {
+            LocalDate toDate = effectiveFrom.plusDays(days);
+            return demandForecastRepository.findByTenantIdAndSkuIdAndForecastDateBetweenOrderByForecastDateAsc(
+                    tenantId, skuId, effectiveFrom, toDate);
+        }
+        return demandForecastRepository.findByTenantIdAndSkuIdAndForecastDateGreaterThanEqualOrderByForecastDateAsc(
+                tenantId, skuId, effectiveFrom);
     }
 }

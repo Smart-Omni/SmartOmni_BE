@@ -22,6 +22,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -128,6 +129,29 @@ class ProductControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.id").value(88));
+    }
+
+    @Test
+    void getSkusByProductIdsBatch() throws Exception {
+        TenantContext.setTenantId(1L);
+        ProductSku sku1 = new ProductSku();
+        sku1.setId(10L);
+        sku1.setProductId(1L);
+        sku1.setSkuCode("SKU-P1-01");
+
+        ProductSku sku2 = new ProductSku();
+        sku2.setId(20L);
+        sku2.setProductId(2L);
+        sku2.setSkuCode("SKU-P2-01");
+
+        when(skuRepository.findByTenantIdAndProductIdIn(1L, List.of(1L, 2L))).thenReturn(List.of(sku1, sku2));
+
+        mockMvc.perform(get("/api/v1/products/skus?productIds=1,2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].skuCode").value("SKU-P1-01"))
+                .andExpect(jsonPath("$.data[1].skuCode").value("SKU-P2-01"));
     }
 }
 
