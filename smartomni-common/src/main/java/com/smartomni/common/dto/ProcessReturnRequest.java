@@ -24,6 +24,9 @@ public class ProcessReturnRequest {
     @JsonProperty("tenant_id")
     private Long tenantId;
 
+    @JsonProperty("connection_id")
+    private Long connectionId;
+
     @JsonProperty("platform")
     private String platform;
 
@@ -86,6 +89,7 @@ public class ProcessReturnRequest {
     }
 
     public enum ReturnAction {
+        AWAITING_INSPECTION,
         RECEIVE_APPROVE,
         RECEIVE_REJECT,
         RECEIVE_REJECTED,
