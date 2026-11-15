@@ -52,8 +52,8 @@ class ShopeeReturnSyncServiceTest {
     }
 
     @Test
-    @DisplayName("syncReturn: status ACCEPTED vật lý -> RECEIVE_APPROVE và restockRequired = true")
-    void syncReturn_statusAcceptedPhysical_dispatchesReceiveApproveWithRestockTrue() {
+    @DisplayName("syncReturn: status ACCEPTED vật lý -> AWAITING_INSPECTION và restockRequired = false")
+    void syncReturn_statusAcceptedPhysical_dispatchesAwaitingInspectionWithRestockFalse() {
         when(connectionRepository.findByTenantIdAndPlatform(1L, MarketplaceConnection.Platform.SHOPEE))
                 .thenReturn(Optional.of(connection));
 
@@ -81,8 +81,10 @@ class ShopeeReturnSyncServiceTest {
         assertEquals("SHOPEE", request.getPlatform());
         assertEquals("261019TEST01", request.getOrderId());
         assertEquals("RET_SP_1001", request.getReturnId());
-        assertEquals(ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE, request.getReturnAction());
-        assertTrue(request.getRestockRequired());
+        assertEquals(10L, request.getConnectionId());
+        assertEquals("PHYSICAL_RETURN", request.getReturnType());
+        assertEquals(ProcessReturnRequest.ReturnAction.AWAITING_INSPECTION, request.getReturnAction());
+        assertFalse(request.getRestockRequired());
         assertEquals(1, request.getItems().size());
         assertEquals("1001", request.getItems().get(0).getExternalItemId());
         assertEquals(1, request.getItems().get(0).getQuantity());

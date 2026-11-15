@@ -60,7 +60,7 @@ public class ShopeeReturnSyncService {
                 ? orderSn
                 : detail.orderSn();
 
-        ProcessReturnRequest request = mapToProcessReturnRequest(connection.getTenantId(), resolvedOrderSn, returnSn, detail);
+        ProcessReturnRequest request = mapToProcessReturnRequest(connection.getTenantId(), connection.getId(), resolvedOrderSn, returnSn, detail);
 
         try {
             orderServiceClient.processReturn(request);
@@ -96,6 +96,10 @@ public class ShopeeReturnSyncService {
     }
 
     public ProcessReturnRequest mapToProcessReturnRequest(Long tenantId, String orderSn, String returnSn, ShopeeReturnDetail detail) {
+        return mapToProcessReturnRequest(tenantId, null, orderSn, returnSn, detail);
+    }
+
+    public ProcessReturnRequest mapToProcessReturnRequest(Long tenantId, Long connectionId, String orderSn, String returnSn, ShopeeReturnDetail detail) {
         String status = detail.status();
         String statusUpper = status != null ? status.toUpperCase() : "";
         String reason = detail.reason();
@@ -103,14 +107,18 @@ public class ShopeeReturnSyncService {
 
         ProcessReturnRequest.ReturnAction returnAction = null;
         boolean restockRequired = false;
+        String returnType = (reasonUpper.contains("NOT_RECEIPT") || reasonUpper.contains("NOT_RECEIVED"))
+                ? "REFUND_ONLY"
+                : "PHYSICAL_RETURN";
 
-        if ("ACCEPTED".equals(statusUpper) || "COMPLETED".equals(statusUpper)) {
-            if (reasonUpper.contains("NOT_RECEIPT") || reasonUpper.contains("NOT_RECEIVED")) {
+        if ("ACCEPTED".equals(statusUpper) || "COMPLETED".equals(statusUpper) || "REQUESTED".equals(statusUpper) || "PROCESSING".equals(statusUpper)) {
+            if ("REFUND_ONLY".equals(returnType)) {
                 returnAction = ProcessReturnRequest.ReturnAction.REFUND_ONLY;
                 restockRequired = false;
             } else {
-                returnAction = ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE;
-                restockRequired = true;
+                // Physical return: route to warehouse inspection gate (WF-05, DS-09)
+                returnAction = ProcessReturnRequest.ReturnAction.AWAITING_INSPECTION;
+                restockRequired = false;
             }
         } else if ("SELLER_DISPUTE".equals(statusUpper) || "JUDGING".equals(statusUpper)) {
             returnAction = ProcessReturnRequest.ReturnAction.DISPUTE_CLAIM;
@@ -137,10 +145,12 @@ public class ShopeeReturnSyncService {
 
         return ProcessReturnRequest.builder()
                 .tenantId(tenantId)
+                .connectionId(connectionId)
                 .platform(PLATFORM_SHOPEE)
                 .orderId(orderSn)
                 .platformOrderId(orderSn)
                 .returnId(returnSn)
+                .returnType(returnType)
                 .returnStatus(status)
                 .returnReason(reason != null && !reason.isBlank() ? reason : detail.textReason())
                 .rejectReason("RECEIVE_REJECT".equals(String.valueOf(returnAction)) ? detail.textReason() : null)
