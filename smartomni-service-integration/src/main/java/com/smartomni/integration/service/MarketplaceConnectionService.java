@@ -30,12 +30,12 @@ public class MarketplaceConnectionService {
         MarketplaceConnection.Platform platform = MarketplaceConnection.Platform.valueOf(request.getPlatform());
         if (platform == MarketplaceConnection.Platform.TIKTOK_SHOP) {
             // The app key/secret belong to the SmartOmni app, never to a shop owner: TikTok uses the authorization flow.
-            throw new BusinessException("Use the TikTok Shop authorization flow (/api/v1/marketplace-connections/tiktok-shop)",
+            throw new BusinessException("TikTok Shop requires OAuth 2.0 seller consent. Please initiate connection via POST /api/v1/marketplace-connections/tiktok-shop/authorization",
                     HttpStatus.BAD_REQUEST, "TIKTOK_USE_AUTHORIZATION_FLOW");
         }
         if (platform == MarketplaceConnection.Platform.SHOPEE) {
             // The partner ID/key belong to the SmartOmni app: Shopee uses the authorization flow.
-            throw new BusinessException("Use the Shopee authorization flow (/api/v1/marketplace-connections/shopee)",
+            throw new BusinessException("Shopee requires OAuth 2.0 seller consent. Please initiate connection via POST /api/v1/marketplace-connections/shopee/authorization",
                     HttpStatus.BAD_REQUEST, "SHOPEE_USE_AUTHORIZATION_FLOW");
         }
 

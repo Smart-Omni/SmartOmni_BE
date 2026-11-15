@@ -10,6 +10,7 @@ import com.smartomni.integration.config.ShopeeProperties;
 import com.smartomni.integration.dto.shopee.ShopeeAuthorizationStartDto;
 import com.smartomni.integration.dto.shopee.ShopeeCallbackRequest;
 import com.smartomni.integration.dto.shopee.ShopeeConnectionDto;
+import com.smartomni.integration.dto.shopee.UpdateShopeeSettingsRequest;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.entity.MarketplaceConnection.ConnectionStatus;
 import com.smartomni.integration.service.shopee.ShopeeConnectionStore.ConsumedState;
@@ -228,5 +229,39 @@ class ShopeeConnectionServiceTest {
         ShopeeConnectionDto dto = service.disconnect();
         assertEquals("DISCONNECTED", dto.status());
         verify(store).terminate(eq(1L), eq(88L), eq(ConnectionStatus.DISCONNECTED), any(), eq(NOW));
+    }
+
+    @Test
+    void startWithCustomMobileRedirectUriAllowed() {
+        when(store.prepareStart(eq(1L), eq(10L), any(), any())).thenReturn(88L);
+
+        ShopeeAuthorizationStartDto start = service.start("smartomni://oauth/shopee");
+
+        assertNotNull(start.authorizationUrl());
+        assertTrue(start.authorizationUrl().contains("redirect_uri=smartomni%3A%2F%2Foauth%2Fshopee"));
+    }
+
+    @Test
+    void startWithInvalidRedirectUriRejected() {
+        BusinessException ex = assertThrows(BusinessException.class, () ->
+                service.start("https://evil-phishing.com/callback"));
+        assertEquals("INVALID_REDIRECT_URI", ex.getErrorCode());
+    }
+
+    @Test
+    void updateSettingsTogglesAutoImport() {
+        MarketplaceConnection current = savedConnection(ConnectionStatus.CONNECTED);
+        current.setAutoImportProducts(false);
+        MarketplaceConnection updated = savedConnection(ConnectionStatus.CONNECTED);
+        updated.setAutoImportProducts(true);
+
+        when(store.findCurrent(1L)).thenReturn(Optional.of(current));
+        when(store.updateSettings(1L, 88L, true)).thenReturn(updated);
+
+        ShopeeConnectionDto dto = service.updateSettings(new UpdateShopeeSettingsRequest(true));
+
+        assertNotNull(dto);
+        assertTrue(dto.autoImportProducts());
+        verify(store).updateSettings(1L, 88L, true);
     }
 }
