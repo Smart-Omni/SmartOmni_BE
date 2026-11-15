@@ -34,8 +34,11 @@ public class InventoryController {
     }
 
     @PostMapping("/{skuId}/restock")
-    public ApiResponse<Void> restock(@PathVariable Long skuId, @RequestParam int quantity) {
-        inventoryService.restock(skuId, quantity);
+    public ApiResponse<Void> restock(
+            @PathVariable Long skuId,
+            @RequestParam int quantity,
+            @RequestParam(value = "idempotencyKey", required = false) String idempotencyKey) {
+        inventoryService.restock(skuId, quantity, idempotencyKey);
         return ApiResponse.success("Hoan tra ton kho thanh cong", null);
     }
 }
