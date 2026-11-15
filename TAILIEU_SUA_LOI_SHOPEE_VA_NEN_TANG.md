@@ -1,8 +1,8 @@
 # Tài Liệu Báo Cáo Sửa Lỗi & Nâng Cấp Hệ Thống Backend (Shopee & Nền Tảng SmartOmni)
 
-> **Nhánh thực hiện:** `fixing-bugs`  
+> **Nhánh thực hiện:** `fix/shopee-return-and-platform-apis`  
 > **Trạng thái:** Đã kiểm thử tự động toàn diện (BUILD SUCCESS), đã push lên remote GitHub:  
-> 👉 [Tạo Pull Request trên GitHub](https://github.com/Smart-Omni/SmartOmni_BE/pull/new/fixing-bugs)  
+> 👉 [Tạo Pull Request trên GitHub](https://github.com/Smart-Omni/SmartOmni_BE/pull/new/fix/shopee-return-and-platform-apis)  
 > **Phạm vi thay đổi:** Chỉ xử lý SmartOmni Backend (`SmartOmmi_BE`). **Tuyệt đối không sửa SmartOmni Frontend** và **không chạm vào luồng TikTok Shop**.
 
 ---
