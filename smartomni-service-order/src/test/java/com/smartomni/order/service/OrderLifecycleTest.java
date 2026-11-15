@@ -630,6 +630,71 @@ class OrderLifecycleTest {
         verify(returnRefundRepository, times(1)).save(any());
         verifyNoInteractions(inventoryServiceClient);
     }
+
+    @Test
+    @DisplayName("getOrderDetail returns OrderDetailDto with order items")
+    void getOrderDetail_Success() {
+        Order order = new Order();
+        order.setId(ORDER_ID);
+        order.setTenantId(TENANT_ID);
+        order.setPlatform(Order.Platform.SHOPEE);
+        order.setPlatformOrderId("SP-ORDER-100");
+        order.setStatus(Order.OrderStatus.PENDING);
+
+        OrderItem item = new OrderItem();
+        item.setId(1L);
+        item.setOrderId(ORDER_ID);
+        item.setTenantId(TENANT_ID);
+        item.setSkuId(55L);
+        item.setQuantity(3);
+        item.setUnitPrice(BigDecimal.valueOf(100000));
+
+        when(orderRepository.findByIdAndTenantId(ORDER_ID, TENANT_ID)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findByOrderIdAndTenantId(ORDER_ID, TENANT_ID)).thenReturn(List.of(item));
+
+        com.smartomni.common.dto.OrderDetailDto detail = orderService.getOrderDetail(ORDER_ID);
+
+        assertNotNull(detail);
+        assertEquals(ORDER_ID, detail.getId());
+        assertEquals("SHOPEE", detail.getPlatform());
+        assertEquals(1, detail.getItems().size());
+        assertEquals(55L, detail.getItems().get(0).getSkuId());
+        assertEquals(3, detail.getItems().get(0).getQuantity());
+    }
+
+    @Test
+    @DisplayName("createManualOrder creates order and line items successfully")
+    void createManualOrder_Success() {
+        com.smartomni.common.dto.CreateManualOrderRequest request = com.smartomni.common.dto.CreateManualOrderRequest.builder()
+                .platform("SHOPEE")
+                .customerName("Tran Thi B")
+                .items(List.of(new com.smartomni.common.dto.CreateManualOrderRequest.ManualOrderItem(55L, 2, BigDecimal.valueOf(100000), null)))
+                .build();
+
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order o = invocation.getArgument(0);
+            o.setId(ORDER_ID);
+            return o;
+        });
+        when(orderRepository.findByIdAndTenantId(ORDER_ID, TENANT_ID)).thenAnswer(invocation -> {
+            Order o = new Order();
+            o.setId(ORDER_ID);
+            o.setTenantId(TENANT_ID);
+            o.setPlatform(Order.Platform.SHOPEE);
+            o.setCustomerName("Tran Thi B");
+            o.setStatus(Order.OrderStatus.PENDING);
+            return Optional.of(o);
+        });
+        when(orderItemRepository.findByOrderIdAndTenantId(ORDER_ID, TENANT_ID)).thenReturn(List.of());
+
+        com.smartomni.common.dto.OrderDetailDto result = orderService.createManualOrder(request);
+
+        assertNotNull(result);
+        assertEquals(ORDER_ID, result.getId());
+        assertEquals("Tran Thi B", result.getCustomerName());
+        verify(orderRepository).save(any(Order.class));
+        verify(orderItemRepository).save(any(OrderItem.class));
+    }
 }
 
 

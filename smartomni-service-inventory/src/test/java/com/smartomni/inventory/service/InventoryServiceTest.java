@@ -119,4 +119,29 @@ class InventoryServiceTest {
         verifyNoInteractions(restockLogRepository);
         verify(outboxEventRepository).save(any());
     }
+
+    @Test
+    void listEnrichedInventoryReturnsItemsFromSkuRepository() {
+        TenantContext.setTenantId(1L);
+        com.smartomni.common.dto.InventoryItemDto item = com.smartomni.common.dto.InventoryItemDto.builder()
+                .skuId(10L)
+                .skuCode("SKU-10")
+                .productName("Ao Thun Polo")
+                .quantityOnHand(20)
+                .reservedQuantity(2)
+                .availableQuantity(18)
+                .build();
+
+        when(skuOwnershipRepository.listEnrichedInventory(1L, 10, 0)).thenReturn(java.util.List.of(item));
+        when(skuOwnershipRepository.countEnrichedInventory(1L)).thenReturn(1L);
+
+        org.springframework.data.domain.Page<com.smartomni.common.dto.InventoryItemDto> page =
+                service.listEnrichedInventory(org.springframework.data.domain.PageRequest.of(0, 10));
+
+        assertNotNull(page);
+        assertEquals(1, page.getTotalElements());
+        assertEquals("SKU-10", page.getContent().get(0).getSkuCode());
+        assertEquals("Ao Thun Polo", page.getContent().get(0).getProductName());
+        assertEquals(18, page.getContent().get(0).getAvailableQuantity());
+    }
 }

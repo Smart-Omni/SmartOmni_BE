@@ -1,5 +1,8 @@
 package com.smartomni.order.service;
 
+import com.smartomni.common.dto.CreateManualOrderRequest;
+import com.smartomni.common.dto.OrderDetailDto;
+import com.smartomni.common.dto.OrderItemDto;
 import com.smartomni.common.dto.ProcessReturnRequest;
 import com.smartomni.common.dto.UpdateOrderTrackingRequest;
 import com.smartomni.common.dto.WebhookOrderPayload;
@@ -551,6 +554,108 @@ public class OrderService {
 
     public Page<Order> getOrdersByTenant(Long tenantId, Pageable pageable) {
         return orderRepository.findByTenantId(tenantId, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public OrderDetailDto getOrderDetail(Long orderId) {
+        Long tenantId = TenantContext.getTenantId();
+        Order order = orderRepository.findByIdAndTenantId(orderId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Đơn hàng không tồn tại: " + orderId));
+        List<OrderItem> items = orderItemRepository.findByOrderIdAndTenantId(orderId, tenantId);
+        List<OrderItemDto> itemDtos = items.stream()
+                .map(item -> OrderItemDto.builder()
+                        .id(item.getId())
+                        .skuId(item.getSkuId())
+                        .quantity(item.getQuantity())
+                        .unitPrice(item.getUnitPrice())
+                        .subtotal(item.getUnitPrice() != null && item.getQuantity() != null
+                                ? item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))
+                                : null)
+                        .imageUrl(item.getImageUrl())
+                        .build())
+                .toList();
+
+        return OrderDetailDto.builder()
+                .id(order.getId())
+                .tenantId(order.getTenantId())
+                .platform(order.getPlatform() != null ? order.getPlatform().name() : null)
+                .connectionId(order.getConnectionId())
+                .platformOrderId(order.getPlatformOrderId())
+                .status(order.getStatus() != null ? order.getStatus().name() : null)
+                .slaDeadline(order.getSlaDeadline())
+                .shippingMethod(order.getShippingMethod())
+                .trackingNumber(order.getTrackingNumber())
+                .courierScannedAt(order.getCourierScannedAt())
+                .customerName(order.getCustomerName())
+                .customerPhone(order.getCustomerPhone())
+                .shippingAddress(order.getShippingAddress())
+                .totalAmount(order.getTotalAmount())
+                .source(order.getSource() != null ? order.getSource().name() : null)
+                .returnReason(order.getReturnReason())
+                .rejectReason(order.getRejectReason())
+                .restockStatus(order.getRestockStatus())
+                .createdAt(order.getCreatedAt())
+                .items(itemDtos)
+                .build();
+    }
+
+    @Transactional
+    public OrderDetailDto createManualOrder(CreateManualOrderRequest request) {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) {
+            throw new BusinessException("TenantId is required", HttpStatus.BAD_REQUEST, "TENANT_REQUIRED");
+        }
+        if (request.getItems() == null || request.getItems().isEmpty()) {
+            throw new BusinessException("Đơn hàng phải chứa ít nhất 1 sản phẩm", HttpStatus.BAD_REQUEST, "ITEMS_REQUIRED");
+        }
+
+        Order.Platform platform = Order.Platform.SHOPEE;
+        if (request.getPlatform() != null && !request.getPlatform().isBlank()) {
+            try {
+                platform = Order.Platform.valueOf(request.getPlatform().toUpperCase());
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        String platformOrderId = (request.getPlatformOrderId() != null && !request.getPlatformOrderId().isBlank())
+                ? request.getPlatformOrderId()
+                : "MANUAL-" + System.currentTimeMillis();
+
+        BigDecimal computedTotal = BigDecimal.ZERO;
+        for (CreateManualOrderRequest.ManualOrderItem item : request.getItems()) {
+            if (item.getUnitPrice() != null && item.getQuantity() != null) {
+                computedTotal = computedTotal.add(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+            }
+        }
+        BigDecimal effectiveTotal = request.getTotalAmount() != null ? request.getTotalAmount() : computedTotal;
+
+        Order order = new Order();
+        order.setTenantId(tenantId);
+        order.setPlatform(platform);
+        order.setPlatformOrderId(platformOrderId);
+        order.setCustomerName(request.getCustomerName() != null ? request.getCustomerName() : "Khách test");
+        order.setCustomerPhone(request.getCustomerPhone());
+        order.setShippingAddress(request.getShippingAddress());
+        order.setShippingMethod(request.getShippingMethod() != null ? request.getShippingMethod() : "Giao hàng tiêu chuẩn");
+        order.setTotalAmount(effectiveTotal);
+        order.setStatus(Order.OrderStatus.PENDING);
+        order.setSource(Order.OrderSource.MANUAL);
+
+        order = orderRepository.save(order);
+
+        for (CreateManualOrderRequest.ManualOrderItem reqItem : request.getItems()) {
+            OrderItem orderItem = new OrderItem();
+            orderItem.setTenantId(tenantId);
+            orderItem.setOrderId(order.getId());
+            orderItem.setSkuId(reqItem.getSkuId() != null ? reqItem.getSkuId() : 0L);
+            orderItem.setQuantity(reqItem.getQuantity() != null ? reqItem.getQuantity() : 1);
+            orderItem.setUnitPrice(reqItem.getUnitPrice() != null ? reqItem.getUnitPrice() : BigDecimal.ZERO);
+            orderItem.setImageUrl(reqItem.getImageUrl());
+            orderItemRepository.save(orderItem);
+        }
+
+        recordStatusHistory(order, Order.OrderStatus.PENDING, OrderStatusHistory.OrderChangeSource.MANAGER, TenantContext.getCurrentUserId());
+
+        return getOrderDetail(order.getId());
     }
 
     /** UC-06: Khách hàng tra cứu đơn hàng bằng Order ID, không cần đăng nhập. */

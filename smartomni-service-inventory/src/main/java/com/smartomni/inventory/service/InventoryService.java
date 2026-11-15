@@ -1,5 +1,6 @@
 package com.smartomni.inventory.service;
 
+import com.smartomni.common.dto.InventoryItemDto;
 import com.smartomni.common.exception.BusinessException;
 import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.inventory.entity.Inventory;
@@ -11,6 +12,7 @@ import com.smartomni.inventory.repository.InventoryRestockLogRepository;
 import com.smartomni.inventory.repository.SkuOwnershipRepository;
 import com.smartomni.common.exception.ResourceNotFoundException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +39,19 @@ public class InventoryService {
     @Transactional(readOnly = true)
     public Page<Inventory> listInventory(Pageable pageable) {
         return inventoryRepository.findByTenantId(TenantContext.getTenantId(), pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<InventoryItemDto> listEnrichedInventory(Pageable pageable) {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) {
+            return Page.empty(pageable);
+        }
+        int limit = pageable.getPageSize();
+        int offset = (int) pageable.getOffset();
+        java.util.List<InventoryItemDto> items = skuOwnershipRepository.listEnrichedInventory(tenantId, limit, offset);
+        long total = skuOwnershipRepository.countEnrichedInventory(tenantId);
+        return new PageImpl<>(items, pageable, total);
     }
 
     /**
