@@ -524,6 +524,71 @@ class OrderLifecycleTest {
         assertEquals("DISPUTED", updated.getRestockStatus());
         verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
     }
+
+    @Test
+    @DisplayName("handleOrderReturn: RECEIVE_APPROVE gọi lặp lại không cộng kho lần 2 (idempotent)")
+    void handleOrderReturn_duplicateReceiveApprove_isIdempotentAndNeverRestocksTwice() {
+        sampleOrder.setStatus(Order.OrderStatus.RETURNED);
+        sampleOrder.setRestockStatus("RESTOCKED");
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, "SP-ORDER-9999"))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("SHOPEE")
+                .platformOrderId("SP-ORDER-9999")
+                .returnId("ret-duplicate-shopee")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE)
+                .returnStatus("ACCEPTED")
+                .restockRequired(true)
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
+        assertEquals("RESTOCKED", updated.getRestockStatus());
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
+    }
+
+    @Test
+    @DisplayName("handleOrderReturn: trả hàng 1 phần chỉ cộng kho đúng các SKU trong return items")
+    void handleOrderReturn_partialItemReturn_restocksOnlyReturnedItems() {
+        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+        sampleOrder.setRestockStatus(null);
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, "SP-ORDER-9999"))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.smartomni.common.dto.ProcessReturnRequest.ReturnItemDto returnItem =
+                com.smartomni.common.dto.ProcessReturnRequest.ReturnItemDto.builder()
+                        .skuId(101L)
+                        .quantity(1)
+                        .name("Áo thun đen")
+                        .build();
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("SHOPEE")
+                .platformOrderId("SP-ORDER-9999")
+                .returnId("ret-partial-1")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE)
+                .returnStatus("ACCEPTED")
+                .restockRequired(true)
+                .items(List.of(returnItem))
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
+        assertEquals("RESTOCKED", updated.getRestockStatus());
+        verify(inventoryServiceClient, times(1)).restock(101L, 1);
+        verify(inventoryServiceClient, never()).restock(eq(102L), anyInt());
+    }
 }
 
 

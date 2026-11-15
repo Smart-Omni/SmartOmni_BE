@@ -61,6 +61,30 @@ public class ProcessReturnRequest {
     @JsonProperty("restock_required")
     private Boolean restockRequired;
 
+    @Builder.Default
+    @JsonProperty("items")
+    private List<ReturnItemDto> items = new ArrayList<>();
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class ReturnItemDto {
+        @JsonProperty("sku_id")
+        private Long skuId;
+        @JsonProperty("external_item_id")
+        private String externalItemId;
+        @JsonProperty("external_model_id")
+        private String externalModelId;
+        @JsonProperty("name")
+        private String name;
+        @JsonProperty("quantity")
+        private Integer quantity;
+        @JsonProperty("refund_amount")
+        private BigDecimal refundAmount;
+    }
+
     public enum ReturnAction {
         RECEIVE_APPROVE,
         RECEIVE_REJECT,

@@ -317,9 +317,13 @@ public class OrderService {
                             platformOrderId, request.getReturnId());
                     updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
                     if (isRestockRequired) {
-                        log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
-                        restockOrderItems(order);
-                        order.setRestockStatus("RESTOCKED");
+                        if ("RESTOCKED".equals(order.getRestockStatus())) {
+                            log.info("Đơn hàng id={} đã được hoàn kho trước đó (idempotent), bỏ qua restock.", order.getId());
+                        } else {
+                            log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
+                            restockOrderItems(order, request.getItems());
+                            order.setRestockStatus("RESTOCKED");
+                        }
                     } else {
                         order.setRestockStatus("SKIPPED");
                     }
@@ -362,9 +366,13 @@ public class OrderService {
                 updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
 
                 if (isRestockRequired && !"REFUND_ONLY".equalsIgnoreCase(request.getReturnType())) {
-                    log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
-                    restockOrderItems(order);
-                    order.setRestockStatus("RESTOCKED");
+                    if ("RESTOCKED".equals(order.getRestockStatus())) {
+                        log.info("Đơn hàng id={} đã được hoàn kho trước đó (idempotent), bỏ qua restock.", order.getId());
+                    } else {
+                        log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
+                        restockOrderItems(order, request.getItems());
+                        order.setRestockStatus("RESTOCKED");
+                    }
                 } else {
                     order.setRestockStatus("SKIPPED");
                 }
@@ -390,8 +398,24 @@ public class OrderService {
     }
 
     private void restockOrderItems(Order order) {
+        restockOrderItems(order, null);
+    }
+
+    private void restockOrderItems(Order order, List<ProcessReturnRequest.ReturnItemDto> returnItems) {
+        if (returnItems != null && !returnItems.isEmpty()) {
+            log.info("Hoàn trả tồn kho theo danh mục mặt hàng trả lại cho đơn hàng id={}, itemsCount={}",
+                    order.getId(), returnItems.size());
+            for (ProcessReturnRequest.ReturnItemDto item : returnItems) {
+                if (item.getSkuId() != null && item.getQuantity() != null && item.getQuantity() > 0) {
+                    inventoryServiceClient.restock(item.getSkuId(), item.getQuantity());
+                    log.info("Hoàn trả tồn kho thành công cho skuId={}, quantity={}", item.getSkuId(), item.getQuantity());
+                }
+            }
+            return;
+        }
+
         List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
-        log.info("Tự động hoàn trả tồn kho cho đơn hàng CANCELLED id={}, itemsCount={}", order.getId(), items.size());
+        log.info("Tự động hoàn trả tồn kho cho đơn hàng CANCELLED/RETURNED id={}, itemsCount={}", order.getId(), items.size());
         for (OrderItem item : items) {
             if (item.getSkuId() != null && item.getQuantity() != null && item.getQuantity() > 0) {
                 inventoryServiceClient.restock(item.getSkuId(), item.getQuantity());
