@@ -11,6 +11,8 @@ import com.smartomni.order.entity.SellerWalletLedger;
 import com.smartomni.order.repository.OrderItemRepository;
 import com.smartomni.order.repository.OrderRepository;
 import com.smartomni.order.repository.OrderStatusHistoryRepository;
+import com.smartomni.order.repository.ReturnRefundItemRepository;
+import com.smartomni.order.repository.ReturnRefundRepository;
 import com.smartomni.order.repository.SellerWalletLedgerRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
@@ -54,6 +56,12 @@ class OrderLifecycleTest {
 
     @Mock
     private InventoryServiceClient inventoryServiceClient;
+
+    @Mock
+    private ReturnRefundRepository returnRefundRepository;
+
+    @Mock
+    private ReturnRefundItemRepository returnRefundItemRepository;
 
     @InjectMocks
     private OrderService orderService;
@@ -588,6 +596,39 @@ class OrderLifecycleTest {
         assertEquals("RESTOCKED", updated.getRestockStatus());
         verify(inventoryServiceClient, times(1)).restock(101L, 1);
         verify(inventoryServiceClient, never()).restock(eq(102L), anyInt());
+    }
+
+    @Test
+    @DisplayName("handleOrderReturn: Shopee trả hàng vật lý AWAITING_INSPECTION chuyển ON_HOLD và không cộng kho")
+    void handleOrderReturn_awaitingInspection_setsOnHoldAndDoesNotRestock() {
+        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+        sampleOrder.setRestockStatus(null);
+        sampleOrder.setConnectionId(88L);
+
+        when(orderRepository.findByTenantIdAndConnectionIdAndPlatformOrderId(TENANT_ID, 88L, "SP-ORDER-1234"))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .connectionId(88L)
+                .platform("SHOPEE")
+                .platformOrderId("SP-ORDER-1234")
+                .returnId("ret-shopee-awaiting-1")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.AWAITING_INSPECTION)
+                .returnStatus("ACCEPTED")
+                .returnType("PHYSICAL_RETURN")
+                .returnReason("Damaged during shipping")
+                .restockRequired(false)
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.ON_HOLD, updated.getStatus());
+        assertEquals("AWAITING_INSPECTION", updated.getRestockStatus());
+        verify(returnRefundRepository, times(1)).save(any());
+        verifyNoInteractions(inventoryServiceClient);
     }
 }
 
