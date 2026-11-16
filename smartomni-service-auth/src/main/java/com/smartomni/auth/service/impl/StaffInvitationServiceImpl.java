@@ -299,10 +299,10 @@ public class StaffInvitationServiceImpl implements StaffInvitationService {
             return "STAFF";
         }
         String normalized = rawRole.trim().toUpperCase(Locale.ROOT);
-        if ("STAFF".equals(normalized) || "MANAGER".equals(normalized)) {
+        if ("STAFF".equals(normalized)) {
             return normalized;
         }
-        throw new BusinessException("Vai trò lời mời không hợp lệ. Chỉ cho phép STAFF hoặc MANAGER",
+        throw new BusinessException("Vai trò lời mời không hợp lệ. Chỉ cho phép STAFF",
                 HttpStatus.BAD_REQUEST, "INVALID_ROLE");
     }
 

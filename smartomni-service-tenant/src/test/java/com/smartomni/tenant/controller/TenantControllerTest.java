@@ -363,7 +363,7 @@ class TenantControllerTest {
     @Test
     @DisplayName("PUT /api/v1/tenants/storefront: Cập nhật thành công cấu hình Storefront")
     void testUpdateStorefront_Success() throws Exception {
-        TenantContext.openScope(10L, "MANAGER", null);
+        TenantContext.openScope(10L, "STAFF", null);
 
         StorefrontConfigRequest request = StorefrontConfigRequest.builder()
                 .storeName("Fashion Haven")
@@ -403,7 +403,7 @@ class TenantControllerTest {
     @Test
     @DisplayName("PUT /api/v1/tenants/storefront: Báo lỗi 400 khi storeName trống")
     void testUpdateStorefront_ValidationFailure() throws Exception {
-        TenantContext.openScope(10L, "MANAGER", null);
+        TenantContext.openScope(10L, "STAFF", null);
 
         StorefrontConfigRequest request = StorefrontConfigRequest.builder()
                 .storeName("") // Trống

@@ -319,7 +319,7 @@ public class TenantServiceTest {
         assertEquals("Staff Member", response.getAdminFullName());
 
         verify(userRepository).save(argThat(user ->
-                user.getRole() == TenantUser.UserRole.MANAGER
+                user.getRole() == TenantUser.UserRole.STAFF
                         && user.getStatus() == TenantUser.UserStatus.DISABLED
                         && user.getTenantId().equals(10L)
         ));
@@ -519,7 +519,7 @@ public class TenantServiceTest {
     @Test
     @DisplayName("getCurrentTenantProfile: Thành công khi TenantContext có tenantId")
     void testGetCurrentTenantProfile_Success() {
-        TenantContext.openScope(100L, "MANAGER", null);
+        TenantContext.openScope(100L, "STAFF", null);
 
         Tenant tenant = new Tenant();
         tenant.setId(100L);

@@ -117,6 +117,31 @@ class StaffInvitationServiceTest {
     }
 
     @Test
+    @DisplayName("Gửi lời mời với role MANAGER (đã gỡ) hoặc role lạ bị từ chối 400 INVALID_ROLE")
+    void createInvitation_ManagerRoleRejected() {
+        for (String role : new String[]{"MANAGER", "ADMIN"}) {
+            CreateStaffInvitationRequest req = new CreateStaffInvitationRequest("staff@smartomni.vn", role);
+            BusinessException ex = assertThrows(BusinessException.class, () -> service.createInvitation(1L, 100L, req));
+            assertEquals(HttpStatus.BAD_REQUEST, ex.getHttpStatus());
+            assertEquals("INVALID_ROLE", ex.getErrorCode());
+        }
+        verify(staffInvitationRepository, never()).save(any(StaffInvitation.class));
+    }
+
+    @Test
+    @DisplayName("Gửi lời mời không chỉ định role -> mặc định STAFF")
+    void createInvitation_DefaultsToStaff() {
+        CreateStaffInvitationRequest req = new CreateStaffInvitationRequest("staff@smartomni.vn", null);
+        when(userRepository.findByEmail("staff@smartomni.vn")).thenReturn(Optional.of(staffUser));
+        when(staffInvitationRepository.existsByTenantIdAndInvitedEmailIgnoreCaseAndStatus(
+                100L, "staff@smartomni.vn", InvitationStatus.PENDING)).thenReturn(false);
+        when(tenantLookupRepository.findById(100L)).thenReturn(Optional.of(sampleTenant));
+        when(staffInvitationRepository.save(any(StaffInvitation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertEquals("STAFF", service.createInvitation(1L, 100L, req).getRole());
+    }
+
+    @Test
     @DisplayName("Gửi lời mời thất bại 404 USER_NOT_FOUND khi email chưa đăng ký")
     void createInvitation_UserNotFound() {
         CreateStaffInvitationRequest req = new CreateStaffInvitationRequest("missing@smartomni.vn", "STAFF");
@@ -161,7 +186,7 @@ class StaffInvitationServiceTest {
         StaffInvitation inv = StaffInvitation.builder()
                 .invitedEmail("staff@smartomni.vn")
                 .invitedUserId(20L)
-                .role("MANAGER")
+                .role("STAFF")
                 .status(InvitationStatus.PENDING)
                 .invitedBy(1L)
                 .expiresAt(Instant.now().plus(3, ChronoUnit.DAYS))
@@ -189,7 +214,7 @@ class StaffInvitationServiceTest {
         when(staffInvitationRepository.findOtherPendingForInvitee(
                 50L, 20L, "staff@smartomni.vn", InvitationStatus.PENDING))
                 .thenReturn(List.of(other));
-        when(jwtTokenProvider.generateToken(20L, "MANAGER", 100L, "abc", 0L))
+        when(jwtTokenProvider.generateToken(20L, "STAFF", 100L, "abc", 0L))
                 .thenReturn("new.jwt.token.with.tenant");
 
         AuthResponse response = service.acceptInvitation(20L, 50L);
@@ -197,7 +222,7 @@ class StaffInvitationServiceTest {
         assertEquals("new.jwt.token.with.tenant", response.getAccessToken());
         assertEquals(100L, response.getUserInfo().getTenantId());
         assertEquals("abc", response.getUserInfo().getSubdomain());
-        assertEquals("MANAGER", response.getUserInfo().getRole());
+        assertEquals("STAFF", response.getUserInfo().getRole());
         assertEquals(InvitationStatus.ACCEPTED, inv.getStatus());
         assertEquals(InvitationStatus.CANCELLED, other.getStatus());
     }

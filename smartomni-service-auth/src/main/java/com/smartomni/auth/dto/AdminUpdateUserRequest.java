@@ -30,7 +30,7 @@ public class AdminUpdateUserRequest {
     private String avatar;
 
     /**
-     * Thay đổi role (chỉ SUPER_ADMIN có thể thay đổi sang ADMIN; ADMIN có thể thay đổi từ MANAGER trở xuống).
+     * Thay đổi role (chỉ SUPER_ADMIN có thể thay đổi sang ADMIN; ADMIN có thể thay đổi từ STAFF trở xuống).
      */
     private String role;
 }

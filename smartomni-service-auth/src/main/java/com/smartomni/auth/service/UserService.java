@@ -30,7 +30,7 @@ public interface UserService {
     // ======================== ADMIN APIs ========================
 
     /**
-     * Tạo tài khoản Staff/Manager mới bởi Admin/Tenant Owner.
+     * Tạo tài khoản Staff mới bởi Admin/Tenant Owner.
      * Kiểm tra email trùng lặp, hash password, gán role và liên kết với tenantId của người tạo.
      *
      * @param callerUserId  ID người dùng đang thực hiện tạo tài khoản (để xác định tenantId)

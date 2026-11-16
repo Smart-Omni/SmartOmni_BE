@@ -296,10 +296,30 @@ public class TenantServiceImplTest {
         assertEquals("Staff Member", response.getAdminFullName());
 
         verify(userRepository).save(argThat(user ->
-                user.getRole() == TenantUser.UserRole.MANAGER
+                user.getRole() == TenantUser.UserRole.STAFF
                         && user.getStatus() == TenantUser.UserStatus.DISABLED
                         && user.getTenantId().equals(10L)
         ));
+        verify(tenantRepository, never()).save(any(Tenant.class));
+    }
+
+    @Test
+    @DisplayName("onboardTenant: roleChoice=MANAGER (đã gỡ) và giá trị lạ bị từ chối INVALID_ROLE, không tạo tenant/user")
+    void testOnboardTenant_RemovedOrUnknownRole_Rejected() {
+        for (String role : new String[]{"MANAGER", "ROLE_MANAGER", "ADMIN", "CUSTOMER"}) {
+            TenantOnboardingRequest request = TenantOnboardingRequest.builder()
+                    .subdomain("existing-store")
+                    .adminEmail("manager@existingstore.vn")
+                    .adminFullName("Old Manager")
+                    .roleChoice(role)
+                    .build();
+
+            BusinessException error = assertThrows(BusinessException.class, () -> tenantService.onboardTenant(request));
+
+            assertEquals("INVALID_ROLE", error.getErrorCode());
+            assertEquals(org.springframework.http.HttpStatus.BAD_REQUEST, error.getHttpStatus());
+        }
+        verify(userRepository, never()).save(any());
         verify(tenantRepository, never()).save(any(Tenant.class));
     }
 
@@ -498,7 +518,7 @@ public class TenantServiceImplTest {
     @Test
     @DisplayName("getCurrentTenantProfile: Thành công khi TenantContext có tenantId")
     void testGetCurrentTenantProfile_Success() {
-        TenantContext.openScope(100L, "MANAGER", null);
+        TenantContext.openScope(100L, "STAFF", null);
 
         Tenant tenant = new Tenant();
         tenant.setId(100L);
