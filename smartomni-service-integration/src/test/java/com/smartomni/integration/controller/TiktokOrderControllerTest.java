@@ -6,12 +6,15 @@ import com.smartomni.integration.controller.TiktokOrderController.TiktokOrderSyn
 import com.smartomni.integration.dto.tiktok.OrderSearchRequest;
 import com.smartomni.integration.dto.tiktok.OrderSearchResponse;
 import com.smartomni.integration.dto.tiktok.TiktokOrderDetailResponse;
+import com.smartomni.integration.dto.tiktok.TiktokOrderSyncResponse;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.catalog.TiktokTenantConnections;
 import com.smartomni.integration.service.tiktok.TiktokOrderIngestionService;
+import com.smartomni.integration.service.tiktok.TiktokOrderSyncService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -27,6 +30,7 @@ class TiktokOrderControllerTest {
     private TiktokTenantConnections tenantConnections;
     private TiktokOrderClient orderClient;
     private TiktokOrderIngestionService orderIngestionService;
+    private TiktokOrderSyncService orderSyncService;
     private TiktokOrderController controller;
     private MarketplaceConnection connection;
 
@@ -35,8 +39,9 @@ class TiktokOrderControllerTest {
         tenantConnections = mock(TiktokTenantConnections.class);
         orderClient = mock(TiktokOrderClient.class);
         orderIngestionService = mock(TiktokOrderIngestionService.class);
+        orderSyncService = mock(TiktokOrderSyncService.class);
 
-        controller = new TiktokOrderController(tenantConnections, orderClient, orderIngestionService);
+        controller = new TiktokOrderController(tenantConnections, orderClient, orderIngestionService, orderSyncService);
 
         connection = new MarketplaceConnection();
         connection.setId(77L);
@@ -69,6 +74,30 @@ class TiktokOrderControllerTest {
         assertNotNull(res.getBody().getData());
         assertEquals(1, res.getBody().getData().getOrders().size());
         assertEquals("TK-ORDER-001", res.getBody().getData().getOrders().get(0).getOrderId());
+    }
+
+    @Test
+    @DisplayName("listOrders forwards orderId filter to TiktokOrderClient (D1)")
+    void listOrders_WithOrderId_ForwardsFilter() {
+        TiktokOrderDetailResponse order = new TiktokOrderDetailResponse();
+        order.setOrderId("TK-ORDER-999");
+
+        OrderSearchResponse searchResponse = OrderSearchResponse.builder()
+                .orders(List.of(order))
+                .totalCount(1)
+                .build();
+
+        when(orderClient.searchOrders(eq(77L), any(OrderSearchRequest.class))).thenReturn(searchResponse);
+
+        ResponseEntity<ApiResponse<OrderSearchResponse>> res =
+                controller.listOrders(null, "TK-ORDER-999", null, null, 20, null);
+
+        assertEquals(HttpStatus.OK, res.getStatusCode());
+        assertEquals("TK-ORDER-999", res.getBody().getData().getOrders().get(0).getOrderId());
+
+        ArgumentCaptor<OrderSearchRequest> captor = ArgumentCaptor.forClass(OrderSearchRequest.class);
+        verify(orderClient).searchOrders(eq(77L), captor.capture());
+        assertEquals("TK-ORDER-999", captor.getValue().getOrderId());
     }
 
     @Test
@@ -108,50 +137,53 @@ class TiktokOrderControllerTest {
     }
 
     @Test
-    @DisplayName("syncOrders triggers manual sync and returns synced orders")
+    @DisplayName("syncOrders delegates to TiktokOrderSyncService and returns sync report (D2)")
     void syncOrders_Success() {
         TiktokOrderDetailResponse order = new TiktokOrderDetailResponse();
         order.setOrderId("TK-SYNC-001");
         order.setOrderStatus("AWAITING_SHIPMENT");
 
-        OrderSearchResponse syncResponse = OrderSearchResponse.builder()
+        TiktokOrderSyncResponse syncResponse = TiktokOrderSyncResponse.builder()
+                .totalFetched(1)
+                .createdCount(1)
+                .updatedCount(0)
                 .orders(List.of(order))
-                .totalCount(1)
                 .build();
 
-        when(orderClient.searchOrders(eq(77L), any(OrderSearchRequest.class))).thenReturn(syncResponse);
+        when(orderSyncService.syncOrders(connection, 1700000000L, 1700086400L)).thenReturn(syncResponse);
 
         TiktokOrderSyncRequest syncRequest = new TiktokOrderSyncRequest();
         syncRequest.setShopId("SHOP-001");
         syncRequest.setFromDate(1700000000L);
         syncRequest.setToDate(1700086400L);
 
-        ResponseEntity<ApiResponse<OrderSearchResponse>> res = controller.syncOrders(syncRequest);
+        ResponseEntity<ApiResponse<TiktokOrderSyncResponse>> res = controller.syncOrders(syncRequest);
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertNotNull(res.getBody());
         assertEquals("Orders synced successfully", res.getBody().getMessage());
-        assertEquals(1, res.getBody().getData().getOrders().size());
+        assertEquals(1, res.getBody().getData().getTotalFetched());
+        assertEquals(1, res.getBody().getData().getCreatedCount());
+        assertEquals(0, res.getBody().getData().getUpdatedCount());
     }
 
     @Test
-    @DisplayName("syncOrders with null fromDate and toDate still succeeds")
-    void syncOrders_NullDates_Success() {
-        OrderSearchResponse emptyResponse = OrderSearchResponse.builder()
+    @DisplayName("syncOrders with null request still succeeds")
+    void syncOrders_NullRequest_Success() {
+        TiktokOrderSyncResponse emptyResponse = TiktokOrderSyncResponse.builder()
+                .totalFetched(0)
+                .createdCount(0)
+                .updatedCount(0)
                 .orders(List.of())
-                .totalCount(0)
                 .build();
 
-        when(orderClient.searchOrders(eq(77L), any(OrderSearchRequest.class))).thenReturn(emptyResponse);
+        when(orderSyncService.syncOrders(connection, null, null)).thenReturn(emptyResponse);
 
-        TiktokOrderSyncRequest syncRequest = new TiktokOrderSyncRequest();
-        syncRequest.setShopId("SHOP-002");
-
-        ResponseEntity<ApiResponse<OrderSearchResponse>> res = controller.syncOrders(syncRequest);
+        ResponseEntity<ApiResponse<TiktokOrderSyncResponse>> res = controller.syncOrders(null);
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertNotNull(res.getBody());
-        verify(orderClient).searchOrders(eq(77L), any(OrderSearchRequest.class));
+        verify(orderSyncService).syncOrders(connection, null, null);
     }
 }
 

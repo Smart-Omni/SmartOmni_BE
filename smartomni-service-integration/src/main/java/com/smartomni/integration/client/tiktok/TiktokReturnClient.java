@@ -20,7 +20,7 @@ import java.util.Map;
 @Component
 public class TiktokReturnClient {
 
-    public static final String SEARCH_RETURNS_PATH = "/return/202309/returns/search";
+    public static final String SEARCH_RETURNS_PATH = "/return_refund/202309/returns/search";
 
     private final TiktokShopApiExecutor executor;
     private final ObjectMapper mapper;

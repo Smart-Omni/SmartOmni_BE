@@ -2,6 +2,8 @@ package com.smartomni.integration.controller;
 
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.integration.client.tiktok.TiktokCancellationClient;
+import com.smartomni.integration.dto.tiktok.CancellationSearchRequest;
+import com.smartomni.integration.dto.tiktok.CancellationSearchResponse;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.catalog.TiktokTenantConnections;
 import lombok.AllArgsConstructor;
@@ -28,6 +30,29 @@ public class TiktokCancellationController {
 
     private final TiktokTenantConnections tenantConnections;
     private final TiktokCancellationClient cancellationClient;
+
+    /**
+     * Lists buyer-initiated order cancellation requests from TikTok Simulator for the current shop (D6).
+     */
+    @GetMapping
+    public ResponseEntity<ApiResponse<CancellationSearchResponse>> listCancellations(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String orderId,
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String pageToken) {
+
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+
+        CancellationSearchRequest request = CancellationSearchRequest.builder()
+                .cancelStatus(status)
+                .orderId(orderId)
+                .pageSize(pageSize)
+                .pageToken(pageToken)
+                .build();
+
+        CancellationSearchResponse response = cancellationClient.searchCancellations(connection.getId(), request);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
 
     /**
      * Seller actively requests to cancel an order on TikTok Shop.

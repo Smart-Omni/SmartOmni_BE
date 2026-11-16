@@ -1,18 +1,28 @@
 package com.smartomni.integration.dto.tiktok;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class OrderSearchRequest {
+
+    @JsonProperty("order_id")
+    private String orderId;
+
+    @JsonProperty("order_ids")
+    private List<String> orderIds;
 
     @JsonProperty("page_size")
     @Builder.Default

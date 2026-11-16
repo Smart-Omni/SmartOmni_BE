@@ -1,6 +1,7 @@
 package com.smartomni.integration.dto.tiktok;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,7 +13,14 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class ShipPackageRequest {
+
+    @JsonProperty("handover_method")
+    private String handoverMethod;
+
+    @JsonProperty("shipping_service_id")
+    private String shippingServiceId;
 
     @JsonProperty("pickup_slot")
     private PickupSlot pickupSlot;

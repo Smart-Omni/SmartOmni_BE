@@ -65,6 +65,28 @@ public class TiktokOpenApiClient {
         return TiktokEnvelope.decode(mapper, response);
     }
 
+    /**
+     * Performs one signed call and returns the raw binary response (e.g., PDF shipping label).
+     */
+    public TiktokHttpTransport.BinaryResponse callBinary(String method, String path, Map<String, String> query,
+                                                         String body, String accessToken, String shopCipher) {
+        requireCredentials();
+        Map<String, String> params = new TreeMap<>(query == null ? Map.of() : query);
+        params.put("app_key", properties.getAppKey());
+        params.put("timestamp", Long.toString(signingClock.instant().getEpochSecond()));
+        if (shopCipher != null && !shopCipher.isBlank()) {
+            params.put("shop_cipher", shopCipher);
+        }
+        String payload = body == null ? "" : body;
+        params.put("sign", TiktokApiSigner.sign(properties.getAppSecret(), path, params, payload));
+
+        Map<String, String> headers = new java.util.LinkedHashMap<>();
+        headers.put("x-tts-access-token", accessToken);
+        headers.put("Accept", "application/pdf, application/json");
+        return transport.sendBinary(method,
+                TiktokEnvelope.buildUri(properties.getOpenApiBaseUrl(), path, params), headers, payload);
+    }
+
     /** GET /authorization/202309/shops (official OAS). No shop_cipher: this call discovers it. */
     public List<AuthorizedShop> getAuthorizedShops(String accessToken) {
         JsonNode data = call("GET", "/authorization/202309/shops", Map.of(), null, accessToken, null);

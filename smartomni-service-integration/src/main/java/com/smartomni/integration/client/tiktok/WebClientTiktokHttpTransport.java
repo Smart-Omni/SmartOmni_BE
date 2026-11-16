@@ -2,6 +2,7 @@ package com.smartomni.integration.client.tiktok;
 
 import com.smartomni.integration.config.TiktokProperties;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -33,6 +34,23 @@ public class WebClientTiktokHttpTransport implements TiktokHttpTransport {
         } catch (RuntimeException e) {
             // WebClient exception messages embed the request URI; app_secret and auth_code travel in it.
             throw TiktokApiException.transport("TikTok request failed (" + e.getClass().getSimpleName() + ")");
+        }
+    }
+
+    @Override
+    public BinaryResponse sendBinary(String method, URI uri, Map<String, String> headers, String body) {
+        try {
+            WebClient.RequestBodySpec spec = webClient.method(HttpMethod.valueOf(method)).uri(uri)
+                    .headers(h -> headers.forEach(h::set));
+            WebClient.RequestHeadersSpec<?> request = body == null || body.isEmpty() ? spec : spec.bodyValue(body);
+            return request.exchangeToMono(response -> response.bodyToMono(byte[].class).defaultIfEmpty(new byte[0])
+                            .map(bytes -> new BinaryResponse(
+                                    response.statusCode().value(),
+                                    response.headers().contentType().map(MediaType::toString).orElse(""),
+                                    bytes)))
+                    .block(timeout);
+        } catch (RuntimeException e) {
+            throw TiktokApiException.transport("TikTok binary request failed (" + e.getClass().getSimpleName() + ")");
         }
     }
 }

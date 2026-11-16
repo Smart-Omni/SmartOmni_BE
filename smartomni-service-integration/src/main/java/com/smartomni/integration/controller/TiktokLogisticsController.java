@@ -1,32 +1,32 @@
 package com.smartomni.integration.controller;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.smartomni.common.dto.ApiResponse;
+import com.smartomni.common.exception.BusinessException;
 import com.smartomni.integration.client.tiktok.TiktokFulfillmentClient;
 import com.smartomni.integration.dto.tiktok.ShipPackageRequest;
-import com.smartomni.integration.dto.tiktok.ShippingDocumentResponse;
 import com.smartomni.integration.dto.tiktok.TiktokPackageResponse;
+import com.smartomni.integration.dto.tiktok.TiktokShippingProviderDto;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.catalog.TiktokTenantConnections;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestTemplate;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
- * Controller exposing TikTok Shop logistics operations: shipping providers, package shipment,
- * and waybill/shipping label PDF download (UC-TK-02).
+ * Controller exposing TikTok Shop logistics operations: shipping providers (D3), package shipment (D4),
+ * and waybill/shipping label PDF download (D5).
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/v1/tiktok/logistics")
+@RequestMapping("/api/v1/tiktok")
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF')")
 public class TiktokLogisticsController {
@@ -35,86 +35,108 @@ public class TiktokLogisticsController {
     private final TiktokFulfillmentClient fulfillmentClient;
 
     /**
-     * Returns available shipping providers / document types supported by the tenant's TikTok Shop connection.
+     * Returns available shipping providers and services from TikTok Simulator (D3).
      */
-    @GetMapping("/shipping-providers")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getShippingProviders(
+    @GetMapping({"/shipping-providers", "/logistics/shipping-providers"})
+    public ResponseEntity<ApiResponse<List<TiktokShippingProviderDto>>> getShippingProviders(
             @RequestParam(required = false) String shopId) {
 
         MarketplaceConnection connection = tenantConnections.requireConnected();
-        log.info("Fetching shipping providers: connectionId={}, shopId={}, platform={}",
-                connection.getId(), shopId, connection.getPlatform());
+        log.info("Fetching TikTok shipping providers: connectionId={}, shopId={}", connection.getId(), shopId);
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("connectionId", connection.getId());
-        result.put("platform", connection.getPlatform());
-        result.put("shopId", shopId);
-        result.put("documentTypes", List.of("SL_PDF", "WAYBILL_PDF"));
-
-        return ResponseEntity.ok(ApiResponse.success(result));
+        List<TiktokShippingProviderDto> providers = fulfillmentClient.getShippingProviders(connection.getId());
+        return ResponseEntity.ok(ApiResponse.success(providers));
     }
 
     /**
-     * Confirms package shipment / arranges fulfillment with TikTok Fulfillment API.
+     * Confirms package shipment / arranges fulfillment with TikTok Fulfillment API (D4).
      */
-    @PostMapping("/ship-package")
+    @PostMapping({"/packages/{packageId}/ship", "/logistics/ship-package"})
     public ResponseEntity<ApiResponse<TiktokPackageResponse>> shipPackage(
-            @RequestBody TiktokShipPackageRequest request) {
+            @PathVariable(required = false) String packageId,
+            @RequestBody(required = false) TiktokShipPackageRequest request) {
 
         MarketplaceConnection connection = tenantConnections.requireConnected();
-        log.info("Arranging TikTok shipment: connectionId={}, orderId={}, packageId={}",
-                connection.getId(), request.getOrderId(), request.getPackageId());
+        String resolvedPackageId = firstNonBlank(packageId, request != null ? request.getPackageId() : null);
+        if (resolvedPackageId == null) {
+            throw new BusinessException("packageId is required", HttpStatus.BAD_REQUEST, "INVALID_PACKAGE_ID");
+        }
 
-        ShipPackageRequest shipRequest = ShipPackageRequest.builder().build();
-        TiktokPackageResponse response = fulfillmentClient.shipPackage(connection.getId(),
-                request.getPackageId(), shipRequest);
+        String handoverMethod = (request != null && request.getHandoverMethod() != null && !request.getHandoverMethod().isBlank())
+                ? request.getHandoverMethod().trim()
+                : "PICKUP";
+        String shippingServiceId = request != null ? request.getShippingServiceId() : null;
 
+        log.info("Arranging TikTok shipment: connectionId={}, packageId={}, handoverMethod={}, shippingServiceId={}",
+                connection.getId(), resolvedPackageId, handoverMethod, shippingServiceId);
+
+        ShipPackageRequest shipRequest = ShipPackageRequest.builder()
+                .handoverMethod(handoverMethod)
+                .shippingServiceId(shippingServiceId)
+                .build();
+
+        TiktokPackageResponse response = fulfillmentClient.shipPackage(connection.getId(), resolvedPackageId, shipRequest);
         return ResponseEntity.ok(ApiResponse.success("Package shipped successfully", response));
     }
 
     /**
-     * Downloads the shipping label / waybill PDF (Thermal 100x150mm) and streams it directly
-     * to the frontend with Content-Type: application/pdf.
+     * Downloads the shipping label / waybill PDF directly from TikTok Simulator and streams it
+     * with Content-Type: application/pdf. Errors throw BusinessException with SHIPPING_LABEL_UNAVAILABLE (D5).
      */
-    @GetMapping(value = "/shipping-label/download", produces = MediaType.APPLICATION_PDF_VALUE)
+    @GetMapping({
+            "/packages/{packageId}/shipping-label/download",
+            "/orders/{orderId}/shipping-label/download",
+            "/logistics/shipping-label/download"
+    })
     public ResponseEntity<byte[]> downloadShippingLabel(
+            @PathVariable(required = false) String packageId,
+            @PathVariable(required = false) String orderId,
             @RequestParam(required = false) String shopId,
-            @RequestParam(required = false) String orderId,
-            @RequestParam(required = false) String packageId,
+            @RequestParam(name = "orderId", required = false) String orderIdParam,
+            @RequestParam(name = "packageId", required = false) String packageIdParam,
             @RequestParam(defaultValue = "SL_PDF") String documentType) {
 
         MarketplaceConnection connection = tenantConnections.requireConnected();
-        String resolvedPackageId = packageId != null ? packageId : orderId;
-        log.info("Downloading TikTok shipping label: connectionId={}, packageId={}, documentType={}",
-                connection.getId(), resolvedPackageId, documentType);
+        String resolvedPackageId = firstNonBlank(packageId, packageIdParam);
+        String resolvedOrderId = firstNonBlank(orderId, orderIdParam);
 
-        ShippingDocumentResponse docResponse = fulfillmentClient.getShippingDocuments(
-                connection.getId(), resolvedPackageId, documentType);
+        byte[] pdfBytes;
+        String labelId;
+        if (resolvedPackageId != null) {
+            labelId = resolvedPackageId;
+            log.info("Downloading TikTok shipping label by packageId: connectionId={}, packageId={}",
+                    connection.getId(), resolvedPackageId);
+            pdfBytes = fulfillmentClient.downloadShippingLabelByPackage(connection.getId(), resolvedPackageId);
+        } else if (resolvedOrderId != null) {
+            labelId = resolvedOrderId;
+            log.info("Downloading TikTok shipping label by orderId: connectionId={}, orderId={}",
+                    connection.getId(), resolvedOrderId);
+            pdfBytes = fulfillmentClient.downloadShippingLabelByOrder(connection.getId(), resolvedOrderId);
+        } else {
+            throw new BusinessException("packageId or orderId is required to download shipping label",
+                    HttpStatus.BAD_REQUEST, TiktokFulfillmentClient.SHIPPING_LABEL_UNAVAILABLE_CODE);
+        }
 
-        String labelUrl = docResponse.getDocUrl() != null ? docResponse.getDocUrl() : docResponse.getFileUrl();
-        byte[] pdfBytes = fetchPdfBytes(labelUrl);
-        String filename = "TikTok-Label-" + resolvedPackageId + ".pdf";
+        if (pdfBytes == null || pdfBytes.length == 0) {
+            throw new BusinessException("Shipping label PDF is empty",
+                    HttpStatus.BAD_GATEWAY, TiktokFulfillmentClient.SHIPPING_LABEL_UNAVAILABLE_CODE);
+        }
 
+        String filename = "TikTok-Label-" + labelId + ".pdf";
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
                 .body(pdfBytes);
     }
 
-    /**
-     * Fetches raw PDF bytes from the given CDN pre-signed URL returned by TikTok.
-     */
-    private byte[] fetchPdfBytes(String url) {
-        if (url == null || url.isBlank()) {
-            return new byte[0];
+    private static String firstNonBlank(String primary, String fallback) {
+        if (primary != null && !primary.isBlank()) {
+            return primary.trim();
         }
-        try {
-            RestTemplate restTemplate = new RestTemplate();
-            return restTemplate.getForObject(url, byte[].class);
-        } catch (Exception ex) {
-            log.error("Failed to download shipping label PDF from URL: {}", url, ex);
-            return new byte[0];
+        if (fallback != null && !fallback.isBlank()) {
+            return fallback.trim();
         }
+        return null;
     }
 
     /**
@@ -122,10 +144,20 @@ public class TiktokLogisticsController {
      */
     public static class TiktokShipPackageRequest {
 
+        @JsonAlias({"shop_id"})
         private String shopId;
+
+        @JsonAlias({"order_id"})
         private String orderId;
+
+        @JsonAlias({"package_id"})
         private String packageId;
+
+        @JsonAlias({"shipping_service_id"})
         private String shippingServiceId;
+
+        @JsonAlias({"handover_method"})
+        private String handoverMethod;
 
         public TiktokShipPackageRequest() {}
 
@@ -140,5 +172,8 @@ public class TiktokLogisticsController {
 
         public String getShippingServiceId() { return shippingServiceId; }
         public void setShippingServiceId(String shippingServiceId) { this.shippingServiceId = shippingServiceId; }
+
+        public String getHandoverMethod() { return handoverMethod; }
+        public void setHandoverMethod(String handoverMethod) { this.handoverMethod = handoverMethod; }
     }
 }

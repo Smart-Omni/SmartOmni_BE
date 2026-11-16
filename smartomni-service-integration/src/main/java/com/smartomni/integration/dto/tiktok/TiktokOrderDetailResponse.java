@@ -57,6 +57,9 @@ public class TiktokOrderDetailResponse {
     @JsonProperty("paid_time")
     private Long paidTime;
 
+    @JsonProperty("completed_time")
+    private Long completedTime;
+
     @JsonProperty("cancel_reason")
     private String cancelReason;
 
@@ -185,6 +188,9 @@ public class TiktokOrderDetailResponse {
 
         @JsonProperty("package_status")
         private String packageStatus;
+
+        @JsonProperty("status")
+        private String status;
     }
 
     @Data
@@ -198,5 +204,8 @@ public class TiktokOrderDetailResponse {
 
         @JsonProperty("package_status")
         private String packageStatus;
+
+        @JsonProperty("status")
+        private String status;
     }
 }

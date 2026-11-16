@@ -3,6 +3,9 @@ package com.smartomni.integration.controller;
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.integration.client.tiktok.TiktokCancellationClient;
 import com.smartomni.integration.controller.TiktokCancellationController.TiktokCancelOrderRequest;
+import com.smartomni.integration.dto.tiktok.CancellationSearchRequest;
+import com.smartomni.integration.dto.tiktok.CancellationSearchResponse;
+import com.smartomni.integration.dto.tiktok.TiktokCancellationResponse;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.catalog.TiktokTenantConnections;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -38,6 +42,31 @@ class TiktokCancellationControllerTest {
         connection.setStatus(MarketplaceConnection.ConnectionStatus.CONNECTED);
 
         when(tenantConnections.requireConnected()).thenReturn(connection);
+    }
+
+    @Test
+    @DisplayName("listCancellations returns buyer cancellation requests from TikTok Simulator (D6)")
+    void listCancellations_Success() {
+        TiktokCancellationResponse cancel = TiktokCancellationResponse.builder()
+                .cancelId("CANCEL-001")
+                .orderId("ORD-TK-001")
+                .cancelStatus("CANCELLATION_REQUEST_PENDING")
+                .build();
+        CancellationSearchResponse searchResponse = CancellationSearchResponse.builder()
+                .cancellations(List.of(cancel))
+                .totalCount(1)
+                .build();
+
+        when(cancellationClient.searchCancellations(eq(77L), any(CancellationSearchRequest.class)))
+                .thenReturn(searchResponse);
+
+        ResponseEntity<ApiResponse<CancellationSearchResponse>> res =
+                controller.listCancellations("CANCELLATION_REQUEST_PENDING", "ORD-TK-001", 20, null);
+
+        assertEquals(HttpStatus.OK, res.getStatusCode());
+        assertNotNull(res.getBody());
+        assertEquals(1, res.getBody().getData().getCancellations().size());
+        assertEquals("CANCEL-001", res.getBody().getData().getCancellations().get(0).getCancelId());
     }
 
     @Test

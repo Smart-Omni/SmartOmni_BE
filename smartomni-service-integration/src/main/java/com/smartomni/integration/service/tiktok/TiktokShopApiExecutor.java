@@ -2,6 +2,7 @@ package com.smartomni.integration.service.tiktok;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.smartomni.integration.client.tiktok.TiktokApiException;
+import com.smartomni.integration.client.tiktok.TiktokHttpTransport;
 import com.smartomni.integration.client.tiktok.TiktokOpenApiClient;
 import com.smartomni.integration.config.TiktokProperties;
 import com.smartomni.common.exception.BusinessException;
@@ -53,6 +54,21 @@ public class TiktokShopApiExecutor {
             TiktokTokenService.Credentials renewed = tokens.refreshAfterRejection(connectionId, credentials.tokenVersion());
             return client.call(method, path, query, body, renewed.accessToken(), renewed.shopCipher());
         }
+    }
+
+    /**
+     * Executes a signed OpenAPI binary call (e.g. shipping label PDF download) with single token refresh on 401.
+     */
+    public TiktokHttpTransport.BinaryResponse callBinary(Long connectionId, String method, String path,
+                                                         Map<String, String> query, String body) {
+        TiktokTokenService.Credentials credentials = tokens.credentials(connectionId);
+        TiktokHttpTransport.BinaryResponse response = client.callBinary(
+                method, path, query, body, credentials.accessToken(), credentials.shopCipher());
+        if (properties.getTokenRejectedHttpStatuses().contains(response.status())) {
+            TiktokTokenService.Credentials renewed = tokens.refreshAfterRejection(connectionId, credentials.tokenVersion());
+            return client.callBinary(method, path, query, body, renewed.accessToken(), renewed.shopCipher());
+        }
+        return response;
     }
 
     /**

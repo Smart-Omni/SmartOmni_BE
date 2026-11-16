@@ -1,22 +1,24 @@
 package com.smartomni.integration.controller;
 
 import com.smartomni.common.dto.ApiResponse;
+import com.smartomni.common.exception.BusinessException;
 import com.smartomni.integration.client.tiktok.TiktokFulfillmentClient;
 import com.smartomni.integration.controller.TiktokLogisticsController.TiktokShipPackageRequest;
 import com.smartomni.integration.dto.tiktok.ShipPackageRequest;
-import com.smartomni.integration.dto.tiktok.ShippingDocumentResponse;
 import com.smartomni.integration.dto.tiktok.TiktokPackageResponse;
+import com.smartomni.integration.dto.tiktok.TiktokShippingProviderDto;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.catalog.TiktokTenantConnections;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -24,9 +26,6 @@ import static org.mockito.Mockito.*;
 
 @DisplayName("TiktokLogisticsController Unit Tests")
 class TiktokLogisticsControllerTest {
-
-    private static final String CONTENT_DISPOSITION =
-            org.springframework.http.HttpHeaders.CONTENT_DISPOSITION;
 
     private TiktokTenantConnections tenantConnections;
     private TiktokFulfillmentClient fulfillmentClient;
@@ -50,35 +49,30 @@ class TiktokLogisticsControllerTest {
     }
 
     @Test
-    @DisplayName("getShippingProviders returns connection info and supported document types")
+    @DisplayName("getShippingProviders returns providers mapped from TikTok Simulator (D3)")
     void getShippingProviders_Success() {
-        ResponseEntity<ApiResponse<Map<String, Object>>> res =
+        List<TiktokShippingProviderDto> providers = List.of(
+                TiktokShippingProviderDto.builder()
+                        .shippingProviderId("SP-001")
+                        .shippingProviderName("J&T Express")
+                        .shippingServiceId("SVC-001")
+                        .shippingServiceName("Standard")
+                        .build()
+        );
+        when(fulfillmentClient.getShippingProviders(77L)).thenReturn(providers);
+
+        ResponseEntity<ApiResponse<List<TiktokShippingProviderDto>>> res =
                 controller.getShippingProviders("SHOP-001");
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertNotNull(res.getBody());
-
-        Map<String, Object> data = res.getBody().getData();
-        assertNotNull(data);
-        assertEquals(77L, data.get("connectionId"));
-        assertEquals("SHOP-001", data.get("shopId"));
-        assertInstanceOf(List.class, data.get("documentTypes"));
-        assertTrue(((List<?>) data.get("documentTypes")).contains("SL_PDF"));
+        assertEquals(1, res.getBody().getData().size());
+        assertEquals("SP-001", res.getBody().getData().get(0).getShippingProviderId());
+        assertEquals("SVC-001", res.getBody().getData().get(0).getShippingServiceId());
     }
 
     @Test
-    @DisplayName("getShippingProviders works without shopId param")
-    void getShippingProviders_NoShopId_Success() {
-        ResponseEntity<ApiResponse<Map<String, Object>>> res =
-                controller.getShippingProviders(null);
-
-        assertEquals(HttpStatus.OK, res.getStatusCode());
-        assertNotNull(res.getBody());
-        assertNull(res.getBody().getData().get("shopId"));
-    }
-
-    @Test
-    @DisplayName("shipPackage returns confirmed TiktokPackageResponse")
+    @DisplayName("shipPackage forwards handoverMethod and shippingServiceId to fulfillmentClient (D4)")
     void shipPackage_Success() {
         TiktokPackageResponse packageResponse = TiktokPackageResponse.builder()
                 .packageId("PKG-001")
@@ -95,53 +89,56 @@ class TiktokLogisticsControllerTest {
         request.setOrderId("ORDER-001");
         request.setPackageId("PKG-001");
         request.setShippingServiceId("SVC-001");
+        request.setHandoverMethod("PICKUP");
 
-        ResponseEntity<ApiResponse<TiktokPackageResponse>> res = controller.shipPackage(request);
+        ResponseEntity<ApiResponse<TiktokPackageResponse>> res = controller.shipPackage(null, request);
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertNotNull(res.getBody());
         assertEquals("Package shipped successfully", res.getBody().getMessage());
         assertEquals("PKG-001", res.getBody().getData().getPackageId());
-        assertEquals("TK-TRACK-001", res.getBody().getData().getTrackingNumber());
+
+        ArgumentCaptor<ShipPackageRequest> captor = ArgumentCaptor.forClass(ShipPackageRequest.class);
+        verify(fulfillmentClient).shipPackage(eq(77L), eq("PKG-001"), captor.capture());
+        assertEquals("PICKUP", captor.getValue().getHandoverMethod());
+        assertEquals("SVC-001", captor.getValue().getShippingServiceId());
     }
 
     @Test
-    @DisplayName("downloadShippingLabel streams PDF bytes with correct Content-Type and Content-Disposition headers")
-    void downloadShippingLabel_Success() {
-        // Use null docUrl / fileUrl so fetchPdfBytes returns an empty byte array (avoids real HTTP call)
-        ShippingDocumentResponse nullUrlDoc = ShippingDocumentResponse.builder()
-                .docUrl(null)
-                .fileUrl(null)
-                .documentType("SL_PDF")
-                .build();
+    @DisplayName("downloadShippingLabel streams PDF bytes with Content-Type: application/pdf (D5)")
+    void downloadShippingLabel_ByPackage_Success() {
+        byte[] pdfBytes = "%PDF-1.4\n1 0 obj\n<<>>\nendobj".getBytes();
+        when(fulfillmentClient.downloadShippingLabelByPackage(77L, "PKG-001")).thenReturn(pdfBytes);
 
-        when(fulfillmentClient.getShippingDocuments(eq(77L), eq("PKG-EMPTY"), eq("SL_PDF")))
-                .thenReturn(nullUrlDoc);
-
-        ResponseEntity<byte[]> res = controller.downloadShippingLabel(null, null, "PKG-EMPTY", "SL_PDF");
+        ResponseEntity<byte[]> res = controller.downloadShippingLabel("PKG-001", null, null, null, null, "SL_PDF");
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertEquals(MediaType.APPLICATION_PDF, res.getHeaders().getContentType());
-        assertTrue(res.getHeaders().getFirst(CONTENT_DISPOSITION).contains("TikTok-Label-PKG-EMPTY.pdf"));
-        assertNotNull(res.getBody());
+        assertTrue(res.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION).contains("TikTok-Label-PKG-001.pdf"));
+        assertArrayEquals(pdfBytes, res.getBody());
     }
 
     @Test
-    @DisplayName("downloadShippingLabel resolves packageId from orderId when packageId is null")
-    void downloadShippingLabel_FallbackToOrderId_Success() {
-        ShippingDocumentResponse nullUrlDoc = ShippingDocumentResponse.builder()
-                .docUrl(null)
-                .fileUrl(null)
-                .documentType("SL_PDF")
-                .build();
+    @DisplayName("downloadShippingLabel downloads by orderId when packageId is absent (D5)")
+    void downloadShippingLabel_ByOrder_Success() {
+        byte[] pdfBytes = "%PDF-1.4\norder-label".getBytes();
+        when(fulfillmentClient.downloadShippingLabelByOrder(77L, "ORD-001")).thenReturn(pdfBytes);
 
-        when(fulfillmentClient.getShippingDocuments(eq(77L), eq("ORDER-FALLBACK"), eq("SL_PDF")))
-                .thenReturn(nullUrlDoc);
-
-        ResponseEntity<byte[]> res = controller.downloadShippingLabel(null, "ORDER-FALLBACK", null, "SL_PDF");
+        ResponseEntity<byte[]> res = controller.downloadShippingLabel(null, null, null, "ORD-001", null, "SL_PDF");
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
-        assertTrue(res.getHeaders().getFirst(CONTENT_DISPOSITION).contains("TikTok-Label-ORDER-FALLBACK.pdf"));
-        verify(fulfillmentClient).getShippingDocuments(eq(77L), eq("ORDER-FALLBACK"), eq("SL_PDF"));
+        assertEquals(MediaType.APPLICATION_PDF, res.getHeaders().getContentType());
+        assertTrue(res.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION).contains("TikTok-Label-ORD-001.pdf"));
+        verify(fulfillmentClient).downloadShippingLabelByOrder(77L, "ORD-001");
+    }
+
+    @Test
+    @DisplayName("downloadShippingLabel throws BusinessException SHIPPING_LABEL_UNAVAILABLE when IDs are missing (D5)")
+    void downloadShippingLabel_MissingIds_ThrowsBusinessException() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> controller.downloadShippingLabel(null, null, null, null, null, "SL_PDF"));
+
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getHttpStatus());
+        assertEquals("SHIPPING_LABEL_UNAVAILABLE", ex.getErrorCode());
     }
 }

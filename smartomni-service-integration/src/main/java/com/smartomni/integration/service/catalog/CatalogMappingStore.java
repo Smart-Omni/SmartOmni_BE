@@ -20,6 +20,9 @@ public interface CatalogMappingStore {
     record SkuRef(long id, long productId, String skuCode) {
     }
 
+    record MappedSkuView(long skuId, long productId, String skuCode, String externalSkuId, String sellerSku) {
+    }
+
     record WarehouseRow(String externalId, String name, String type, String subType, String effectStatus,
                         boolean isDefault, String city, String regionCode) {
     }
@@ -45,6 +48,10 @@ public interface CatalogMappingStore {
     Optional<SkuRef> findSkuByCode(String skuCode);
 
     List<LinkRef> listLinks(long connectionId);
+
+    default List<MappedSkuView> listMappedSkus(long connectionId) {
+        return List.of();
+    }
 
     long countSkus();
 

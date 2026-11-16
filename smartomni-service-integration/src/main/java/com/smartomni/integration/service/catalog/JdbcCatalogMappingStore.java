@@ -76,6 +76,23 @@ public class JdbcCatalogMappingStore implements CatalogMappingStore {
     }
 
     @Override
+    public List<MappedSkuView> listMappedSkus(long connectionId) {
+        return jdbc.query(
+                "SELECT l.sku_id, s.product_id, s.sku_code, l.external_sku_id, l.seller_sku "
+                        + "FROM product_marketplace_links l "
+                        + "JOIN product_skus s ON s.id = l.sku_id AND s.tenant_id = l.tenant_id "
+                        + "WHERE l.tenant_id = ? AND l.connection_id = ? AND l.sku_id IS NOT NULL "
+                        + "ORDER BY l.id DESC",
+                (rs, i) -> new MappedSkuView(
+                        rs.getLong("sku_id"),
+                        rs.getLong("product_id"),
+                        rs.getString("sku_code"),
+                        rs.getString("external_sku_id"),
+                        rs.getString("seller_sku")),
+                tenant(), connectionId);
+    }
+
+    @Override
     public long countSkus() {
         Long count = jdbc.queryForObject("SELECT count(*) FROM product_skus WHERE tenant_id = ?", Long.class, tenant());
         return count == null ? 0 : count;

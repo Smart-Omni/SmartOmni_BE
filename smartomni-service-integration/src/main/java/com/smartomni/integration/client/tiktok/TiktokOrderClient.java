@@ -41,7 +41,8 @@ public class TiktokOrderClient {
      */
     public OrderSearchResponse searchOrders(String shopCipher, OrderSearchRequest request) {
         Map<String, String> query = buildSearchQuery(request);
-        JsonNode data = executor.callByShopCipher(shopCipher, "GET", SEARCH_ORDERS_PATH, query, null);
+        String body = serializeBody(request);
+        JsonNode data = executor.callByShopCipher(shopCipher, "POST", SEARCH_ORDERS_PATH, query, body);
         return convert(data, OrderSearchResponse.class);
     }
 
@@ -50,8 +51,28 @@ public class TiktokOrderClient {
      */
     public OrderSearchResponse searchOrders(Long connectionId, OrderSearchRequest request) {
         Map<String, String> query = buildSearchQuery(request);
-        JsonNode data = executor.call(connectionId, "GET", SEARCH_ORDERS_PATH, query, null);
+        String body = serializeBody(request);
+        JsonNode data = executor.call(connectionId, "POST", SEARCH_ORDERS_PATH, query, body);
         return convert(data, OrderSearchResponse.class);
+    }
+
+    /**
+     * Lấy chi tiết một đơn hàng qua GET /order/202507/orders/{orderId}.
+     */
+    public TiktokOrderDetailResponse getOrderDetail(Long connectionId, String orderId) {
+        if (orderId == null || orderId.isBlank()) {
+            return null;
+        }
+        String path = GET_ORDERS_PATH + "/" + orderId.trim();
+        JsonNode data = executor.call(connectionId, "GET", path, Map.of(), null);
+        List<TiktokOrderDetailResponse> parsed = parseOrdersList(data);
+        if (!parsed.isEmpty()) {
+            return parsed.get(0);
+        }
+        if (data != null && data.has("order")) {
+            return convert(data.get("order"), TiktokOrderDetailResponse.class);
+        }
+        return convert(data, TiktokOrderDetailResponse.class);
     }
 
     /**
@@ -60,6 +81,12 @@ public class TiktokOrderClient {
     public List<TiktokOrderDetailResponse> getOrderDetails(String shopCipher, List<String> orderIds) {
         if (orderIds == null || orderIds.isEmpty()) {
             return List.of();
+        }
+        if (orderIds.size() == 1) {
+            String path = GET_ORDERS_PATH + "/" + orderIds.get(0).trim();
+            JsonNode data = executor.callByShopCipher(shopCipher, "GET", path, Map.of(), null);
+            List<TiktokOrderDetailResponse> parsed = parseOrdersList(data);
+            return parsed.isEmpty() ? List.of(convert(data, TiktokOrderDetailResponse.class)) : parsed;
         }
         Map<String, String> query = Map.of("ids", String.join(",", orderIds));
         JsonNode data = executor.callByShopCipher(shopCipher, "GET", GET_ORDERS_PATH, query, null);
@@ -73,9 +100,25 @@ public class TiktokOrderClient {
         if (orderIds == null || orderIds.isEmpty()) {
             return List.of();
         }
+        if (orderIds.size() == 1) {
+            TiktokOrderDetailResponse detail = getOrderDetail(connectionId, orderIds.get(0));
+            return detail != null ? List.of(detail) : List.of();
+        }
         Map<String, String> query = Map.of("ids", String.join(",", orderIds));
         JsonNode data = executor.call(connectionId, "GET", GET_ORDERS_PATH, query, null);
         return parseOrdersList(data);
+    }
+
+    private String serializeBody(OrderSearchRequest request) {
+        if (request == null) {
+            return "{}";
+        }
+        try {
+            return mapper.writeValueAsString(request);
+        } catch (JsonProcessingException e) {
+            throw new TiktokApiException("Failed to serialize order search request: " + e.getMessage(),
+                    400, null, null, false);
+        }
     }
 
     private Map<String, String> buildSearchQuery(OrderSearchRequest request) {

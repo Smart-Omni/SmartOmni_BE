@@ -5,11 +5,13 @@ import com.smartomni.integration.client.tiktok.TiktokOrderClient;
 import com.smartomni.integration.dto.tiktok.OrderSearchRequest;
 import com.smartomni.integration.dto.tiktok.OrderSearchResponse;
 import com.smartomni.integration.dto.tiktok.TiktokOrderDetailResponse;
+import com.smartomni.integration.dto.tiktok.TiktokOrderSyncResponse;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.catalog.TiktokTenantConnections;
 import com.smartomni.integration.service.tiktok.TiktokOrderIngestionService;
-import lombok.RequiredArgsConstructor;
+import com.smartomni.integration.service.tiktok.TiktokOrderSyncService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -22,16 +24,33 @@ import java.util.List;
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/tiktok/orders")
-@RequiredArgsConstructor
 @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF')")
 public class TiktokOrderController {
 
     private final TiktokTenantConnections tenantConnections;
     private final TiktokOrderClient orderClient;
     private final TiktokOrderIngestionService orderIngestionService;
+    private final TiktokOrderSyncService orderSyncService;
+
+    public TiktokOrderController(TiktokTenantConnections tenantConnections,
+                                 TiktokOrderClient orderClient,
+                                 TiktokOrderIngestionService orderIngestionService) {
+        this(tenantConnections, orderClient, orderIngestionService, null);
+    }
+
+    @Autowired
+    public TiktokOrderController(TiktokTenantConnections tenantConnections,
+                                 TiktokOrderClient orderClient,
+                                 TiktokOrderIngestionService orderIngestionService,
+                                 TiktokOrderSyncService orderSyncService) {
+        this.tenantConnections = tenantConnections;
+        this.orderClient = orderClient;
+        this.orderIngestionService = orderIngestionService;
+        this.orderSyncService = orderSyncService;
+    }
 
     /**
-     * Lists orders from TikTok Shop with optional filters (status, date range) and pagination.
+     * Lists orders from TikTok Shop with optional filters (orderId, status, date range) and pagination (D1).
      */
     @GetMapping
     public ResponseEntity<ApiResponse<OrderSearchResponse>> listOrders(
@@ -45,6 +64,7 @@ public class TiktokOrderController {
         MarketplaceConnection connection = tenantConnections.requireConnected();
 
         OrderSearchRequest request = OrderSearchRequest.builder()
+                .orderId(orderId != null && !orderId.isBlank() ? orderId.trim() : null)
                 .orderStatus(orderStatus)
                 .createTimeFrom(createTimeFrom)
                 .createTimeTo(createTimeTo)
@@ -69,26 +89,35 @@ public class TiktokOrderController {
     }
 
     /**
-     * Triggers a manual order sync from TikTok Shop for the specified shop and date range.
+     * Triggers a manual order sync from TikTok Shop, upserting orders and items into SmartOmni DB (D2).
      */
     @PostMapping("/sync")
-    public ResponseEntity<ApiResponse<OrderSearchResponse>> syncOrders(
-            @RequestBody TiktokOrderSyncRequest syncRequest) {
+    public ResponseEntity<ApiResponse<TiktokOrderSyncResponse>> syncOrders(
+            @RequestBody(required = false) TiktokOrderSyncRequest syncRequest) {
 
         MarketplaceConnection connection = tenantConnections.requireConnected();
+        Long fromDate = syncRequest != null ? syncRequest.getFromDate() : null;
+        Long toDate = syncRequest != null ? syncRequest.getToDate() : null;
+
+        if (orderSyncService != null) {
+            TiktokOrderSyncResponse syncResponse = orderSyncService.syncOrders(connection, fromDate, toDate);
+            return ResponseEntity.ok(ApiResponse.success("Orders synced successfully", syncResponse));
+        }
 
         OrderSearchRequest request = OrderSearchRequest.builder()
-                .createTimeFrom(syncRequest.getFromDate())
-                .createTimeTo(syncRequest.getToDate())
+                .createTimeFrom(fromDate)
+                .createTimeTo(toDate)
                 .pageSize(50)
                 .build();
-
         OrderSearchResponse response = orderClient.searchOrders(connection.getId(), request);
-        log.info("Manual TikTok order sync completed: connectionId={}, shopId={}, count={}",
-                connection.getId(), syncRequest.getShopId(),
-                response.getOrders() != null ? response.getOrders().size() : 0);
-
-        return ResponseEntity.ok(ApiResponse.success("Orders synced successfully", response));
+        List<TiktokOrderDetailResponse> orders = response != null ? response.getOrders() : List.of();
+        TiktokOrderSyncResponse fallback = TiktokOrderSyncResponse.builder()
+                .totalFetched(orders.size())
+                .createdCount(0)
+                .updatedCount(0)
+                .orders(orders)
+                .build();
+        return ResponseEntity.ok(ApiResponse.success("Orders synced successfully", fallback));
     }
 
     /**

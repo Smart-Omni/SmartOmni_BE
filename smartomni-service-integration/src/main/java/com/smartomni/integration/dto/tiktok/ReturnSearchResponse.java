@@ -28,10 +28,16 @@ public class ReturnSearchResponse {
     @JsonProperty("return_list")
     private List<TiktokReturnResponse> returnList;
 
+    @JsonProperty("return_orders")
+    private List<TiktokReturnResponse> returnOrders;
+
     public List<TiktokReturnResponse> getReturns() {
         if (returns != null) {
             return returns;
         }
-        return returnList != null ? returnList : List.of();
+        if (returnList != null) {
+            return returnList;
+        }
+        return returnOrders != null ? returnOrders : List.of();
     }
 }
