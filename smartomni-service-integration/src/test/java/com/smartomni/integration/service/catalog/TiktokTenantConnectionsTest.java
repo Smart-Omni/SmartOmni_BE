@@ -51,4 +51,22 @@ class TiktokTenantConnectionsTest {
         assertEquals("CATALOG_SYNC_FORBIDDEN", error.getErrorCode());
         verifyNoInteractions(repository);
     }
+
+    @Test
+    void staffCanResolveConnectedShopButLegacyManagerCannot() {
+        MarketplaceConnectionRepository repository = mock(MarketplaceConnectionRepository.class);
+        MarketplaceConnection connection = new MarketplaceConnection();
+        connection.setTenantId(42L);
+        connection.setPlatform(MarketplaceConnection.Platform.TIKTOK_SHOP);
+        connection.setStatus(MarketplaceConnection.ConnectionStatus.CONNECTED);
+        when(repository.findFirstByTenantIdAndPlatformOrderByIdAsc(42L, MarketplaceConnection.Platform.TIKTOK_SHOP))
+                .thenReturn(Optional.of(connection));
+        TenantContext.setTenantId(42L);
+        TenantContext.setCurrentRole("STAFF");
+        assertSame(connection, new TiktokTenantConnections(repository).requireConnected());
+
+        TenantContext.setCurrentRole("MANAGER");
+        assertEquals("CATALOG_SYNC_FORBIDDEN", assertThrows(BusinessException.class,
+                () -> new TiktokTenantConnections(repository).requireConnected()).getErrorCode());
+    }
 }

@@ -1,5 +1,6 @@
 package com.smartomni.auth.service.impl;
 
+import com.smartomni.auth.dto.AdminUpdateUserRequest;
 import com.smartomni.auth.dto.AssignRolesRequest;
 import com.smartomni.auth.dto.CreateUserRequest;
 import com.smartomni.auth.dto.UpdateUserStatusRequest;
@@ -59,7 +60,7 @@ class UserServiceImplTest {
 
         target = User.builder()
                 .email("user@example.com")
-                .role(User.UserRole.MANAGER)
+                .role(User.UserRole.STAFF)
                 .status(User.UserStatus.ACTIVE)
                 .build();
         target.setId(2L);
@@ -73,7 +74,7 @@ class UserServiceImplTest {
         req.setEmail("new@example.com");
         req.setFullName("New User");
         req.setPassword("pass123");
-        req.setRole(User.UserRole.MANAGER.name());
+        req.setRole(User.UserRole.STAFF.name());
 
         when(userRepository.findById(caller.getId())).thenReturn(Optional.of(caller));
         when(userRepository.findByEmailAndTenantId(req.getEmail(), caller.getTenantId()))
@@ -94,7 +95,7 @@ class UserServiceImplTest {
     void createUser_duplicateEmail_throws() {
         CreateUserRequest req = new CreateUserRequest();
         req.setEmail("dup@example.com");
-        req.setRole(User.UserRole.MANAGER.name());
+        req.setRole(User.UserRole.STAFF.name());
         when(userRepository.findById(caller.getId())).thenReturn(Optional.of(caller));
         when(userRepository.findByEmailAndTenantId(req.getEmail(), caller.getTenantId()))
                 .thenReturn(Optional.of(target));
@@ -124,13 +125,13 @@ class UserServiceImplTest {
     @Test
     void assignRoles_successful() {
         AssignRolesRequest req = new AssignRolesRequest();
-        req.setRoles(Collections.singletonList(User.UserRole.MANAGER.name()));
+        req.setRoles(Collections.singletonList(User.UserRole.STAFF.name()));
         when(userRepository.findById(caller.getId())).thenReturn(Optional.of(caller));
         when(userRepository.findByIdForUpdate(target.getId())).thenReturn(Optional.of(target));
         when(userRepository.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
         when(values.get("auth:user_refresh:2")).thenReturn("token");
         var resp = userService.assignRoles(caller.getId(), caller.getRole().name(), target.getId(), req);
-        assertEquals(User.UserRole.MANAGER.name(), resp.getRole());
+        assertEquals(User.UserRole.STAFF.name(), resp.getRole());
         assertEquals(1L, target.getTokenVersion());
         verify(values).set("auth:user_access:2", "ACTIVE:1");
         verify(stringRedisTemplate).delete("auth:refresh_token:token");
@@ -165,17 +166,58 @@ class UserServiceImplTest {
         // caller tenant 100, target tenant 200
         User otherTarget = User.builder()
                 .email("other@example.com")
-                .role(User.UserRole.MANAGER)
+                .role(User.UserRole.STAFF)
                 .status(User.UserStatus.ACTIVE)
                 .build();
         otherTarget.setId(3L);
         otherTarget.setTenantId(200L);
 
         AssignRolesRequest req = new AssignRolesRequest();
-        req.setRoles(Collections.singletonList(User.UserRole.MANAGER.name()));
+        req.setRoles(Collections.singletonList(User.UserRole.STAFF.name()));
         when(userRepository.findById(caller.getId())).thenReturn(Optional.of(caller));
         when(userRepository.findByIdForUpdate(otherTarget.getId())).thenReturn(Optional.of(otherTarget));
         assertThrows(BusinessException.class, () ->
                 userService.assignRoles(caller.getId(), caller.getRole().name(), otherTarget.getId(), req));
+    }
+
+    @Test
+    void removedManagerRoleIsRejectedWithInvalidRoleEverywhere() {
+        lenient().when(userRepository.findById(caller.getId())).thenReturn(Optional.of(caller));
+        lenient().when(userRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        lenient().when(userRepository.findByIdForUpdate(target.getId())).thenReturn(Optional.of(target));
+
+        CreateUserRequest create = new CreateUserRequest();
+        create.setEmail("m@example.com");
+        create.setRole("MANAGER");
+        AdminUpdateUserRequest update = new AdminUpdateUserRequest();
+        update.setRole("MANAGER");
+        AssignRolesRequest assign = new AssignRolesRequest();
+        assign.setRoles(Collections.singletonList("MANAGER"));
+
+        assertInvalidRole(() -> userService.createUser(caller.getId(), "ADMIN", create));
+        assertInvalidRole(() -> userService.adminUpdateUser(caller.getId(), "ADMIN", target.getId(), update));
+        assertInvalidRole(() -> userService.assignRoles(caller.getId(), "ADMIN", target.getId(), assign));
+        assertInvalidRole(() -> userService.listUsers(caller.getId(), "SUPER_ADMIN", null, null, "MANAGER", 0, 10, null, null));
+
+        verify(userRepository, never()).save(any(User.class));
+        verify(userRepository, never()).searchUsers(any(), any(), any(), any(), any());
+        assertEquals(User.UserRole.STAFF, target.getRole());
+    }
+
+    @Test
+    void listUsersFiltersByStaffRole() {
+        when(userRepository.searchUsers(isNull(), isNull(), isNull(), eq("STAFF"), any()))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+
+        var page = userService.listUsers(caller.getId(), "SUPER_ADMIN", null, null, "staff", 0, 10, null, null);
+
+        assertEquals(0, page.getContent().size());
+        verify(userRepository).searchUsers(isNull(), isNull(), isNull(), eq("STAFF"), any());
+    }
+
+    private static void assertInvalidRole(org.junit.jupiter.api.function.Executable call) {
+        BusinessException error = assertThrows(BusinessException.class, call);
+        assertEquals("INVALID_ROLE", error.getErrorCode());
+        assertEquals(org.springframework.http.HttpStatus.BAD_REQUEST, error.getHttpStatus());
     }
 }

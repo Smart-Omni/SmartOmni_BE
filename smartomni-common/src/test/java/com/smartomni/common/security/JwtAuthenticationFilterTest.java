@@ -49,15 +49,54 @@ class JwtAuthenticationFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         when(tokenBlacklistValidator.isBlacklisted(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
 
         JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate);
         filter.doFilter(request, response, filterChain);
 
-        verify(filterChain, times(1)).doFilter(request, response);
-        verify(jwtTokenProvider, never()).validateToken(anyString());
+        assertEquals(401, response.getStatus());
+        assertTrue(response.getContentAsString().contains("TOKEN_REVOKED"));
+        verifyNoInteractions(filterChain);
         assertNull(SecurityContextHolder.getContext().getAuthentication());
         assertNull(TenantContext.getCurrentUserId());
         assertNull(TenantContext.getTenantId());
+    }
+
+    @Test
+    void expiredTokenTakesPrecedenceOverBlacklist() throws Exception {
+        String token = "expired.jwt.token";
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/products");
+        request.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        when(jwtTokenProvider.parseClaims(token))
+                .thenThrow(new io.jsonwebtoken.ExpiredJwtException(null, null, "expired"));
+
+        new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate)
+                .doFilter(request, response, filterChain);
+
+        assertEquals(401, response.getStatus());
+        assertTrue(response.getContentAsString().contains("TOKEN_EXPIRED"));
+        assertTrue(response.getContentAsString().contains("\"success\":false"));
+        verifyNoInteractions(tokenBlacklistValidator, filterChain);
+    }
+
+    @Test
+    void actuallyExpiredJwtGetsTokenExpiredResponse() throws Exception {
+        JwtTokenProvider realProvider = new JwtTokenProvider();
+        org.springframework.test.util.ReflectionTestUtils.setField(realProvider, "jwtSecret",
+                "1234567890123456789012345678901234567890123456789012345678901234");
+        org.springframework.test.util.ReflectionTestUtils.setField(realProvider, "expirationMs", -1000L);
+        String token = realProvider.generateToken(42L, "STAFF", 7L);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/orders");
+        request.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        new JwtAuthenticationFilter(realProvider, tokenBlacklistValidator, stringRedisTemplate)
+                .doFilter(request, response, filterChain);
+
+        assertEquals(401, response.getStatus());
+        assertTrue(response.getContentAsString().contains("\"code\":\"TOKEN_EXPIRED\""));
+        verifyNoInteractions(filterChain);
     }
 
     @Test
@@ -69,7 +108,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         when(tokenBlacklistValidator.isBlacklisted(token)).thenReturn(false);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
         when(jwtTokenProvider.getRole(token)).thenReturn("ADMIN");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
@@ -104,7 +143,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         when(tokenBlacklistValidator.isBlacklisted(token)).thenReturn(false);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
         when(jwtTokenProvider.getRole(token)).thenReturn("ADMIN");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
@@ -145,9 +184,9 @@ class JwtAuthenticationFilterTest {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/products");
         request.addHeader("Authorization", "Bearer " + token);
         MockHttpServletResponse response = new MockHttpServletResponse();
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
-        when(jwtTokenProvider.getRole(token)).thenReturn("MANAGER");
+        when(jwtTokenProvider.getRole(token)).thenReturn("STAFF");
         when(jwtTokenProvider.getTokenVersion(token)).thenReturn(0L);
         when(stringRedisTemplate.opsForValue()).thenReturn(values);
         when(values.get(UserAccessState.key(10L))).thenReturn("DISABLED:1");
@@ -158,6 +197,54 @@ class JwtAuthenticationFilterTest {
         assertEquals(401, response.getStatus());
         assertTrue(response.getContentAsString().contains("TOKEN_REVOKED"));
         verifyNoInteractions(filterChain);
+    }
+
+    @Test
+    @DisplayName("JWT mang role MANAGER cũ bị 401 TOKEN_REVOKED dù Redis vẫn ghi ACTIVE")
+    void legacyManagerTokenIsRevokedEvenWhenRedisSaysActive() throws Exception {
+        String token = "legacy-manager-token";
+        MockHttpServletRequest request = new MockHttpServletRequest("PATCH", "/api/v1/orders/1/status");
+        request.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
+        when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
+        when(jwtTokenProvider.getRole(token)).thenReturn("MANAGER");
+        when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
+
+        new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate)
+                .doFilter(request, response, filterChain);
+
+        assertEquals(401, response.getStatus());
+        assertTrue(response.getContentAsString().contains("TOKEN_REVOKED"));
+        verifyNoInteractions(filterChain);
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        assertNull(TenantContext.getTenantId());
+        assertNull(TenantContext.getCurrentRole());
+    }
+
+    @Test
+    @DisplayName("JWT STAFF hợp lệ thuộc tenant đi tiếp và nạp ROLE_STAFF")
+    void staffTokenWithTenantAuthenticates() throws Exception {
+        String token = "staff-token";
+        MockHttpServletRequest request = new MockHttpServletRequest("PATCH", "/api/v1/orders/1/status");
+        request.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
+        when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
+        when(jwtTokenProvider.getRole(token)).thenReturn("STAFF");
+        when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
+        when(jwtTokenProvider.getTokenVersion(token)).thenReturn(0L);
+        when(stringRedisTemplate.opsForValue()).thenReturn(values);
+        when(values.get(UserAccessState.key(10L))).thenReturn("ACTIVE:0");
+
+        new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate)
+                .doFilter(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+        assertEquals("STAFF", TenantContext.getCurrentRole());
+        assertEquals(100L, TenantContext.getTenantId());
+        assertTrue(SecurityContextHolder.getContext().getAuthentication().getAuthorities()
+                .stream().anyMatch(a -> "ROLE_STAFF".equals(a.getAuthority())));
     }
 
     @Test
@@ -182,7 +269,7 @@ class JwtAuthenticationFilterTest {
         filter.doFilter(loginRequest, response, filterChain);
         verify(filterChain, times(1)).doFilter(loginRequest, response);
         verify(tokenBlacklistValidator, never()).isBlacklisted(anyString());
-        verify(jwtTokenProvider, never()).validateToken(anyString());
+        verify(jwtTokenProvider, never()).parseClaims(anyString());
     }
 
     @Test
@@ -190,7 +277,7 @@ class JwtAuthenticationFilterTest {
     void unassignedStaffBlockedFromTenantApisButAllowedOnSelfEndpoints() throws Exception {
         String token = "staff.unassigned.token";
         when(tokenBlacklistValidator.isBlacklisted(token)).thenReturn(false);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(20L);
         when(jwtTokenProvider.getRole(token)).thenReturn("STAFF");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(null);

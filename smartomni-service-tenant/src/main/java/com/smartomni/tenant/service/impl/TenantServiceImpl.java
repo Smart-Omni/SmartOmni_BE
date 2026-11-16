@@ -134,7 +134,11 @@ public class TenantServiceImpl implements TenantService {
             roleChoice = roleChoice.substring(5);
         }
 
-        boolean isStaff = "STAFF".equals(roleChoice) || "MANAGER".equals(roleChoice);
+        if (!"STAFF".equals(roleChoice) && !"TENANT_ADMIN".equals(roleChoice)) {
+            throw new BusinessException("Role không hợp lệ. Chỉ cho phép STAFF hoặc TENANT_ADMIN",
+                    HttpStatus.BAD_REQUEST, "INVALID_ROLE");
+        }
+        boolean isStaff = "STAFF".equals(roleChoice);
 
         if (isStaff) {
             // Luồng Onboarding cho STAFF: kiểm tra Tenant đã tồn tại và liên kết tài khoản Staff vào Tenant đó ở trạng thái chờ kích hoạt / gán quyền
@@ -172,7 +176,7 @@ public class TenantServiceImpl implements TenantService {
                     .passwordHash(passwordEncoder.encode(rawPassword))
                     .fullName(fullName)
                     .phone(request.getPhone())
-                    .role(TenantUser.UserRole.MANAGER)
+                    .role(TenantUser.UserRole.STAFF)
                     .status(TenantUser.UserStatus.DISABLED) // Trạng thái chờ kích hoạt / gán quyền
                     .failedLoginAttempts(0)
                     .build();

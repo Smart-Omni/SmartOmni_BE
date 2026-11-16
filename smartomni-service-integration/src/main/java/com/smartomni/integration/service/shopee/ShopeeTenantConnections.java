@@ -20,7 +20,7 @@ public class ShopeeTenantConnections {
         this.connections = connections;
     }
 
-    /** Requires Admin or Manager role of current tenant; connection must be CONNECTED. */
+    /** Requires Admin or Staff role of current tenant; connection must be CONNECTED. */
     public MarketplaceConnection requireConnected() {
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null) {
@@ -29,8 +29,8 @@ public class ShopeeTenantConnections {
         String role = TenantContext.getCurrentRole();
         if (!AppConstants.ROLE_TENANT_ADMIN.equalsIgnoreCase(role)
                 && !AppConstants.ROLE_ADMIN.equalsIgnoreCase(role)
-                && !AppConstants.ROLE_MANAGER.equalsIgnoreCase(role)) {
-            throw new BusinessException("Only a Tenant Admin or Manager can access Shopee catalog",
+                && !AppConstants.ROLE_STAFF.equalsIgnoreCase(role)) {
+            throw new BusinessException("Only a Tenant Admin or Staff can access Shopee catalog",
                     HttpStatus.FORBIDDEN, "CATALOG_SYNC_FORBIDDEN");
         }
         return connected(tenantId);

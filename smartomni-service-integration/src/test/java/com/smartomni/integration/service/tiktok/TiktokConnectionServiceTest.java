@@ -141,6 +141,26 @@ class TiktokConnectionServiceTest {
     }
 
     @Test
+    void mobileRedirectUsesExactAllowedUri() {
+        properties.setAllowedRedirectUris(List.of("smartomni://oauth/tiktok"));
+        var start = service.start(" smartomni://oauth/tiktok ");
+        URI url = URI.create(start.authorizationUrl());
+        String query = URLDecoder.decode(url.getRawQuery(), StandardCharsets.UTF_8);
+        assertTrue(query.contains("redirect_uri=smartomni://oauth/tiktok"));
+        assertTrue(start.authorizationUrl().contains("redirect_uri=smartomni%3A%2F%2Foauth%2Ftiktok"));
+        verify(store).prepareStart(eq(1L), eq(5L), anyString(), any());
+    }
+
+    @Test
+    void unregisteredRedirectDoesNotCreateState() {
+        properties.setAllowedRedirectUris(List.of("smartomni://oauth/tiktok"));
+        var error = assertThrows(BusinessException.class, () -> service.start("smartomni://oauth/evil"));
+        assertEquals("INVALID_REDIRECT_URI", error.getErrorCode());
+        assertEquals(org.springframework.http.HttpStatus.BAD_REQUEST, error.getHttpStatus());
+        verifyNoInteractions(store);
+    }
+
+    @Test
     void startRetriesOnceWhenTwoRequestsCreateTheConnectionRowTogether() {
         when(store.prepareStart(anyLong(), anyLong(), anyString(), any()))
                 .thenThrow(new DataIntegrityViolationException("dup")).thenReturn(77L);
@@ -157,7 +177,7 @@ class TiktokConnectionServiceTest {
 
     @Test
     void onlyATenantAdminMayStartCompleteOrDisconnect() {
-        for (String role : new String[]{"MANAGER", "SUPER_ADMIN", null}) {
+        for (String role : new String[]{"STAFF", "SUPER_ADMIN", null}) {
             TenantContext.setCurrentRole(role);
             assertEquals("TENANT_ADMIN_REQUIRED", assertThrows(BusinessException.class, () -> service.start()).getErrorCode());
             assertEquals("TENANT_ADMIN_REQUIRED", assertThrows(BusinessException.class,
@@ -206,6 +226,17 @@ class TiktokConnectionServiceTest {
         assertTrue(transport.sent.isEmpty());
         assertFalse(java.util.Arrays.stream(TiktokCallbackRequest.class.getDeclaredFields())
                 .anyMatch(f -> f.getName().toLowerCase().contains("tenant")), "the callback request has no tenant field");
+    }
+
+    @Test
+    void callbackFromDifferentUserCannotConsumeState() {
+        TenantContext.setCurrentUserId(6L);
+        when(store.consumeState(eq(1L), eq(6L), anyString(), any()))
+                .thenReturn(new ConsumedState(StateOutcome.INVALID, null));
+        assertEquals("TIKTOK_STATE_INVALID", assertThrows(BusinessException.class,
+                () -> service.complete(callback("code", "state-of-user-5", null))).getErrorCode());
+        verify(store, never()).link(anyLong(), anyLong(), any());
+        assertTrue(transport.sent.isEmpty());
     }
 
     @Test

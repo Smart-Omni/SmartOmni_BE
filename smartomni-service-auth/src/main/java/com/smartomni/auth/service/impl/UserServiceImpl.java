@@ -104,6 +104,18 @@ public class UserServiceImpl implements UserService {
                 .build();
     }
 
+    /** Parses an API role name; unknown values (including the removed MANAGER) are a 400, not a 500. */
+    private User.UserRole parseRole(String rawRole) {
+        if (rawRole == null || rawRole.isBlank()) {
+            throw new BusinessException("Role không hợp lệ", HttpStatus.BAD_REQUEST, "INVALID_ROLE");
+        }
+        try {
+            return User.UserRole.valueOf(rawRole.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException("Role không hợp lệ", HttpStatus.BAD_REQUEST, "INVALID_ROLE");
+        }
+    }
+
     private void setRlsContext(String name, String value) {
         if (entityManager != null && TransactionSynchronizationManager.isActualTransactionActive()) {
             RlsSession.set(entityManager, name, value);
@@ -121,12 +133,7 @@ public class UserServiceImpl implements UserService {
         Long tenantId = caller.getTenantId();
 
         // Validate role not SUPER_ADMIN
-        User.UserRole newRole;
-        try {
-            newRole = User.UserRole.valueOf(request.getRole());
-        } catch (Exception e) {
-            throw new BusinessException("Role không hợp lệ", HttpStatus.BAD_REQUEST, "INVALID_ROLE");
-        }
+        User.UserRole newRole = parseRole(request.getRole());
         if (newRole == User.UserRole.SUPER_ADMIN) {
             throw new BusinessException("Không được tạo tài khoản SUPER_ADMIN", HttpStatus.FORBIDDEN, "FORBIDDEN");
         }
@@ -172,13 +179,15 @@ public class UserServiceImpl implements UserService {
             tenantId = caller.getTenantId();
         }
 
+        String roleFilter = role == null || role.isBlank() ? null : parseRole(role).name();
+
         org.springframework.data.domain.Sort sort = org.springframework.data.domain.Sort.by(
                 sortBy != null && !sortBy.isBlank() ? sortBy : "createdAt");
         sort = "desc".equalsIgnoreCase(sortDir) ? sort.descending() : sort.ascending();
         org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(page, size, sort);
 
         org.springframework.data.domain.Page<User> userPage = userRepository.searchUsers(
-                tenantId, keyword, status, role, pageable);
+                tenantId, keyword, status, roleFilter, pageable);
 
         java.util.List<UserProfileResponse> content = userPage
                 .map(u -> mapToProfileResponse(u, resolveSubdomain(u.getTenantId())))
@@ -222,7 +231,7 @@ public class UserServiceImpl implements UserService {
             target.setAvatar(request.getAvatar().trim());
         }
         if (request.getRole() != null) {
-            User.UserRole newRole = User.UserRole.valueOf(request.getRole());
+            User.UserRole newRole = parseRole(request.getRole());
             if (newRole == User.UserRole.SUPER_ADMIN) {
                 throw new BusinessException("Không được cấp SUPER_ADMIN", HttpStatus.FORBIDDEN, "FORBIDDEN");
             }
@@ -304,12 +313,7 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("Chỉ hỗ trợ gán một role duy nhất cho người dùng", HttpStatus.BAD_REQUEST, "INVALID_ROLE");
         }
         String roleStr = request.getRoles().get(0);
-        User.UserRole newRole;
-        try {
-            newRole = User.UserRole.valueOf(roleStr);
-        } catch (Exception e) {
-            throw new BusinessException("Role không hợp lệ", HttpStatus.BAD_REQUEST, "INVALID_ROLE");
-        }
+        User.UserRole newRole = parseRole(roleStr);
         if (newRole == User.UserRole.SUPER_ADMIN) {
             throw new BusinessException("Không được gán role SUPER_ADMIN", HttpStatus.FORBIDDEN, "FORBIDDEN");
         }

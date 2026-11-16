@@ -23,7 +23,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/tiktok/cancellations")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER', 'STAFF')")
+@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF')")
 public class TiktokCancellationController {
 
     private final TiktokTenantConnections tenantConnections;

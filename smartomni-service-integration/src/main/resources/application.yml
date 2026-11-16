@@ -66,6 +66,7 @@ smartomni:
     app-secret: ${TIKTOK_APP_SECRET:}
     authorization-url: ${TIKTOK_AUTHORIZATION_URL:}   # seller consent page (format UNVERIFIED)
     redirect-uri: ${TIKTOK_REDIRECT_URI:}             # frontend callback page that POSTs code/state back
+    allowed-redirect-uris: ${TIKTOK_ALLOWED_REDIRECT_URIS:} # exact additional callbacks, comma-separated
     token-base-url: ${TIKTOK_TOKEN_BASE_URL:https://auth.tiktok-shops.com}
     open-api-base-url: ${TIKTOK_OPEN_API_BASE_URL:https://open-api.tiktokglobalshop.com}
     state-ttl: ${TIKTOK_STATE_TTL:10m}

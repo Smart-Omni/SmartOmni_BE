@@ -171,7 +171,7 @@ class DatabaseMigrationTest {
             for (var future : futures) {
                 applied += future.get(60, java.util.concurrent.TimeUnit.SECONDS);
             }
-            assertEquals(20, applied);
+            assertEquals(21, applied);
         } finally {
             start.countDown();
             executor.shutdownNow();
@@ -186,7 +186,7 @@ class DatabaseMigrationTest {
                     "SELECT count(*) FROM pg_type WHERE typnamespace='public'::regnamespace AND typtype='e'"));
             assertTrue(count(admin,
                     "SELECT count(*) FROM pg_constraint WHERE connamespace='public'::regnamespace AND contype='f'") > 50);
-            assertEquals(20, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(21, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
             assertEquals(1, count(admin, "SELECT count(*) FROM information_schema.columns WHERE table_name='users' AND column_name='token_version' AND is_nullable='NO'"));
             execute(admin, Files.readString(Path.of("..", "scripts", "db", "verify-schema.sql")));
         }
@@ -253,14 +253,14 @@ class DatabaseMigrationTest {
                     .createSharedEntityManager(context.getBean(EntityManagerFactory.class));
             TransactionTemplate transactions = context.getBean(TransactionTemplate.class);
             for (long tenant : List.of(1L, 2L)) {
-                try (var scope = TenantContext.openScope(tenant, "MANAGER", null)) {
+                try (var scope = TenantContext.openScope(tenant, "STAFF", null)) {
                     transactions.executeWithoutResult(status -> {
                         assertEquals(1, em.createQuery("from Product", Product.class).getResultList().size());
                         assertNull(em.find(Product.class, tenant == 1 ? 2L : 1L));
                     });
                 }
             }
-            try (var scope = TenantContext.openScope(1L, "MANAGER", null)) {
+            try (var scope = TenantContext.openScope(1L, "STAFF", null)) {
                 assertThrows(RuntimeException.class, () -> transactions.executeWithoutResult(status -> {
                     em.createNativeQuery("insert into products (tenant_id,name) values (2,'Forbidden')")
                             .executeUpdate();
@@ -425,7 +425,7 @@ class DatabaseMigrationTest {
             execute(admin,
                     "INSERT INTO customer_accounts(tenant_id,email,password_hash) VALUES (1,'one@example.test','test-hash'),(2,'two@example.test','test-hash')");
             execute(admin,
-                    "INSERT INTO users(tenant_id,email,password_hash,role) VALUES (1,'staff@example.test','test-hash','manager')");
+                    "INSERT INTO users(tenant_id,email,password_hash,role) VALUES (1,'staff@example.test','test-hash','staff')");
             execute(admin,
                     "INSERT INTO orders(tenant_id,connection_id,platform,platform_order_id,status,total_amount,completed_at,eligible_for_points_at) VALUES "
                             + "(1,1,'shopee','pending','pending',500999,now()-interval '10 days',now()-interval '1 day'),"
@@ -441,19 +441,19 @@ class DatabaseMigrationTest {
         try (Connection app = connect(url, "smartomni_app")) {
             app.setAutoCommit(false);
             RlsSession.set(app, "app.tenant_id", "1");
-            RlsSession.set(app, "app.user_role", "manager");
+            RlsSession.set(app, "app.user_role", "staff");
             assertThrows(Exception.class, () -> execute(app,
                     "INSERT INTO loyalty_claims(tenant_id,order_id,customer_id,points_awarded) VALUES (1,1,1,100)"));
             app.rollback();
 
             RlsSession.set(app, "app.tenant_id", "1");
-            RlsSession.set(app, "app.user_role", "manager");
+            RlsSession.set(app, "app.user_role", "staff");
             assertThrows(Exception.class, () -> execute(app,
                     "INSERT INTO loyalty_claims(tenant_id,order_id,customer_id,points_awarded) VALUES (1,2,1,100)"));
             app.rollback();
 
             RlsSession.set(app, "app.tenant_id", "1");
-            RlsSession.set(app, "app.user_role", "manager");
+            RlsSession.set(app, "app.user_role", "staff");
             execute(app, "INSERT INTO loyalty_claims(tenant_id,order_id,customer_id,points_awarded) VALUES (1,3,1,1)");
             assertEquals(500, count(app, "SELECT total_points FROM loyalty_point_accounts WHERE customer_id=1"));
             assertEquals(500, count(app, "SELECT points_awarded FROM loyalty_claims WHERE order_id=3"));
@@ -463,32 +463,32 @@ class DatabaseMigrationTest {
             app.commit();
 
             RlsSession.set(app, "app.tenant_id", "1");
-            RlsSession.set(app, "app.user_role", "manager");
+            RlsSession.set(app, "app.user_role", "staff");
             assertThrows(Exception.class, () -> execute(app,
                     "INSERT INTO loyalty_claims(tenant_id,order_id,customer_id,points_awarded) VALUES (1,3,1,100)"));
             app.rollback();
 
             RlsSession.set(app, "app.tenant_id", "1");
-            RlsSession.set(app, "app.user_role", "manager");
+            RlsSession.set(app, "app.user_role", "staff");
             assertThrows(Exception.class, () -> execute(app,
                     "INSERT INTO loyalty_claims(tenant_id,order_id,customer_id,points_awarded) VALUES (1,4,2,100)"));
             app.rollback();
 
             RlsSession.set(app, "app.tenant_id", "1");
-            RlsSession.set(app, "app.user_role", "manager");
+            RlsSession.set(app, "app.user_role", "staff");
             execute(app, "INSERT INTO loyalty_reward_requests(tenant_id,campaign_id,customer_id) VALUES (1,1,1)");
             assertEquals(500, count(app, "SELECT total_points FROM loyalty_point_accounts WHERE customer_id=1"));
             assertEquals(1, count(app, "SELECT reserved_count FROM loyalty_reward_campaigns WHERE id=1"));
             app.commit();
 
             RlsSession.set(app, "app.tenant_id", "1");
-            RlsSession.set(app, "app.user_role", "manager");
+            RlsSession.set(app, "app.user_role", "staff");
             assertThrows(Exception.class, () -> execute(app,
                     "INSERT INTO loyalty_reward_requests(tenant_id,campaign_id,customer_id) VALUES (1,1,2)"));
             app.rollback();
 
             RlsSession.set(app, "app.tenant_id", "1");
-            RlsSession.set(app, "app.user_role", "manager");
+            RlsSession.set(app, "app.user_role", "staff");
             execute(app,
                     "UPDATE loyalty_reward_requests SET status='issued',code='SHOP-10',issued_at=now() WHERE tenant_id=1 AND id=1");
             assertEquals(500, count(app, "SELECT total_points FROM loyalty_point_accounts WHERE customer_id=1"));
@@ -504,11 +504,113 @@ class DatabaseMigrationTest {
                     count(app, "SELECT count(*) FROM loyalty_point_accounts WHERE customer_id=1 AND tier='standard'"));
             app.commit();
             RlsSession.set(app, "app.tenant_id", "1");
-            RlsSession.set(app, "app.user_role", "manager");
+            RlsSession.set(app, "app.user_role", "staff");
             assertThrows(Exception.class, () -> execute(app,
                     "INSERT INTO loyalty_point_ledger(tenant_id,customer_id,claim_id,reason,points_delta) VALUES (1,1,"
                             + claimId + ",'reverse',-500)"));
             app.rollback();
+        }
+    }
+
+    @Test
+    void v21ConvertsManagerDataToStaffWithoutLosingRows() throws Exception {
+        String url = newDatabase();
+        Flyway v20 = Flyway.configure().dataSource(url, "smartomni_migrator", TEST_PASSWORD)
+                .defaultSchema("public").locations("classpath:db/migration").target("20")
+                .baselineOnMigrate(false).cleanDisabled(true).load();
+        assertEquals(20, v20.migrate().migrationsExecuted);
+        long usersBefore;
+        long historyBefore;
+        long invitationsBefore;
+        try (Connection admin = connect(url, "postgres")) {
+            assertEquals(1, count(admin, "SELECT count(*) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid "
+                    + "WHERE t.typname='user_role' AND e.enumlabel='manager'"));
+            execute(admin, "INSERT INTO tenants(name,subdomain) VALUES ('A','a'),('B','b')");
+            execute(admin, "INSERT INTO marketplace_connections(tenant_id,platform,shop_id) VALUES (1,'shopee','shop-a')");
+            execute(admin, "INSERT INTO users(tenant_id,email,password_hash,role) VALUES "
+                    + "(1,'manager@a.test','h','manager'),(1,'admin@a.test','h','admin'),"
+                    + "(1,'tadmin@a.test','h','tenant_admin'),(2,'manager@b.test','h','manager'),(1,'staff@a.test','h','staff')");
+            execute(admin, "INSERT INTO staff_invitations(tenant_id,invited_email,role,status,invited_by,expires_at) VALUES "
+                    + "(1,'m1@a.test','MANAGER','PENDING',2,now()+interval '3 days'),"
+                    + "(1,'m2@a.test','MANAGER','ACCEPTED',2,now()+interval '3 days'),"
+                    + "(1,'s1@a.test','STAFF','PENDING',2,now()+interval '3 days')");
+            execute(admin, "INSERT INTO orders(tenant_id,connection_id,platform,platform_order_id,status,total_amount) "
+                    + "VALUES (1,1,'shopee','o1','pending',1000)");
+            execute(admin, "INSERT INTO order_status_history(order_id,tenant_id,status,source,changed_by) VALUES "
+                    + "(1,1,'pending','manager',1),(1,1,'to_ship','manager',1),"
+                    + "(1,1,'shipped','marketplace_webhook',NULL),(1,1,'completed','system',NULL)");
+            execute(admin, "INSERT INTO loyalty_reward_campaigns(tenant_id,connection_id,created_by,name,discount_percent,"
+                    + "required_points,quantity,provisioning_mode,status,starts_at,ends_at) VALUES "
+                    + "(1,1,1,'Created by manager',10,500,1,'import','active',now(),now()+interval '30 days')");
+            assertEquals(2, count(admin, "SELECT count(*) FROM users WHERE role='manager'"));
+            usersBefore = count(admin, "SELECT count(*) FROM users");
+            historyBefore = count(admin, "SELECT count(*) FROM order_status_history");
+            invitationsBefore = count(admin, "SELECT count(*) FROM staff_invitations");
+        }
+
+        assertEquals(1, flyway(url).migrate().migrationsExecuted);
+
+        try (Connection admin = connect(url, "postgres")) {
+            assertEquals(usersBefore, count(admin, "SELECT count(*) FROM users"));
+            assertEquals(historyBefore, count(admin, "SELECT count(*) FROM order_status_history"));
+            assertEquals(invitationsBefore, count(admin, "SELECT count(*) FROM staff_invitations"));
+            assertEquals(21, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals("staff", string(admin, "SELECT role::text FROM users WHERE email='manager@a.test'"));
+            assertEquals("staff", string(admin, "SELECT role::text FROM users WHERE email='manager@b.test'"));
+            assertEquals(3, count(admin, "SELECT count(*) FROM users WHERE role='staff'"));
+            assertEquals(1, count(admin, "SELECT count(*) FROM users WHERE role='admin'"));
+            assertEquals(1, count(admin, "SELECT count(*) FROM users WHERE role='tenant_admin'"));
+            assertEquals(3, count(admin, "SELECT count(*) FROM staff_invitations WHERE role='STAFF'"));
+            assertEquals(1, count(admin, "SELECT count(*) FROM staff_invitations WHERE invited_email='m1@a.test' AND status='PENDING'"));
+            assertEquals(1, count(admin, "SELECT count(*) FROM staff_invitations WHERE invited_email='m2@a.test' AND status='ACCEPTED'"));
+            assertEquals(2, count(admin, "SELECT count(*) FROM order_status_history WHERE source='staff'"));
+            assertEquals(1, count(admin, "SELECT count(*) FROM order_status_history WHERE source='marketplace_webhook'"));
+            assertEquals(1, count(admin, "SELECT count(*) FROM order_status_history WHERE source='system'"));
+            assertEquals(1, count(admin, "SELECT count(*) FROM order_status_history "
+                    + "WHERE status='to_ship' AND tenant_id=1 AND order_id=1 AND changed_by=1"));
+            assertEquals(0, count(admin, "SELECT count(*) FROM pg_type WHERE typname IN ('user_role_old','order_change_source_old')"));
+            assertEquals("super_admin,admin,tenant_admin,customer,staff", string(admin,
+                    "SELECT string_agg(e.enumlabel::text, ',' ORDER BY e.enumsortorder) FROM pg_enum e "
+                            + "JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='user_role'"));
+            assertEquals("staff,marketplace_webhook,system", string(admin,
+                    "SELECT string_agg(e.enumlabel::text, ',' ORDER BY e.enumsortorder) FROM pg_enum e "
+                            + "JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='order_change_source'"));
+            assertThrows(Exception.class, () -> execute(admin,
+                    "INSERT INTO users(tenant_id,email,password_hash,role) VALUES (1,'x@a.test','h','manager')"));
+            assertThrows(Exception.class, () -> execute(admin,
+                    "INSERT INTO staff_invitations(tenant_id,invited_email,role,invited_by,expires_at) "
+                            + "VALUES (1,'x@a.test','MANAGER',2,now()+interval '1 day')"));
+            assertEquals(50, count(admin, "SELECT count(*) FROM pg_class WHERE relnamespace='public'::regnamespace "
+                    + "AND relkind='r' AND relrowsecurity AND relforcerowsecurity"));
+            execute(admin, Files.readString(Path.of("..", "scripts", "db", "verify-schema.sql")));
+        }
+        try (Connection app = connect(url, "smartomni_app")) {
+            app.setAutoCommit(false);
+            RlsSession.set(app, "app.tenant_id", "1");
+            RlsSession.set(app, "app.user_role", "staff");
+            assertEquals(4, count(app, "SELECT count(*) FROM users"));
+            assertEquals(0, count(app, "SELECT count(*) FROM users WHERE tenant_id=2"));
+            // The campaign trigger accepts a staff creator (a former manager) and still rejects other roles.
+            execute(app, "INSERT INTO loyalty_reward_campaigns(tenant_id,connection_id,created_by,name,discount_percent,"
+                    + "required_points,quantity,provisioning_mode,status,starts_at,ends_at) VALUES "
+                    + "(1,1,1,'Created by staff',10,500,1,'import','active',now(),now()+interval '30 days')");
+            app.rollback();
+            RlsSession.set(app, "app.tenant_id", "1");
+            RlsSession.set(app, "app.user_role", "staff");
+            assertThrows(Exception.class, () -> execute(app, "INSERT INTO loyalty_reward_campaigns(tenant_id,connection_id,"
+                    + "created_by,name,discount_percent,required_points,quantity,provisioning_mode,status,starts_at,ends_at) VALUES "
+                    + "(1,1,3,'Created by tenant admin',10,500,1,'import','active',now(),now()+interval '30 days')"));
+            app.rollback();
+        }
+        try (var context = boot(url)) {
+            assertNotNull(context.getBean(EntityManagerFactory.class));
+        }
+    }
+
+    private static String string(Connection connection, String sql) throws Exception {
+        try (var statement = connection.createStatement(); ResultSet result = statement.executeQuery(sql)) {
+            assertTrue(result.next());
+            return result.getString(1);
         }
     }
 
@@ -534,7 +636,7 @@ class DatabaseMigrationTest {
         assertThrows(FlywayException.class, invalid::migrate);
         try (Connection admin = connect(url, "postgres")) {
             assertEquals(0, count(admin, "SELECT count(*) FROM pg_tables WHERE tablename='should_rollback'"));
-            assertEquals(20, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(21, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
         }
     }
 
@@ -558,7 +660,7 @@ class DatabaseMigrationTest {
         Flyway baseline = Flyway.configure().dataSource(url, "smartomni_migrator", TEST_PASSWORD)
                 .defaultSchema("public").baselineVersion("5").load();
         baseline.baseline();
-        assertEquals(15, flyway(url).migrate().migrationsExecuted);
+        assertEquals(16, flyway(url).migrate().migrationsExecuted);
         try (var context = boot(url)) {
             assertNotNull(context.getBean(EntityManagerFactory.class));
         }

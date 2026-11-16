@@ -154,7 +154,7 @@ public class ReturnRefundService {
         history.setTenantId(tenantId);
         history.setOrderId(order.getId());
         history.setStatus(order.getStatus());
-        history.setSource(OrderStatusHistory.OrderChangeSource.MANAGER);
+        history.setSource(OrderStatusHistory.OrderChangeSource.STAFF);
         orderStatusHistoryRepository.save(history);
 
         return mapToReturnDetailDto(refund);

@@ -120,7 +120,7 @@ public class OrderService {
     }
 
     /**
-     * Cập nhật trạng thái đơn hàng (cho Manager hoặc Webhook).
+     * Cập nhật trạng thái đơn hàng (cho Staff hoặc Webhook).
      */
     @Transactional
     public Order updateStatus(Long orderId, Order.OrderStatus newStatus) {
@@ -130,7 +130,7 @@ public class OrderService {
         }
         Order order = orderRepository.findByIdAndTenantId(orderId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Đơn hàng không tồn tại: " + orderId));
-        return updateOrderStatus(order, newStatus, OrderStatusHistory.OrderChangeSource.MANAGER);
+        return updateOrderStatus(order, newStatus, OrderStatusHistory.OrderChangeSource.STAFF);
     }
 
     /**
@@ -147,7 +147,7 @@ public class OrderService {
             return order;
         }
 
-        if (source == OrderStatusHistory.OrderChangeSource.MANAGER
+        if (source == OrderStatusHistory.OrderChangeSource.STAFF
                 && (previousStatus != Order.OrderStatus.PENDING || newStatus != Order.OrderStatus.TO_SHIP)) {
             throw new BusinessException("Nhân viên chỉ được chuyển PENDING sang TO_SHIP",
                     HttpStatus.CONFLICT, "INVALID_ORDER_STATUS_TRANSITION");
@@ -653,7 +653,7 @@ public class OrderService {
             orderItemRepository.save(orderItem);
         }
 
-        recordStatusHistory(order, Order.OrderStatus.PENDING, OrderStatusHistory.OrderChangeSource.MANAGER, TenantContext.getCurrentUserId());
+        recordStatusHistory(order, Order.OrderStatus.PENDING, OrderStatusHistory.OrderChangeSource.STAFF, TenantContext.getCurrentUserId());
 
         return getOrderDetail(order.getId());
     }

@@ -72,14 +72,33 @@ class DomainServiceBlacklistIntegrationTest {
     private org.springframework.data.redis.core.ValueOperations<String, String> values;
 
     @Test
-    @DisplayName("Domain service từ chối request khi token nằm trong Redis Blacklist (HTTP 401 hoặc 403)")
+    void missingTokenUsesJsonEntryPoint() throws Exception {
+        mockMvc.perform(get("/api/v1/catalog/products"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.success").value(false))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void malformedTokenIsUnauthorized() throws Exception {
+        when(jwtTokenProvider.parseClaims("malformed"))
+                .thenThrow(new io.jsonwebtoken.MalformedJwtException("malformed"));
+        mockMvc.perform(get("/api/v1/catalog/products").header("Authorization", "Bearer malformed"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    @DisplayName("Domain service từ chối request khi token nằm trong Redis Blacklist (HTTP 401)")
     void testDomainServiceRejectsBlacklistedToken() throws Exception {
         String token = "blacklisted-token";
         when(stringRedisTemplate.hasKey(AppConstants.REDIS_PREFIX_BLACKLIST + token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(org.mockito.Mockito.mock(io.jsonwebtoken.Claims.class));
 
         mockMvc.perform(get("/api/v1/catalog/products")
                         .header("Authorization", "Bearer " + token))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("TOKEN_REVOKED"));
     }
 
     @Test
@@ -87,7 +106,7 @@ class DomainServiceBlacklistIntegrationTest {
     void testDomainServiceAcceptsValidNonBlacklistedToken() throws Exception {
         String token = "valid-domain-token";
         when(stringRedisTemplate.hasKey(AppConstants.REDIS_PREFIX_BLACKLIST + token)).thenReturn(false);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(org.mockito.Mockito.mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
         when(jwtTokenProvider.getRole(token)).thenReturn("ADMIN");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
