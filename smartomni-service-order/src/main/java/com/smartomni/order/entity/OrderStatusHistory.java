@@ -11,7 +11,7 @@ import java.time.Instant;
 
 /**
  * Lịch sử thay đổi trạng thái đơn hàng (order_status_history).
- * Source: manager | marketplace_webhook | system.
+ * Source: staff | marketplace_webhook | system.
  */
 @Getter
 @Setter
@@ -39,7 +39,7 @@ public class OrderStatusHistory extends BaseTenantEntity {
     private Instant changedAt = Instant.now();
 
     public enum OrderChangeSource {
-        MANAGER,
+        STAFF,
         MARKETPLACE_WEBHOOK,
         SYSTEM
     }

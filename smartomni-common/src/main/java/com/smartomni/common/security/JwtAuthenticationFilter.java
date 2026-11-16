@@ -1,6 +1,8 @@
 package com.smartomni.common.security;
 
 import com.smartomni.common.constant.AppConstants;
+import com.smartomni.common.exception.BusinessException;
+import com.smartomni.common.exception.TokenExpiredException;
 import com.smartomni.common.tenant.TenantContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -9,6 +11,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -19,6 +22,8 @@ import java.util.List;
  * xác thực và nạp thông tin user (id, role, tenantId) vào SecurityContext & TenantContext.
  */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final String LEGACY_ROLE_MANAGER = "MANAGER";
 
     private final JwtTokenProvider jwtTokenProvider;
     private final TokenBlacklistValidator tokenBlacklistValidator;
@@ -46,17 +51,36 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith(AppConstants.BEARER_PREFIX)) {
             String token = header.substring(AppConstants.BEARER_PREFIX.length());
 
-            // Kiểm tra token có trong Redis Blacklist không (sau khi Logout)
-            if (tokenBlacklistValidator != null && tokenBlacklistValidator.isBlacklisted(token)) {
-                filterChain.doFilter(request, response);
+            boolean validToken = jwtTokenProvider.validateToken(token);
+            if (!validToken) {
+                if (jwtTokenProvider.isExpiredToken(token)) {
+                    AuthenticationErrorWriter.write(response, new TokenExpiredException("Phiên đăng nhập đã hết hạn"));
+                } else {
+                    AuthenticationErrorWriter.write(response,
+                            new BusinessException("Invalid token", HttpStatus.UNAUTHORIZED, "UNAUTHORIZED"));
+                }
                 return;
             }
 
-            if (jwtTokenProvider.validateToken(token)) {
+            if (tokenBlacklistValidator != null && tokenBlacklistValidator.isBlacklisted(token)) {
+                AuthenticationErrorWriter.write(response,
+                        new BusinessException("Phiên đăng nhập đã bị thu hồi", HttpStatus.UNAUTHORIZED, "TOKEN_REVOKED"));
+                return;
+            }
+
+            if (validToken) {
                 Long userId = jwtTokenProvider.getUserId(token);
                 String role = jwtTokenProvider.getRole(token);
                 Long tenantId = jwtTokenProvider.getTenantId(token);
                 String subdomain = jwtTokenProvider.getSubdomain(token);
+
+                // MANAGER đã bị gỡ (gộp vào STAFF): Redis vẫn có thể ghi ACTIVE nên phải chặn theo role.
+                if (LEGACY_ROLE_MANAGER.equalsIgnoreCase(role)) {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"success\":false,\"message\":\"Phiên đăng nhập đã bị thu hồi\",\"code\":\"TOKEN_REVOKED\"}");
+                    return;
+                }
 
                 if (!(userId == 0L && "INTERNAL_SERVICE".equals(role))
                         && !hasCurrentAccess(userId, jwtTokenProvider.getTokenVersion(token))) {
@@ -75,7 +99,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
 
                 // Chặn STAFF chưa thuộc cửa hàng (tenantId == null) truy cập các API dữ liệu của tenant
-                if ("STAFF".equalsIgnoreCase(role) && tenantId == null && !isAllowedForUnassignedStaff(request)) {
+                if (AppConstants.ROLE_STAFF.equalsIgnoreCase(role) && tenantId == null && !isAllowedForUnassignedStaff(request)) {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     response.setContentType("application/json;charset=UTF-8");
                     response.getWriter().write("{\"success\":false,\"message\":\"Tài khoản nhân viên chưa thuộc cửa hàng nào\",\"code\":\"STAFF_NO_TENANT\"}");

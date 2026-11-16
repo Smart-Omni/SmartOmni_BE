@@ -18,7 +18,7 @@ public class TiktokTenantConnections {
         this.connections = connections;
     }
 
-    /** Admin or Manager of the current tenant; the connection must be CONNECTED. */
+    /** Admin or Staff of the current tenant; the connection must be CONNECTED. */
     public MarketplaceConnection requireConnected() {
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null) {
@@ -27,9 +27,8 @@ public class TiktokTenantConnections {
         String role = TenantContext.getCurrentRole();
         if (!AppConstants.ROLE_TENANT_ADMIN.equalsIgnoreCase(role)
                 && !AppConstants.ROLE_ADMIN.equalsIgnoreCase(role)
-                && !AppConstants.ROLE_MANAGER.equalsIgnoreCase(role)
-                && !"STAFF".equalsIgnoreCase(role)) {
-            throw new BusinessException("Only Tenant Admin, Manager, or Staff can access TikTok operations", HttpStatus.FORBIDDEN, "CATALOG_SYNC_FORBIDDEN");
+                && !AppConstants.ROLE_STAFF.equalsIgnoreCase(role)) {
+            throw new BusinessException("Only Tenant Admin or Staff can access TikTok operations", HttpStatus.FORBIDDEN, "CATALOG_SYNC_FORBIDDEN");
         }
         return connected(tenantId);
     }

@@ -34,7 +34,7 @@ public class OrderMessageConsumer {
         if (payload.getTenantId() == null || payload.getTenantId() <= 0) {
             throw new IllegalArgumentException("Incoming order must have a valid tenant ID");
         }
-        try (var scope = TenantContext.openScope(payload.getTenantId(), "manager", null)) {
+        try (var scope = TenantContext.openScope(payload.getTenantId(), "staff", null)) {
             orderService.processIncomingOrder(payload, Order.OrderSource.WEBHOOK);
         } catch (Exception ex) {
             log.error("Xu ly order message that bai, se duoc retry/DLQ: {}", ex.getMessage());

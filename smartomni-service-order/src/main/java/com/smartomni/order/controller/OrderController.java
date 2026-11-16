@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 
 /**
- * UC-10: Theo doi & xu ly don hang (Manager)
+ * UC-10: Theo doi & xu ly don hang (Staff)
  * UC-06: Tra cuu don hang cheo nen tang (Khach hang - endpoint /track khong yeu cau dang nhap)
  */
 @RestController
@@ -35,13 +35,13 @@ public class OrderController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT_ADMIN')")
+    @PreAuthorize("hasAnyRole('STAFF','ADMIN','TENANT_ADMIN')")
     public ApiResponse<OrderDetailDto> createManualOrder(@Valid @RequestBody CreateManualOrderRequest request) {
         return ApiResponse.success("Tạo đơn hàng thành công", orderService.createManualOrder(request));
     }
 
     @PatchMapping("/{orderId}/status")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT_ADMIN')")
+    @PreAuthorize("hasAnyRole('STAFF','ADMIN','TENANT_ADMIN')")
     public ApiResponse<Order> updateStatus(@PathVariable Long orderId, @RequestParam Order.OrderStatus status) {
         return ApiResponse.success(orderService.updateStatus(orderId, status));
     }

@@ -19,13 +19,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Admin/Manager/Staff triggers for TikTok catalog sync, import, and push (stock
+ * Admin/Staff triggers for TikTok catalog sync, import, and push (stock
  * & price updates).
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/tiktok/products")
-@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER', 'STAFF')")
+@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF')")
 public class TiktokCatalogController {
 
     private final TiktokProductImportService importService;

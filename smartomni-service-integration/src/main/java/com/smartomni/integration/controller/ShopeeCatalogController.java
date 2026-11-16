@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Tenant Admin and Manager endpoints for Shopee product catalog and warehouse sync.
+ * Tenant Admin and Staff endpoints for Shopee product catalog and warehouse sync.
  * (Mounted under /api/marketplace-connections/shopee).
  */
 @RestController

@@ -16,7 +16,7 @@ import java.time.Instant;
  *   <li>a currency different from the link's known currency is rejected (no silent conversion);</li>
  *   <li>an unchanged price only refreshes {@code last_synced_at};</li>
  *   <li>a change larger than {@code smartomni.price-sync.anomaly-threshold-percent} is recorded as an
- *       unapplied anomaly for a Manager to confirm and does not change the stored price (0 or less disables the check);</li>
+ *       unapplied anomaly for a Staff user to confirm and does not change the stored price (0 or less disables the check);</li>
  *   <li>any other change updates the link and writes a history row.</li>
  * </ul>
  * Must run inside a transaction with a tenant context.

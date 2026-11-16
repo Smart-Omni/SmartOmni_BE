@@ -34,7 +34,7 @@ class TenantFilterTest {
         JwtTokenProvider jwt = mock(JwtTokenProvider.class);
         when(jwt.validateToken("valid")).thenReturn(true);
         when(jwt.getTenantId("valid")).thenReturn(1L);
-        when(jwt.getRole("valid")).thenReturn("MANAGER");
+        when(jwt.getRole("valid")).thenReturn("STAFF");
         when(jwt.getUserId("valid")).thenReturn(10L);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("Authorization", "Bearer valid");
@@ -42,7 +42,7 @@ class TenantFilterTest {
         assertThrows(IllegalStateException.class, () -> new TenantFilter(jwt)
                 .doFilter(request, new MockHttpServletResponse(), (req, res) -> {
                     assertEquals(1L, TenantContext.getTenantId());
-                    assertEquals("MANAGER", TenantContext.getCurrentRole());
+                    assertEquals("STAFF", TenantContext.getCurrentRole());
                     throw new IllegalStateException("request failed");
                 }));
         assertNull(TenantContext.getTenantId());
@@ -52,7 +52,7 @@ class TenantFilterTest {
     @Test
     void backgroundScopeRestoresPreviousContextAfterFailure() {
         TenantContext.setTenantId(1L);
-        TenantContext.setCurrentRole("MANAGER");
+        TenantContext.setCurrentRole("STAFF");
         assertThrows(IllegalStateException.class, () -> {
             try (var scope = TenantContext.openScope(null, "outbox_worker", null)) {
                 assertNull(TenantContext.getTenantId());
@@ -61,7 +61,7 @@ class TenantFilterTest {
             }
         });
         assertEquals(1L, TenantContext.getTenantId());
-        assertEquals("MANAGER", TenantContext.getCurrentRole());
+        assertEquals("STAFF", TenantContext.getCurrentRole());
     }
 
     @Test

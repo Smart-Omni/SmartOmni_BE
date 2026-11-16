@@ -59,7 +59,7 @@ public class PriceSyncScheduler {
         }
         for (MarketplaceConnection connection : connections) {
             if (connection.getPlatform() == MarketplaceConnection.Platform.TIKTOK_SHOP) {
-                try (var scope = TenantContext.openScope(connection.getTenantId(), "manager", null)) {
+                try (var scope = TenantContext.openScope(connection.getTenantId(), "staff", null)) {
                     TiktokPriceSyncService.Result result = tiktokPriceSync.sync(connection);
                     log.info("TikTok price sync tenant={} connection={}: {}", connection.getTenantId(), connection.getId(), result);
                 } catch (Exception ex) {
@@ -68,7 +68,7 @@ public class PriceSyncScheduler {
                             connection.getTenantId(), connection.getPlatform(), ex.getClass().getSimpleName());
                 }
             } else if (connection.getPlatform() == MarketplaceConnection.Platform.SHOPEE && shopeePriceSync != null) {
-                try (var scope = TenantContext.openScope(connection.getTenantId(), "manager", null)) {
+                try (var scope = TenantContext.openScope(connection.getTenantId(), "staff", null)) {
                     var result = shopeePriceSync.sync(connection);
                     log.info("Shopee price sync tenant={} connection={}: {}", connection.getTenantId(), connection.getId(), result);
                 } catch (Exception ex) {

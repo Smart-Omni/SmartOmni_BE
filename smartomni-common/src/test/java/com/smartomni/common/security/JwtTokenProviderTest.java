@@ -66,7 +66,16 @@ class JwtTokenProviderTest {
 
     @Test
     void versionedTokenCarriesCurrentVersion() {
-        String token = jwtTokenProvider.generateToken(42L, "MANAGER", 7L, "shop", 3L);
+        String token = jwtTokenProvider.generateToken(42L, "STAFF", 7L, "shop", 3L);
         assertEquals(3L, jwtTokenProvider.getTokenVersion(token));
+    }
+
+    @Test
+    void recognizesActuallyExpiredToken() {
+        ReflectionTestUtils.setField(jwtTokenProvider, "expirationMs", -1000L);
+        String token = jwtTokenProvider.generateToken(42L, "STAFF", 7L);
+        assertFalse(jwtTokenProvider.validateToken(token));
+        assertTrue(jwtTokenProvider.isExpiredToken(token));
+        assertFalse(jwtTokenProvider.isExpiredToken("not-a-jwt"));
     }
 }

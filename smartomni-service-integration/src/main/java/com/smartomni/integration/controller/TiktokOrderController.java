@@ -23,7 +23,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/tiktok/orders")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER', 'STAFF')")
+@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF')")
 public class TiktokOrderController {
 
     private final TiktokTenantConnections tenantConnections;

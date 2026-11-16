@@ -65,7 +65,7 @@ public class TiktokProductImportService {
         this.mapper = mapper;
     }
 
-    /** Admin/Manager entry point: imports for the caller tenant's connection. */
+    /** Admin/Staff entry point: imports for the caller tenant's connection. */
     public ImportReport importForCurrentTenant() {
         return importProducts(tenantConnections.requireConnected());
     }
