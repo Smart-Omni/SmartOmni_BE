@@ -93,6 +93,20 @@ public class JdbcCatalogMappingStore implements CatalogMappingStore {
     }
 
     @Override
+    public void initInventoryIfAbsent(long skuId, int quantity) {
+        jdbc.update("INSERT INTO inventory (tenant_id, sku_id, quantity_on_hand, reserved_quantity, version, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 0, 0, now(), now()) ON CONFLICT (sku_id) DO NOTHING",
+                tenant(), skuId, Math.max(0, quantity));
+    }
+
+    @Override
+    public void applyRlsContext(long tenantId, String role) {
+        String normalizedRole = role == null || role.isBlank() ? "tenant_admin" : role.toLowerCase(java.util.Locale.ROOT);
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, Long.toString(tenantId));
+        jdbc.queryForObject("SELECT set_config('app.user_role', ?, true)", String.class, normalizedRole);
+    }
+
+    @Override
     public long countSkus() {
         Long count = jdbc.queryForObject("SELECT count(*) FROM product_skus WHERE tenant_id = ?", Long.class, tenant());
         return count == null ? 0 : count;

@@ -2,6 +2,7 @@ package com.smartomni.integration.controller;
 
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.integration.client.tiktok.TiktokCatalogClient;
+import com.smartomni.integration.dto.tiktok.TiktokAutoImportReportDto;
 import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.Inventory;
 import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.Price;
 import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.Product;
@@ -11,6 +12,7 @@ import com.smartomni.integration.dto.tiktok.TiktokCatalogItemDto;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.catalog.CatalogMappingStore;
 import com.smartomni.integration.service.catalog.CatalogMappingStore.MappedSkuView;
+import com.smartomni.integration.service.catalog.TiktokAutoImportService;
 import com.smartomni.integration.service.catalog.TiktokCatalogService;
 import com.smartomni.integration.service.catalog.TiktokTenantConnections;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +37,7 @@ class TiktokCatalogViewControllerTest {
     private TiktokCatalogClient catalogClient;
     private CatalogMappingStore mappingStore;
     private TiktokCatalogService catalogService;
+    private TiktokAutoImportService autoImportService;
     private TiktokCatalogViewController controller;
     private MarketplaceConnection connection;
 
@@ -43,9 +46,10 @@ class TiktokCatalogViewControllerTest {
         tenantConnections = mock(TiktokTenantConnections.class);
         catalogClient = mock(TiktokCatalogClient.class);
         mappingStore = mock(CatalogMappingStore.class);
+        autoImportService = mock(TiktokAutoImportService.class);
 
         catalogService = new TiktokCatalogService(tenantConnections, catalogClient, mappingStore, null);
-        controller = new TiktokCatalogViewController(catalogService);
+        controller = new TiktokCatalogViewController(catalogService, autoImportService);
 
         connection = new MarketplaceConnection();
         connection.setId(77L);
@@ -96,5 +100,31 @@ class TiktokCatalogViewControllerTest {
         assertEquals(5, second.getStock());
         assertFalse(second.isMapped());
         assertNull(second.getLocalSkuId());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/tiktok/catalog/auto-import triggers WF-01 auto-import and returns report")
+    void autoImport_ManualTrigger_ReturnsReport() {
+        TiktokAutoImportReportDto expected = TiktokAutoImportReportDto.builder()
+                .shopId("SHOP-42")
+                .totalProducts(3)
+                .totalSkus(5)
+                .importedCount(3)
+                .linkedExistingCount(1)
+                .skippedCount(1)
+                .status("COMPLETED")
+                .build();
+        when(autoImportService.autoImportForCurrentTenant("SHOP-42")).thenReturn(expected);
+
+        ResponseEntity<ApiResponse<TiktokAutoImportReportDto>> res = controller.autoImport("SHOP-42", null);
+
+        assertEquals(HttpStatus.OK, res.getStatusCode());
+        assertNotNull(res.getBody());
+        assertEquals("Auto-import completed", res.getBody().getMessage());
+        assertEquals("SHOP-42", res.getBody().getData().getShopId());
+        assertEquals(3, res.getBody().getData().getImportedCount());
+        assertEquals(1, res.getBody().getData().getLinkedExistingCount());
+        assertEquals(1, res.getBody().getData().getSkippedCount());
+        assertEquals("COMPLETED", res.getBody().getData().getStatus());
     }
 }

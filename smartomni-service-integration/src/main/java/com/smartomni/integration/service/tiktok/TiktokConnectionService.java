@@ -15,6 +15,7 @@ import com.smartomni.integration.dto.tiktok.TiktokConnectionDto;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.entity.MarketplaceConnection.ConnectionStatus;
 import com.smartomni.integration.service.MarketplaceQuotaValidator;
+import com.smartomni.integration.service.catalog.TiktokAutoImportAsyncLauncher;
 import com.smartomni.integration.service.tiktok.TiktokConnectionStore.ConsumedState;
 import com.smartomni.integration.service.tiktok.TiktokConnectionStore.LinkRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -58,20 +59,29 @@ public class TiktokConnectionService {
     private final ReconnectNotifier notifier;
     private final Clock clock;
     private final MarketplaceQuotaValidator quotaValidator;
+    private final TiktokAutoImportAsyncLauncher autoImportLauncher;
     private final SecureRandom random = new SecureRandom();
 
     public TiktokConnectionService(TiktokProperties properties, TiktokConnectionStore store, TiktokAuthClient authClient,
                                    TiktokOpenApiClient openApi, TokenCipher cipher, ReconnectNotifier notifier,
                                    @Qualifier("integrationBusinessClock") Clock clock) {
         this(properties, store, authClient, openApi, cipher, notifier, clock,
-                new MarketplaceQuotaValidator((com.smartomni.common.tenant.TenantPlanResolver) null));
+                new MarketplaceQuotaValidator((com.smartomni.common.tenant.TenantPlanResolver) null), null);
+    }
+
+    public TiktokConnectionService(TiktokProperties properties, TiktokConnectionStore store, TiktokAuthClient authClient,
+                                   TiktokOpenApiClient openApi, TokenCipher cipher, ReconnectNotifier notifier,
+                                   @Qualifier("integrationBusinessClock") Clock clock,
+                                   MarketplaceQuotaValidator quotaValidator) {
+        this(properties, store, authClient, openApi, cipher, notifier, clock, quotaValidator, null);
     }
 
     @Autowired
     public TiktokConnectionService(TiktokProperties properties, TiktokConnectionStore store, TiktokAuthClient authClient,
                                    TiktokOpenApiClient openApi, TokenCipher cipher, ReconnectNotifier notifier,
                                    @Qualifier("integrationBusinessClock") Clock clock,
-                                   MarketplaceQuotaValidator quotaValidator) {
+                                   MarketplaceQuotaValidator quotaValidator,
+                                   @Autowired(required = false) TiktokAutoImportAsyncLauncher autoImportLauncher) {
         this.properties = properties;
         this.store = store;
         this.authClient = authClient;
@@ -82,6 +92,7 @@ public class TiktokConnectionService {
         this.quotaValidator = quotaValidator != null
                 ? quotaValidator
                 : new MarketplaceQuotaValidator((com.smartomni.common.tenant.TenantPlanResolver) null);
+        this.autoImportLauncher = autoImportLauncher;
     }
 
     public Object connect(TiktokConnectRequest request) {
@@ -108,7 +119,9 @@ public class TiktokConnectionService {
         String shopName = (request != null && request.getShopName() != null && !request.getShopName().isBlank())
                 ? request.getShopName().trim()
                 : "TikTok Shop " + shopId;
-        return TiktokConnectionDto.from(store.linkDirect(actor.tenantId(), shopId, shopName, clock.instant()));
+        MarketplaceConnection directSaved = store.linkDirect(actor.tenantId(), shopId, shopName, clock.instant());
+        triggerAutoImportIfConnected(directSaved);
+        return TiktokConnectionDto.from(directSaved);
     }
 
     public TiktokAuthorizationStartDto start() {
@@ -188,8 +201,21 @@ public class TiktokConnectionService {
             log.warn("TikTok connection granted without required scopes: tenant={} connection={} missingCount={}",
                     actor.tenantId(), saved.getId(), missing.size());
             notifier.reconnectRequired(actor.tenantId(), saved.getId(), "SCOPE_MISSING");
+        } else {
+            triggerAutoImportIfConnected(saved);
         }
         return TiktokConnectionDto.from(saved);
+    }
+
+    private void triggerAutoImportIfConnected(MarketplaceConnection connection) {
+        if (autoImportLauncher != null && connection != null
+                && connection.getStatus() == ConnectionStatus.CONNECTED) {
+            autoImportLauncher.launchAfterOAuth(
+                    connection.getTenantId(),
+                    connection.getId(),
+                    connection.getShopId(),
+                    TenantContext.getCurrentRole());
+        }
     }
 
     public Optional<TiktokConnectionDto> current() {
