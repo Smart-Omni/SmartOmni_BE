@@ -1,5 +1,8 @@
 package com.smartomni.order.service;
 
+import com.smartomni.common.dto.CreateManualOrderRequest;
+import com.smartomni.common.dto.OrderDetailDto;
+import com.smartomni.common.dto.OrderItemDto;
 import com.smartomni.common.dto.ProcessReturnRequest;
 import com.smartomni.common.dto.UpdateOrderTrackingRequest;
 import com.smartomni.common.dto.WebhookOrderPayload;
@@ -10,10 +13,14 @@ import com.smartomni.order.client.InventoryServiceClient;
 import com.smartomni.order.entity.Order;
 import com.smartomni.order.entity.OrderItem;
 import com.smartomni.order.entity.OrderStatusHistory;
+import com.smartomni.order.entity.ReturnRefund;
+import com.smartomni.order.entity.ReturnRefundItem;
 import com.smartomni.order.entity.SellerWalletLedger;
 import com.smartomni.order.repository.OrderItemRepository;
 import com.smartomni.order.repository.OrderRepository;
 import com.smartomni.order.repository.OrderStatusHistoryRepository;
+import com.smartomni.order.repository.ReturnRefundItemRepository;
+import com.smartomni.order.repository.ReturnRefundRepository;
 import com.smartomni.order.repository.SellerWalletLedgerRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +52,8 @@ public class OrderService {
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
     private final SellerWalletLedgerRepository sellerWalletLedgerRepository;
     private final InventoryServiceClient inventoryServiceClient;
+    private final ReturnRefundRepository returnRefundRepository;
+    private final ReturnRefundItemRepository returnRefundItemRepository;
 
     /**
      * Được gọi bởi RabbitMQ Consumer (OrderMessageConsumer) - nội dung chính của UC-33.
@@ -286,7 +295,14 @@ public class OrderService {
         }
 
         Optional<Order> orderOpt;
-        orderOpt = orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(tenantId, platform, platformOrderId);
+        if (request.getConnectionId() != null) {
+            orderOpt = orderRepository.findByTenantIdAndConnectionIdAndPlatformOrderId(tenantId, request.getConnectionId(), platformOrderId);
+        } else {
+            orderOpt = Optional.empty();
+        }
+        if (orderOpt.isEmpty()) {
+            orderOpt = orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(tenantId, platform, platformOrderId);
+        }
 
         if (orderOpt.isEmpty()) {
             log.warn("Không tìm thấy đơn hàng cho yêu cầu trả hàng: tenantId={}, platform={}, orderId={}",
@@ -312,31 +328,43 @@ public class OrderService {
 
         if (returnAction != null) {
             switch (returnAction) {
+                case AWAITING_INSPECTION -> {
+                    log.info("Xử lý yêu cầu trả hàng vật lý (AWAITING_INSPECTION) cho orderId={}, returnId={}. Chờ nhân viên kho kiểm định.",
+                            platformOrderId, request.getReturnId());
+                    updateOrderStatus(order, Order.OrderStatus.ON_HOLD, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
+                    order.setRestockStatus("AWAITING_INSPECTION");
+                    upsertReturnRecord(tenantId, order, request, ReturnRefund.RefundStatus.REQUESTED, ReturnRefund.InspectionResultType.PENDING, false);
+                }
                 case RECEIVE_APPROVE -> {
                     log.info("Xác nhận trả hàng thành công (RECEIVE_APPROVE) cho orderId={}, returnId={}",
                             platformOrderId, request.getReturnId());
                     updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
                     if (isRestockRequired) {
-                        log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
-                        restockOrderItems(order);
-                        order.setRestockStatus("RESTOCKED");
+                        if ("RESTOCKED".equals(order.getRestockStatus())) {
+                            log.info("Đơn hàng id={} đã được hoàn kho trước đó (idempotent), bỏ qua restock.", order.getId());
+                        } else {
+                            log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
+                            restockOrderItems(order, request.getItems());
+                            order.setRestockStatus("RESTOCKED");
+                        }
                     } else {
                         order.setRestockStatus("SKIPPED");
                     }
+                    upsertReturnRecord(tenantId, order, request, ReturnRefund.RefundStatus.COMPLETED, ReturnRefund.InspectionResultType.MATCHED, "RESTOCKED".equals(order.getRestockStatus()));
                 }
                 case REFUND_ONLY -> {
                     log.info("Hoàn tiền không hoàn hàng vật lý (REFUND_ONLY) cho orderId={}, returnId={}. Nghiêm cấm hoàn kho.",
                             platformOrderId, request.getReturnId());
                     updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
                     order.setRestockStatus("NO_RESTOCK_REFUND_ONLY");
-                    // Nghiêm cấm gọi restock
+                    upsertReturnRecord(tenantId, order, request, ReturnRefund.RefundStatus.COMPLETED, ReturnRefund.InspectionResultType.MATCHED, false);
                 }
                 case RECEIVE_REJECT, RECEIVE_REJECTED -> {
                     log.warn("Từ chối nhận hàng hoàn / trả hàng (RECEIVE_REJECT) cho orderId={}, returnId={}, rejectReason={}. Nghiêm cấm hoàn kho.",
                             platformOrderId, request.getReturnId(), request.getRejectReason());
                     updateOrderStatus(order, Order.OrderStatus.ON_HOLD, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
                     order.setRestockStatus("REJECTED");
-                    // Nghiêm cấm gọi restock
+                    upsertReturnRecord(tenantId, order, request, ReturnRefund.RefundStatus.REJECTED, ReturnRefund.InspectionResultType.DAMAGED, false);
                 }
                 case DISPUTE_CLAIM, DISPUTE_APPROVED -> {
                     log.info("Xử lý khiếu nại sàn ({}) cho orderId={}, returnId={}. Nghiêm cấm hoàn kho.",
@@ -346,7 +374,9 @@ public class OrderService {
                             : Order.OrderStatus.ON_HOLD;
                     updateOrderStatus(order, targetStatus, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
                     order.setRestockStatus("DISPUTED");
-                    // Nghiêm cấm gọi restock
+                    upsertReturnRecord(tenantId, order, request,
+                            returnAction == ProcessReturnRequest.ReturnAction.DISPUTE_APPROVED ? ReturnRefund.RefundStatus.APPROVED : ReturnRefund.RefundStatus.REQUESTED,
+                            ReturnRefund.InspectionResultType.PENDING, false);
                 }
             }
         } else {
@@ -362,9 +392,13 @@ public class OrderService {
                 updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
 
                 if (isRestockRequired && !"REFUND_ONLY".equalsIgnoreCase(request.getReturnType())) {
-                    log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
-                    restockOrderItems(order);
-                    order.setRestockStatus("RESTOCKED");
+                    if ("RESTOCKED".equals(order.getRestockStatus())) {
+                        log.info("Đơn hàng id={} đã được hoàn kho trước đó (idempotent), bỏ qua restock.", order.getId());
+                    } else {
+                        log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
+                        restockOrderItems(order, request.getItems());
+                        order.setRestockStatus("RESTOCKED");
+                    }
                 } else {
                     order.setRestockStatus("SKIPPED");
                 }
@@ -390,12 +424,86 @@ public class OrderService {
     }
 
     private void restockOrderItems(Order order) {
+        restockOrderItems(order, null);
+    }
+
+    private void restockOrderItems(Order order, List<ProcessReturnRequest.ReturnItemDto> returnItems) {
+        if (returnItems != null && !returnItems.isEmpty()) {
+            log.info("Hoàn trả tồn kho theo danh mục mặt hàng trả lại cho đơn hàng id={}, itemsCount={}",
+                    order.getId(), returnItems.size());
+            for (ProcessReturnRequest.ReturnItemDto item : returnItems) {
+                if (item.getSkuId() != null && item.getQuantity() != null && item.getQuantity() > 0) {
+                    inventoryServiceClient.restock(item.getSkuId(), item.getQuantity());
+                    log.info("Hoàn trả tồn kho thành công cho skuId={}, quantity={}", item.getSkuId(), item.getQuantity());
+                }
+            }
+            return;
+        }
+
         List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
-        log.info("Tự động hoàn trả tồn kho cho đơn hàng CANCELLED id={}, itemsCount={}", order.getId(), items.size());
+        log.info("Tự động hoàn trả tồn kho cho đơn hàng CANCELLED/RETURNED id={}, itemsCount={}", order.getId(), items.size());
         for (OrderItem item : items) {
             if (item.getSkuId() != null && item.getQuantity() != null && item.getQuantity() > 0) {
                 inventoryServiceClient.restock(item.getSkuId(), item.getQuantity());
                 log.info("Hoàn trả tồn kho thành công cho skuId={}, quantity={}", item.getSkuId(), item.getQuantity());
+            }
+        }
+    }
+
+    private void upsertReturnRecord(Long tenantId, Order order, ProcessReturnRequest request,
+                                    ReturnRefund.RefundStatus status, ReturnRefund.InspectionResultType inspectionResult,
+                                    boolean restocked) {
+        if (returnRefundRepository == null || request.getReturnId() == null) {
+            return;
+        }
+
+        Long connectionId = request.getConnectionId() != null ? request.getConnectionId() : order.getConnectionId();
+        ReturnRefund refund = null;
+        if (connectionId != null) {
+            refund = returnRefundRepository.findByTenantIdAndConnectionIdAndExternalReturnId(tenantId, connectionId, request.getReturnId())
+                    .orElse(null);
+        }
+        if (refund == null) {
+            refund = returnRefundRepository.findByTenantIdAndOrderId(tenantId, order.getId()).orElse(null);
+        }
+        if (refund == null) {
+            refund = new ReturnRefund();
+            refund.setTenantId(tenantId);
+            refund.setOrderId(order.getId());
+            refund.setConnectionId(connectionId);
+            refund.setExternalReturnId(request.getReturnId());
+            refund.setPlatform(order.getPlatform());
+        }
+
+        refund.setReturnType(request.getReturnType());
+        refund.setReason(request.getReturnReason());
+        refund.setStatus(status);
+        refund.setInspectionResult(inspectionResult);
+        refund.setRestocked(restocked);
+        if (request.getRefundAmount() != null) {
+            refund.setRefundAmount(request.getRefundAmount());
+        }
+        if (request.getEvidenceUrls() != null && !request.getEvidenceUrls().isEmpty()) {
+            refund.setVideoEvidenceUrl(String.join(",", request.getEvidenceUrls()));
+        }
+        ReturnRefund savedRefund = returnRefundRepository.save(refund);
+        Long refundId = savedRefund != null && savedRefund.getId() != null ? savedRefund.getId() : refund.getId();
+
+        if (refundId != null && returnRefundItemRepository != null && request.getItems() != null && !request.getItems().isEmpty()) {
+            List<ReturnRefundItem> existingItems = returnRefundItemRepository.findByTenantIdAndReturnRefundId(tenantId, refundId);
+            if (existingItems.isEmpty()) {
+                for (ProcessReturnRequest.ReturnItemDto itemDto : request.getItems()) {
+                    ReturnRefundItem item = new ReturnRefundItem();
+                    item.setTenantId(tenantId);
+                    item.setReturnRefundId(refundId);
+                    item.setSkuId(itemDto.getSkuId());
+                    item.setExternalItemId(itemDto.getExternalItemId());
+                    item.setItemName(itemDto.getName());
+                    item.setQuantityReturned(itemDto.getQuantity() != null ? itemDto.getQuantity() : 1);
+                    item.setQuantityInspected(0);
+                    item.setRefundAmount(itemDto.getRefundAmount());
+                    returnRefundItemRepository.save(item);
+                }
             }
         }
     }
@@ -446,6 +554,108 @@ public class OrderService {
 
     public Page<Order> getOrdersByTenant(Long tenantId, Pageable pageable) {
         return orderRepository.findByTenantId(tenantId, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public OrderDetailDto getOrderDetail(Long orderId) {
+        Long tenantId = TenantContext.getTenantId();
+        Order order = orderRepository.findByIdAndTenantId(orderId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Đơn hàng không tồn tại: " + orderId));
+        List<OrderItem> items = orderItemRepository.findByOrderIdAndTenantId(orderId, tenantId);
+        List<OrderItemDto> itemDtos = items.stream()
+                .map(item -> OrderItemDto.builder()
+                        .id(item.getId())
+                        .skuId(item.getSkuId())
+                        .quantity(item.getQuantity())
+                        .unitPrice(item.getUnitPrice())
+                        .subtotal(item.getUnitPrice() != null && item.getQuantity() != null
+                                ? item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))
+                                : null)
+                        .imageUrl(item.getImageUrl())
+                        .build())
+                .toList();
+
+        return OrderDetailDto.builder()
+                .id(order.getId())
+                .tenantId(order.getTenantId())
+                .platform(order.getPlatform() != null ? order.getPlatform().name() : null)
+                .connectionId(order.getConnectionId())
+                .platformOrderId(order.getPlatformOrderId())
+                .status(order.getStatus() != null ? order.getStatus().name() : null)
+                .slaDeadline(order.getSlaDeadline())
+                .shippingMethod(order.getShippingMethod())
+                .trackingNumber(order.getTrackingNumber())
+                .courierScannedAt(order.getCourierScannedAt())
+                .customerName(order.getCustomerName())
+                .customerPhone(order.getCustomerPhone())
+                .shippingAddress(order.getShippingAddress())
+                .totalAmount(order.getTotalAmount())
+                .source(order.getSource() != null ? order.getSource().name() : null)
+                .returnReason(order.getReturnReason())
+                .rejectReason(order.getRejectReason())
+                .restockStatus(order.getRestockStatus())
+                .createdAt(order.getCreatedAt())
+                .items(itemDtos)
+                .build();
+    }
+
+    @Transactional
+    public OrderDetailDto createManualOrder(CreateManualOrderRequest request) {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) {
+            throw new BusinessException("TenantId is required", HttpStatus.BAD_REQUEST, "TENANT_REQUIRED");
+        }
+        if (request.getItems() == null || request.getItems().isEmpty()) {
+            throw new BusinessException("Đơn hàng phải chứa ít nhất 1 sản phẩm", HttpStatus.BAD_REQUEST, "ITEMS_REQUIRED");
+        }
+
+        Order.Platform platform = Order.Platform.SHOPEE;
+        if (request.getPlatform() != null && !request.getPlatform().isBlank()) {
+            try {
+                platform = Order.Platform.valueOf(request.getPlatform().toUpperCase());
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        String platformOrderId = (request.getPlatformOrderId() != null && !request.getPlatformOrderId().isBlank())
+                ? request.getPlatformOrderId()
+                : "MANUAL-" + System.currentTimeMillis();
+
+        BigDecimal computedTotal = BigDecimal.ZERO;
+        for (CreateManualOrderRequest.ManualOrderItem item : request.getItems()) {
+            if (item.getUnitPrice() != null && item.getQuantity() != null) {
+                computedTotal = computedTotal.add(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+            }
+        }
+        BigDecimal effectiveTotal = request.getTotalAmount() != null ? request.getTotalAmount() : computedTotal;
+
+        Order order = new Order();
+        order.setTenantId(tenantId);
+        order.setPlatform(platform);
+        order.setPlatformOrderId(platformOrderId);
+        order.setCustomerName(request.getCustomerName() != null ? request.getCustomerName() : "Khách test");
+        order.setCustomerPhone(request.getCustomerPhone());
+        order.setShippingAddress(request.getShippingAddress());
+        order.setShippingMethod(request.getShippingMethod() != null ? request.getShippingMethod() : "Giao hàng tiêu chuẩn");
+        order.setTotalAmount(effectiveTotal);
+        order.setStatus(Order.OrderStatus.PENDING);
+        order.setSource(Order.OrderSource.MANUAL);
+
+        order = orderRepository.save(order);
+
+        for (CreateManualOrderRequest.ManualOrderItem reqItem : request.getItems()) {
+            OrderItem orderItem = new OrderItem();
+            orderItem.setTenantId(tenantId);
+            orderItem.setOrderId(order.getId());
+            orderItem.setSkuId(reqItem.getSkuId() != null ? reqItem.getSkuId() : 0L);
+            orderItem.setQuantity(reqItem.getQuantity() != null ? reqItem.getQuantity() : 1);
+            orderItem.setUnitPrice(reqItem.getUnitPrice() != null ? reqItem.getUnitPrice() : BigDecimal.ZERO);
+            orderItem.setImageUrl(reqItem.getImageUrl());
+            orderItemRepository.save(orderItem);
+        }
+
+        recordStatusHistory(order, Order.OrderStatus.PENDING, OrderStatusHistory.OrderChangeSource.MANAGER, TenantContext.getCurrentUserId());
+
+        return getOrderDetail(order.getId());
     }
 
     /** UC-06: Khách hàng tra cứu đơn hàng bằng Order ID, không cần đăng nhập. */

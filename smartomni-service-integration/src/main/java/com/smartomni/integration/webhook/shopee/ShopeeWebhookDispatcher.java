@@ -6,6 +6,7 @@ import com.smartomni.integration.config.RabbitMQConfig;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
 import com.smartomni.integration.service.order.ShopeeOrderSyncService;
+import com.smartomni.integration.service.order.ShopeeReturnSyncService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +40,7 @@ public class ShopeeWebhookDispatcher {
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
     private final ShopeeOrderSyncService orderSyncService;
+    private final ShopeeReturnSyncService returnSyncService;
     private final Clock clock;
 
     @Autowired
@@ -46,26 +48,44 @@ public class ShopeeWebhookDispatcher {
                                    RabbitTemplate rabbitTemplate,
                                    ObjectMapper objectMapper,
                                    ShopeeOrderSyncService orderSyncService,
+                                   @Autowired(required = false) ShopeeReturnSyncService returnSyncService,
                                    @Qualifier("integrationBusinessClock") Clock clock) {
         this.connectionRepository = connectionRepository;
         this.rabbitTemplate = rabbitTemplate;
         this.objectMapper = objectMapper;
         this.orderSyncService = orderSyncService;
+        this.returnSyncService = returnSyncService;
         this.clock = clock;
     }
 
     public ShopeeWebhookDispatcher(MarketplaceConnectionRepository connectionRepository,
                                    RabbitTemplate rabbitTemplate,
                                    ObjectMapper objectMapper,
+                                   ShopeeOrderSyncService orderSyncService,
+                                   @Qualifier("integrationBusinessClock") Clock clock) {
+        this(connectionRepository, rabbitTemplate, objectMapper, orderSyncService, null, clock);
+    }
+
+    public ShopeeWebhookDispatcher(MarketplaceConnectionRepository connectionRepository,
+                                   RabbitTemplate rabbitTemplate,
+                                   ObjectMapper objectMapper,
                                    ShopeeOrderSyncService orderSyncService) {
-        this(connectionRepository, rabbitTemplate, objectMapper, orderSyncService, Clock.systemUTC());
+        this(connectionRepository, rabbitTemplate, objectMapper, orderSyncService, null, Clock.systemUTC());
+    }
+
+    public ShopeeWebhookDispatcher(MarketplaceConnectionRepository connectionRepository,
+                                   RabbitTemplate rabbitTemplate,
+                                   ObjectMapper objectMapper,
+                                   ShopeeOrderSyncService orderSyncService,
+                                   ShopeeReturnSyncService returnSyncService) {
+        this(connectionRepository, rabbitTemplate, objectMapper, orderSyncService, returnSyncService, Clock.systemUTC());
     }
 
     public ShopeeWebhookDispatcher(MarketplaceConnectionRepository connectionRepository,
                                    RabbitTemplate rabbitTemplate,
                                    ObjectMapper objectMapper,
                                    Clock clock) {
-        this(connectionRepository, rabbitTemplate, objectMapper, null, clock);
+        this(connectionRepository, rabbitTemplate, objectMapper, null, null, clock);
     }
 
     @Transactional
@@ -98,7 +118,7 @@ public class ShopeeWebhookDispatcher {
                 return DispatchOutcome.HANDLED_PROMOTION;
 
             case 29: // return_push / return_updates_push
-                enqueueReturnEvent(tenantId, event);
+                handleReturnPush(tenantId, event);
                 return DispatchOutcome.ENQUEUED_RETURN;
 
             default:
@@ -181,6 +201,22 @@ public class ShopeeWebhookDispatcher {
         rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, "order.tracking", message);
         log.info("Published Shopee tracking push to RabbitMQ: ordersn={}, trackingNo={}",
                 event.orderSn(), event.trackingNo());
+    }
+
+    private void handleReturnPush(Long tenantId, ShopeeWebhookEvent event) {
+        if (event.returnSn() != null && returnSyncService != null) {
+            try (var scope = TenantContext.openScope(tenantId, null, null)) {
+                var connOpt = connectionRepository.findByTenantIdAndPlatform(tenantId, MarketplaceConnection.Platform.SHOPEE);
+                if (connOpt.isPresent()) {
+                    returnSyncService.syncReturn(tenantId, event.getShopId() != null ? String.valueOf(event.getShopId()) : null, event.orderSn(), event.returnSn());
+                    return;
+                }
+            } catch (Exception ex) {
+                log.warn("Direct return sync failed for returnSn={}, falling back to raw enqueue: {}",
+                        event.returnSn(), ex.getMessage());
+            }
+        }
+        enqueueReturnEvent(tenantId, event);
     }
 
     private void enqueueReturnEvent(Long tenantId, ShopeeWebhookEvent event) {

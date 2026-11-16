@@ -11,6 +11,8 @@ import com.smartomni.order.entity.SellerWalletLedger;
 import com.smartomni.order.repository.OrderItemRepository;
 import com.smartomni.order.repository.OrderRepository;
 import com.smartomni.order.repository.OrderStatusHistoryRepository;
+import com.smartomni.order.repository.ReturnRefundItemRepository;
+import com.smartomni.order.repository.ReturnRefundRepository;
 import com.smartomni.order.repository.SellerWalletLedgerRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
@@ -54,6 +56,12 @@ class OrderLifecycleTest {
 
     @Mock
     private InventoryServiceClient inventoryServiceClient;
+
+    @Mock
+    private ReturnRefundRepository returnRefundRepository;
+
+    @Mock
+    private ReturnRefundItemRepository returnRefundItemRepository;
 
     @InjectMocks
     private OrderService orderService;
@@ -523,6 +531,169 @@ class OrderLifecycleTest {
         assertEquals(Order.OrderStatus.ON_HOLD, updated.getStatus());
         assertEquals("DISPUTED", updated.getRestockStatus());
         verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
+    }
+
+    @Test
+    @DisplayName("handleOrderReturn: RECEIVE_APPROVE gọi lặp lại không cộng kho lần 2 (idempotent)")
+    void handleOrderReturn_duplicateReceiveApprove_isIdempotentAndNeverRestocksTwice() {
+        sampleOrder.setStatus(Order.OrderStatus.RETURNED);
+        sampleOrder.setRestockStatus("RESTOCKED");
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, "SP-ORDER-9999"))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("SHOPEE")
+                .platformOrderId("SP-ORDER-9999")
+                .returnId("ret-duplicate-shopee")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE)
+                .returnStatus("ACCEPTED")
+                .restockRequired(true)
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
+        assertEquals("RESTOCKED", updated.getRestockStatus());
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
+    }
+
+    @Test
+    @DisplayName("handleOrderReturn: trả hàng 1 phần chỉ cộng kho đúng các SKU trong return items")
+    void handleOrderReturn_partialItemReturn_restocksOnlyReturnedItems() {
+        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+        sampleOrder.setRestockStatus(null);
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, "SP-ORDER-9999"))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.smartomni.common.dto.ProcessReturnRequest.ReturnItemDto returnItem =
+                com.smartomni.common.dto.ProcessReturnRequest.ReturnItemDto.builder()
+                        .skuId(101L)
+                        .quantity(1)
+                        .name("Áo thun đen")
+                        .build();
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("SHOPEE")
+                .platformOrderId("SP-ORDER-9999")
+                .returnId("ret-partial-1")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE)
+                .returnStatus("ACCEPTED")
+                .restockRequired(true)
+                .items(List.of(returnItem))
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
+        assertEquals("RESTOCKED", updated.getRestockStatus());
+        verify(inventoryServiceClient, times(1)).restock(101L, 1);
+        verify(inventoryServiceClient, never()).restock(eq(102L), anyInt());
+    }
+
+    @Test
+    @DisplayName("handleOrderReturn: Shopee trả hàng vật lý AWAITING_INSPECTION chuyển ON_HOLD và không cộng kho")
+    void handleOrderReturn_awaitingInspection_setsOnHoldAndDoesNotRestock() {
+        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+        sampleOrder.setRestockStatus(null);
+        sampleOrder.setConnectionId(88L);
+
+        when(orderRepository.findByTenantIdAndConnectionIdAndPlatformOrderId(TENANT_ID, 88L, "SP-ORDER-1234"))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID)
+                .connectionId(88L)
+                .platform("SHOPEE")
+                .platformOrderId("SP-ORDER-1234")
+                .returnId("ret-shopee-awaiting-1")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.AWAITING_INSPECTION)
+                .returnStatus("ACCEPTED")
+                .returnType("PHYSICAL_RETURN")
+                .returnReason("Damaged during shipping")
+                .restockRequired(false)
+                .build();
+
+        Order updated = orderService.handleOrderReturn(request);
+
+        assertNotNull(updated);
+        assertEquals(Order.OrderStatus.ON_HOLD, updated.getStatus());
+        assertEquals("AWAITING_INSPECTION", updated.getRestockStatus());
+        verify(returnRefundRepository, times(1)).save(any());
+        verifyNoInteractions(inventoryServiceClient);
+    }
+
+    @Test
+    @DisplayName("getOrderDetail returns OrderDetailDto with order items")
+    void getOrderDetail_Success() {
+        Order order = new Order();
+        order.setId(ORDER_ID);
+        order.setTenantId(TENANT_ID);
+        order.setPlatform(Order.Platform.SHOPEE);
+        order.setPlatformOrderId("SP-ORDER-100");
+        order.setStatus(Order.OrderStatus.PENDING);
+
+        OrderItem item = new OrderItem();
+        item.setId(1L);
+        item.setOrderId(ORDER_ID);
+        item.setTenantId(TENANT_ID);
+        item.setSkuId(55L);
+        item.setQuantity(3);
+        item.setUnitPrice(BigDecimal.valueOf(100000));
+
+        when(orderRepository.findByIdAndTenantId(ORDER_ID, TENANT_ID)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findByOrderIdAndTenantId(ORDER_ID, TENANT_ID)).thenReturn(List.of(item));
+
+        com.smartomni.common.dto.OrderDetailDto detail = orderService.getOrderDetail(ORDER_ID);
+
+        assertNotNull(detail);
+        assertEquals(ORDER_ID, detail.getId());
+        assertEquals("SHOPEE", detail.getPlatform());
+        assertEquals(1, detail.getItems().size());
+        assertEquals(55L, detail.getItems().get(0).getSkuId());
+        assertEquals(3, detail.getItems().get(0).getQuantity());
+    }
+
+    @Test
+    @DisplayName("createManualOrder creates order and line items successfully")
+    void createManualOrder_Success() {
+        com.smartomni.common.dto.CreateManualOrderRequest request = com.smartomni.common.dto.CreateManualOrderRequest.builder()
+                .platform("SHOPEE")
+                .customerName("Tran Thi B")
+                .items(List.of(new com.smartomni.common.dto.CreateManualOrderRequest.ManualOrderItem(55L, 2, BigDecimal.valueOf(100000), null)))
+                .build();
+
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order o = invocation.getArgument(0);
+            o.setId(ORDER_ID);
+            return o;
+        });
+        when(orderRepository.findByIdAndTenantId(ORDER_ID, TENANT_ID)).thenAnswer(invocation -> {
+            Order o = new Order();
+            o.setId(ORDER_ID);
+            o.setTenantId(TENANT_ID);
+            o.setPlatform(Order.Platform.SHOPEE);
+            o.setCustomerName("Tran Thi B");
+            o.setStatus(Order.OrderStatus.PENDING);
+            return Optional.of(o);
+        });
+        when(orderItemRepository.findByOrderIdAndTenantId(ORDER_ID, TENANT_ID)).thenReturn(List.of());
+
+        com.smartomni.common.dto.OrderDetailDto result = orderService.createManualOrder(request);
+
+        assertNotNull(result);
+        assertEquals(ORDER_ID, result.getId());
+        assertEquals("Tran Thi B", result.getCustomerName());
+        verify(orderRepository).save(any(Order.class));
+        verify(orderItemRepository).save(any(OrderItem.class));
     }
 }
 

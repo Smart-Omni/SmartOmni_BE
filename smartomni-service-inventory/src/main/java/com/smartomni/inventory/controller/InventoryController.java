@@ -1,8 +1,8 @@
 package com.smartomni.inventory.controller;
 
 import com.smartomni.common.dto.ApiResponse;
+import com.smartomni.common.dto.InventoryItemDto;
 import com.smartomni.inventory.service.InventoryService;
-import com.smartomni.inventory.entity.Inventory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import lombok.RequiredArgsConstructor;
@@ -17,8 +17,8 @@ public class InventoryController {
     private final InventoryService inventoryService;
 
     @GetMapping
-    public ApiResponse<Page<Inventory>> list(Pageable pageable) {
-        return ApiResponse.success(inventoryService.listInventory(pageable));
+    public ApiResponse<Page<InventoryItemDto>> list(Pageable pageable) {
+        return ApiResponse.success(inventoryService.listEnrichedInventory(pageable));
     }
 
     @PostMapping("/{skuId}/adjust")
@@ -34,8 +34,11 @@ public class InventoryController {
     }
 
     @PostMapping("/{skuId}/restock")
-    public ApiResponse<Void> restock(@PathVariable Long skuId, @RequestParam int quantity) {
-        inventoryService.restock(skuId, quantity);
+    public ApiResponse<Void> restock(
+            @PathVariable Long skuId,
+            @RequestParam int quantity,
+            @RequestParam(value = "idempotencyKey", required = false) String idempotencyKey) {
+        inventoryService.restock(skuId, quantity, idempotencyKey);
         return ApiResponse.success("Hoan tra ton kho thanh cong", null);
     }
 }

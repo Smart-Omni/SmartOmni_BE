@@ -14,5 +14,12 @@ public interface InventoryServiceClient {
     ApiResponse<Void> deductStock(@PathVariable("skuId") Long skuId, @RequestParam("quantity") int quantity);
 
     @PostMapping("/api/v1/inventory/{skuId}/restock")
-    ApiResponse<Void> restock(@PathVariable("skuId") Long skuId, @RequestParam("quantity") int quantity);
+    ApiResponse<Void> restock(
+            @PathVariable("skuId") Long skuId,
+            @RequestParam("quantity") int quantity,
+            @RequestParam(value = "idempotencyKey", required = false) String idempotencyKey);
+
+    default ApiResponse<Void> restock(Long skuId, int quantity) {
+        return restock(skuId, quantity, null);
+    }
 }

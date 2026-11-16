@@ -214,6 +214,61 @@ class ShopeeWebhookDispatcherTest {
     }
 
     @Test
+    @DisplayName("Code 29: triggers direct ShopeeReturnSyncService when available")
+    void dispatch_Code29_TriggersDirectReturnSync() throws Exception {
+        com.smartomni.integration.service.order.ShopeeReturnSyncService syncService =
+                mock(com.smartomni.integration.service.order.ShopeeReturnSyncService.class);
+        ShopeeWebhookDispatcher customDispatcher =
+                new ShopeeWebhookDispatcher(repository, rabbitTemplate, objectMapper, null, syncService, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        String dataJson = "{\"order_sn\":\"261019TEST01\",\"return_sn\":\"RET_9901\"}";
+        String raw = "{\"code\":29,\"shop_id\":727720655,\"timestamp\":1714000500,\"data\":" + dataJson + "}";
+        ShopeeWebhookEvent event = ShopeeWebhookEvent.builder()
+                .code(29)
+                .shopId(727720655L)
+                .timestamp(1714000500L)
+                .data(objectMapper.readTree(dataJson))
+                .build();
+
+        ShopeeWebhookDispatcher.DispatchOutcome outcome = customDispatcher.dispatch(1L, event, raw);
+
+        assertEquals(ShopeeWebhookDispatcher.DispatchOutcome.ENQUEUED_RETURN, outcome);
+        verify(syncService).syncReturn(1L, "727720655", "261019TEST01", "RET_9901");
+        verifyNoInteractions(rabbitTemplate);
+    }
+
+    @Test
+    @DisplayName("Code 29: falls back to RabbitMQ enqueue when direct sync fails")
+    @SuppressWarnings("unchecked")
+    void dispatch_Code29_FallsBackToEnqueueWhenDirectSyncFails() throws Exception {
+        com.smartomni.integration.service.order.ShopeeReturnSyncService syncService =
+                mock(com.smartomni.integration.service.order.ShopeeReturnSyncService.class);
+        doThrow(new RuntimeException("Shopee API temporary glitch"))
+                .when(syncService).syncReturn(any(), any(), any(), any());
+
+        ShopeeWebhookDispatcher customDispatcher =
+                new ShopeeWebhookDispatcher(repository, rabbitTemplate, objectMapper, null, syncService, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        String dataJson = "{\"order_sn\":\"261019TEST01\",\"return_sn\":\"RET_9901\"}";
+        String raw = "{\"code\":29,\"shop_id\":727720655,\"timestamp\":1714000500,\"data\":" + dataJson + "}";
+        ShopeeWebhookEvent event = ShopeeWebhookEvent.builder()
+                .code(29)
+                .shopId(727720655L)
+                .timestamp(1714000500L)
+                .data(objectMapper.readTree(dataJson))
+                .build();
+
+        ShopeeWebhookDispatcher.DispatchOutcome outcome = customDispatcher.dispatch(1L, event, raw);
+
+        assertEquals(ShopeeWebhookDispatcher.DispatchOutcome.ENQUEUED_RETURN, outcome);
+        verify(rabbitTemplate).convertAndSend(
+                eq(RabbitMQConfig.ORDER_EXCHANGE),
+                eq("return.incoming"),
+                any(Map.class)
+        );
+    }
+
+    @Test
     @DisplayName("Unknown code acknowledged with IGNORED")
     void dispatch_UnknownCode_ReturnsIgnored() throws Exception {
         ShopeeWebhookEvent event = ShopeeWebhookEvent.builder()

@@ -117,6 +117,17 @@ public class ProductService {
         return skuRepository.findByProductId(productId);
     }
 
+    public List<ProductSku> getSkusByProductIds(List<Long> productIds) {
+        if (productIds == null || productIds.isEmpty()) {
+            return List.of();
+        }
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId != null) {
+            return skuRepository.findByTenantIdAndProductIdIn(tenantId, productIds);
+        }
+        return skuRepository.findByProductIdIn(productIds);
+    }
+
     @Transactional(readOnly = true)
     public Page<Product> listProducts(Pageable pageable) {
         return productRepository.findByTenantId(TenantContext.getTenantId(), pageable);

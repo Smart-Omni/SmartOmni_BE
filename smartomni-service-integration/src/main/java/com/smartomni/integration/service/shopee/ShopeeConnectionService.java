@@ -11,6 +11,7 @@ import com.smartomni.integration.config.ShopeeProperties;
 import com.smartomni.integration.dto.shopee.ShopeeAuthorizationStartDto;
 import com.smartomni.integration.dto.shopee.ShopeeCallbackRequest;
 import com.smartomni.integration.dto.shopee.ShopeeConnectionDto;
+import com.smartomni.integration.dto.shopee.UpdateShopeeSettingsRequest;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.entity.MarketplaceConnection.ConnectionStatus;
 import com.smartomni.integration.service.MarketplaceQuotaValidator;
@@ -86,6 +87,10 @@ public class ShopeeConnectionService {
     }
 
     public ShopeeAuthorizationStartDto start() {
+        return start(null);
+    }
+
+    public ShopeeAuthorizationStartDto start(String customRedirectUri) {
         Actor actor = requireTenantAdmin();
         if (properties.getPartnerId() == null || properties.getPartnerKey().isBlank()
                 || properties.getAuthorizationUrl().isBlank()) {
@@ -93,6 +98,8 @@ public class ShopeeConnectionService {
                     HttpStatus.SERVICE_UNAVAILABLE, "SHOPEE_NOT_CONFIGURED");
         }
         quotaValidator.assertCanConnect(actor.tenantId(), store.countActiveConnections(actor.tenantId()));
+
+        String effectiveRedirectUri = resolveAndValidateRedirectUri(customRedirectUri);
 
         String state = newState();
         Instant expiresAt = clock.instant().plus(properties.getStateTtl());
@@ -102,7 +109,7 @@ public class ShopeeConnectionService {
             store.prepareStart(actor.tenantId(), actor.userId(), hash(state), expiresAt);
         }
 
-        return new ShopeeAuthorizationStartDto(authorizationUrl(state), expiresAt);
+        return new ShopeeAuthorizationStartDto(authorizationUrl(state, effectiveRedirectUri), expiresAt);
     }
 
     public ShopeeConnectionDto complete(ShopeeCallbackRequest request) {
@@ -184,13 +191,44 @@ public class ShopeeConnectionService {
                 ConnectionStatus.DISCONNECTED, null, clock.instant()).orElse(connection));
     }
 
+    public ShopeeConnectionDto updateSettings(UpdateShopeeSettingsRequest request) {
+        Actor actor = requireTenantAdmin();
+        MarketplaceConnection connection = store.findCurrent(actor.tenantId()).orElseThrow(() ->
+                error(HttpStatus.NOT_FOUND, "SHOPEE_CONNECTION_NOT_FOUND", "No Shopee connection found"));
+        boolean autoImport = request != null && Boolean.TRUE.equals(request.getAutoImportProducts());
+        MarketplaceConnection updated = store.updateSettings(actor.tenantId(), connection.getId(), autoImport);
+        return ShopeeConnectionDto.from(updated);
+    }
+
     // ---- helpers
 
+    private String resolveAndValidateRedirectUri(String redirectUri) {
+        if (redirectUri == null || redirectUri.isBlank()) {
+            return properties.getRedirectUri();
+        }
+        String trimmed = redirectUri.trim();
+        if (trimmed.startsWith("smartomni://")
+                || trimmed.startsWith("http://localhost:")
+                || trimmed.startsWith("http://127.0.0.1:")
+                || trimmed.startsWith("https://localhost:")
+                || trimmed.startsWith("https://127.0.0.1:")
+                || trimmed.startsWith("https://smartomni.vn/")
+                || trimmed.matches("^https://[a-zA-Z0-9.-]+\\.smartomni\\.vn(/.*)?$")) {
+            return trimmed;
+        }
+        throw new BusinessException("Invalid redirect_uri. Allowed schemes: smartomni://, localhost, *.smartomni.vn",
+                HttpStatus.BAD_REQUEST, "INVALID_REDIRECT_URI");
+    }
+
     private String authorizationUrl(String state) {
+        return authorizationUrl(state, properties.getRedirectUri());
+    }
+
+    private String authorizationUrl(String state, String redirectUri) {
         String base = properties.getAuthorizationUrl();
         StringBuilder url = new StringBuilder(base).append(base.contains("?") ? '&' : '?')
                 .append("partner_id=").append(properties.getPartnerId())
-                .append("&redirect_uri=").append(encode(properties.getRedirectUri()))
+                .append("&redirect_uri=").append(encode(redirectUri))
                 .append("&state=").append(encode(state));
         return url.toString();
     }

@@ -2,8 +2,10 @@ package com.smartomni.integration.controller;
 
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.integration.dto.shopee.ShopeeAuthorizationStartDto;
+import com.smartomni.integration.dto.shopee.ShopeeAuthorizationStartRequest;
 import com.smartomni.integration.dto.shopee.ShopeeCallbackRequest;
 import com.smartomni.integration.dto.shopee.ShopeeConnectionDto;
+import com.smartomni.integration.dto.shopee.UpdateShopeeSettingsRequest;
 import com.smartomni.integration.service.shopee.ShopeeConnectionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -21,8 +23,13 @@ public class ShopeeConnectionController {
     private final ShopeeConnectionService service;
 
     @PostMapping("/authorization")
-    public ApiResponse<ShopeeAuthorizationStartDto> start() {
-        return ApiResponse.success(service.start());
+    public ApiResponse<ShopeeAuthorizationStartDto> start(
+            @RequestParam(value = "redirect_uri", required = false) String queryRedirectUri,
+            @RequestBody(required = false) ShopeeAuthorizationStartRequest request) {
+        String redirectUri = (request != null && request.getRedirectUri() != null && !request.getRedirectUri().isBlank())
+                ? request.getRedirectUri()
+                : queryRedirectUri;
+        return ApiResponse.success(service.start(redirectUri));
     }
 
     /** Called by frontend callback page with code, shop_id, and state taken from redirect query string. */
@@ -34,6 +41,11 @@ public class ShopeeConnectionController {
     @GetMapping
     public ApiResponse<ShopeeConnectionDto> current() {
         return ApiResponse.success(service.current().orElse(null));
+    }
+
+    @PatchMapping("/settings")
+    public ApiResponse<ShopeeConnectionDto> updateSettings(@RequestBody UpdateShopeeSettingsRequest request) {
+        return ApiResponse.success("Shopee settings updated", service.updateSettings(request));
     }
 
     @PostMapping("/disconnect")

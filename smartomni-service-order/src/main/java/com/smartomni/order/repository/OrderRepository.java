@@ -16,6 +16,9 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     Optional<Order> findByTenantIdAndPlatformAndPlatformOrderId(
             Long tenantId, Order.Platform platform, String platformOrderId);
 
+    Optional<Order> findByTenantIdAndConnectionIdAndPlatformOrderId(
+            Long tenantId, Long connectionId, String platformOrderId);
+
     Page<Order> findByTenantId(Long tenantId, Pageable pageable);
 
     // UC-06: Tra cuu don hang cheo nen tang - Khach hang tra bang Order ID, khong can dang nhap

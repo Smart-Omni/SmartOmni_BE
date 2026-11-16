@@ -5,8 +5,10 @@ import com.smartomni.ai.service.DemandForecastService;
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.common.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /** UC-14/UC-35: Du bao nhu cau hang hoa & canh bao ton kho. */
@@ -24,7 +26,10 @@ public class DemandForecastController {
     }
 
     @GetMapping("/{skuId}")
-    public ApiResponse<List<DemandForecast>> getForecasts(@PathVariable Long skuId) {
-        return ApiResponse.success(demandForecastService.getForecastsForSku(TenantContext.getTenantId(), skuId));
+    public ApiResponse<List<DemandForecast>> getForecasts(
+            @PathVariable Long skuId,
+            @RequestParam(value = "from", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(value = "days", required = false) Integer days) {
+        return ApiResponse.success(demandForecastService.getForecastsForSku(TenantContext.getTenantId(), skuId, from, days));
     }
 }

@@ -1,9 +1,12 @@
 package com.smartomni.order.controller;
 
 import com.smartomni.common.dto.ApiResponse;
+import com.smartomni.common.dto.CreateManualOrderRequest;
+import com.smartomni.common.dto.OrderDetailDto;
 import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.order.entity.Order;
 import com.smartomni.order.service.OrderService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -24,6 +27,17 @@ public class OrderController {
     @GetMapping
     public ApiResponse<Page<Order>> list(Pageable pageable) {
         return ApiResponse.success(orderService.getOrdersByTenant(TenantContext.getTenantId(), pageable));
+    }
+
+    @GetMapping("/{orderId}")
+    public ApiResponse<OrderDetailDto> getDetail(@PathVariable Long orderId) {
+        return ApiResponse.success(orderService.getOrderDetail(orderId));
+    }
+
+    @PostMapping
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT_ADMIN')")
+    public ApiResponse<OrderDetailDto> createManualOrder(@Valid @RequestBody CreateManualOrderRequest request) {
+        return ApiResponse.success("Tạo đơn hàng thành công", orderService.createManualOrder(request));
     }
 
     @PatchMapping("/{orderId}/status")

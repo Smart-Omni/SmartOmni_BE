@@ -119,6 +119,13 @@ public class ShopeeConnectionStore {
         return connections.findFirstByTenantIdAndPlatformOrderByIdAsc(tenantId, MarketplaceConnection.Platform.SHOPEE);
     }
 
+    @Transactional
+    public MarketplaceConnection updateSettings(Long tenantId, Long connectionId, boolean autoImportProducts) {
+        MarketplaceConnection c = load(tenantId, connectionId);
+        c.setAutoImportProducts(autoImportProducts);
+        return connections.saveAndFlush(c);
+    }
+
     @Transactional(readOnly = true)
     public long countActiveConnections(Long tenantId) {
         return connections.countByTenantIdAndStatusNot(tenantId, ConnectionStatus.DISCONNECTED);

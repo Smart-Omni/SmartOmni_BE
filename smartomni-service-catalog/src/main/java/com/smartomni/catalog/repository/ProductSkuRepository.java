@@ -12,4 +12,6 @@ public interface ProductSkuRepository extends JpaRepository<ProductSku, Long> {
     long countByTenantId(Long tenantId);
     Optional<ProductSku> findByTenantIdAndSkuCode(Long tenantId, String skuCode); // dung cho upsert (UC-42/FR-085)
     List<ProductSku> findByProductId(Long productId);
+    List<ProductSku> findByProductIdIn(List<Long> productIds);
+    List<ProductSku> findByTenantIdAndProductIdIn(Long tenantId, List<Long> productIds);
 }

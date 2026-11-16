@@ -1,16 +1,21 @@
 package com.smartomni.inventory.service;
 
+import com.smartomni.common.dto.InventoryItemDto;
 import com.smartomni.common.exception.BusinessException;
 import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.inventory.entity.Inventory;
 import com.smartomni.inventory.entity.InventoryOutboxEvent;
+import com.smartomni.inventory.entity.InventoryRestockLog;
 import com.smartomni.inventory.repository.InventoryOutboxEventRepository;
 import com.smartomni.inventory.repository.InventoryRepository;
+import com.smartomni.inventory.repository.InventoryRestockLogRepository;
 import com.smartomni.inventory.repository.SkuOwnershipRepository;
 import com.smartomni.common.exception.ResourceNotFoundException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
@@ -21,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
  * UC-11: Cap nhat ton kho - FR-026, FR-027, FR-028
  * UC-40: Ghi Outbox event trong CUNG transaction voi cap nhat ton kho - FR-074
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class InventoryService {
@@ -28,10 +34,24 @@ public class InventoryService {
     private final InventoryRepository inventoryRepository;
     private final InventoryOutboxEventRepository outboxEventRepository;
     private final SkuOwnershipRepository skuOwnershipRepository;
+    private final InventoryRestockLogRepository restockLogRepository;
 
     @Transactional(readOnly = true)
     public Page<Inventory> listInventory(Pageable pageable) {
         return inventoryRepository.findByTenantId(TenantContext.getTenantId(), pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<InventoryItemDto> listEnrichedInventory(Pageable pageable) {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) {
+            return Page.empty(pageable);
+        }
+        int limit = pageable.getPageSize();
+        int offset = (int) pageable.getOffset();
+        java.util.List<InventoryItemDto> items = skuOwnershipRepository.listEnrichedInventory(tenantId, limit, offset);
+        long total = skuOwnershipRepository.countEnrichedInventory(tenantId);
+        return new PageImpl<>(items, pageable, total);
     }
 
     /**
@@ -68,14 +88,39 @@ public class InventoryService {
     }
 
     @Transactional
-    public void restock(Long skuId, int quantity) {
+    public void restock(Long skuId, int quantity, String idempotencyKey) {
         Long tenantId = requireTenantId();
+
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            if (restockLogRepository.existsByTenantIdAndIdempotencyKey(tenantId, idempotencyKey)) {
+                log.info("Restock operation already applied (idempotent): tenantId={}, skuId={}, idempotencyKey={}",
+                        tenantId, skuId, idempotencyKey);
+                return;
+            }
+        }
+
         Inventory inventory = inventoryRepository.findByTenantIdAndSkuId(tenantId, skuId)
                 .orElseGet(() -> newInventoryForOwnedSku(tenantId, skuId));
         inventory.setQuantityOnHand(inventory.getQuantityOnHand() + quantity);
         inventoryRepository.save(inventory);
 
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            InventoryRestockLog logEntity = new InventoryRestockLog();
+            logEntity.setTenantId(tenantId);
+            logEntity.setSkuId(skuId);
+            logEntity.setQuantity(quantity);
+            logEntity.setIdempotencyKey(idempotencyKey);
+            restockLogRepository.save(logEntity);
+            log.info("Recorded inventory restock log: tenantId={}, skuId={}, quantity={}, idempotencyKey={}",
+                    tenantId, skuId, quantity, idempotencyKey);
+        }
+
         createOutboxEventsForAllLinkedPlatforms(inventory);
+    }
+
+    @Transactional
+    public void restock(Long skuId, int quantity) {
+        restock(skuId, quantity, null);
     }
 
     private void createOutboxEventsForAllLinkedPlatforms(Inventory inventory) {

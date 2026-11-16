@@ -40,4 +40,9 @@ public class ProductController {
     public ApiResponse<List<ProductSku>> getSkus(@PathVariable Long productId) {
         return ApiResponse.success(productService.getSkusByProduct(productId));
     }
+
+    @GetMapping("/skus")
+    public ApiResponse<List<ProductSku>> getSkusByProductIds(@RequestParam List<Long> productIds) {
+        return ApiResponse.success(productService.getSkusByProductIds(productIds));
+    }
 }
