@@ -49,7 +49,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         when(tokenBlacklistValidator.isBlacklisted(token)).thenReturn(true);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
 
         JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate);
         filter.doFilter(request, response, filterChain);
@@ -68,7 +68,8 @@ class JwtAuthenticationFilterTest {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/products");
         request.addHeader("Authorization", "Bearer " + token);
         MockHttpServletResponse response = new MockHttpServletResponse();
-        when(jwtTokenProvider.isExpiredToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token))
+                .thenThrow(new io.jsonwebtoken.ExpiredJwtException(null, null, "expired"));
 
         new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate)
                 .doFilter(request, response, filterChain);
@@ -107,7 +108,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         when(tokenBlacklistValidator.isBlacklisted(token)).thenReturn(false);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
         when(jwtTokenProvider.getRole(token)).thenReturn("ADMIN");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
@@ -142,7 +143,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         when(tokenBlacklistValidator.isBlacklisted(token)).thenReturn(false);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
         when(jwtTokenProvider.getRole(token)).thenReturn("ADMIN");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
@@ -183,7 +184,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/products");
         request.addHeader("Authorization", "Bearer " + token);
         MockHttpServletResponse response = new MockHttpServletResponse();
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
         when(jwtTokenProvider.getRole(token)).thenReturn("STAFF");
         when(jwtTokenProvider.getTokenVersion(token)).thenReturn(0L);
@@ -205,7 +206,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletRequest request = new MockHttpServletRequest("PATCH", "/api/v1/orders/1/status");
         request.addHeader("Authorization", "Bearer " + token);
         MockHttpServletResponse response = new MockHttpServletResponse();
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
         when(jwtTokenProvider.getRole(token)).thenReturn("MANAGER");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
@@ -228,7 +229,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletRequest request = new MockHttpServletRequest("PATCH", "/api/v1/orders/1/status");
         request.addHeader("Authorization", "Bearer " + token);
         MockHttpServletResponse response = new MockHttpServletResponse();
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
         when(jwtTokenProvider.getRole(token)).thenReturn("STAFF");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
@@ -268,7 +269,7 @@ class JwtAuthenticationFilterTest {
         filter.doFilter(loginRequest, response, filterChain);
         verify(filterChain, times(1)).doFilter(loginRequest, response);
         verify(tokenBlacklistValidator, never()).isBlacklisted(anyString());
-        verify(jwtTokenProvider, never()).validateToken(anyString());
+        verify(jwtTokenProvider, never()).parseClaims(anyString());
     }
 
     @Test
@@ -276,7 +277,7 @@ class JwtAuthenticationFilterTest {
     void unassignedStaffBlockedFromTenantApisButAllowedOnSelfEndpoints() throws Exception {
         String token = "staff.unassigned.token";
         when(tokenBlacklistValidator.isBlacklisted(token)).thenReturn(false);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(20L);
         when(jwtTokenProvider.getRole(token)).thenReturn("STAFF");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(null);

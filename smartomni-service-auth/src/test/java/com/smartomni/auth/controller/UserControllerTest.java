@@ -63,7 +63,7 @@ class UserControllerTest {
     @Test
     void tenantAdminCanListUsers() throws Exception {
         String token = "tenant-admin-token";
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(org.mockito.Mockito.mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(7L);
         when(jwtTokenProvider.getRole(token)).thenReturn("TENANT_ADMIN");
 
@@ -78,7 +78,7 @@ class UserControllerTest {
     @DisplayName("GET /api/v1/users/me thành công khi có Bearer token hợp lệ")
     void testGetCurrentUser_Success() throws Exception {
         String token = "valid-profile-token";
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(org.mockito.Mockito.mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(1L);
         when(jwtTokenProvider.getRole(token)).thenReturn("ADMIN");
 
@@ -106,17 +106,19 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/v1/users/me bị từ chối (403 Forbidden) khi không có Bearer token")
+    @DisplayName("GET /api/v1/users/me trả 401 UNAUTHORIZED khi không có Bearer token")
     void testGetCurrentUser_Unauthenticated() throws Exception {
         mockMvc.perform(get("/api/v1/users/me"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
 
     @Test
     @DisplayName("PUT /api/v1/users/me cập nhật profile thành công khi có Bearer token")
     void testUpdateProfile_Success() throws Exception {
         String token = "valid-profile-token";
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(org.mockito.Mockito.mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(1L);
         when(jwtTokenProvider.getRole(token)).thenReturn("ADMIN");
 
@@ -151,7 +153,7 @@ class UserControllerTest {
     @DisplayName("PATCH /api/v1/users/me cập nhật một phần profile thành công")
     void testPatchProfile_Success() throws Exception {
         String token = "valid-profile-token";
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(org.mockito.Mockito.mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(1L);
         when(jwtTokenProvider.getRole(token)).thenReturn("ADMIN");
 

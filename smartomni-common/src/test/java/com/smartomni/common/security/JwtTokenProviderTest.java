@@ -1,6 +1,7 @@
 package com.smartomni.common.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -75,7 +76,6 @@ class JwtTokenProviderTest {
         ReflectionTestUtils.setField(jwtTokenProvider, "expirationMs", -1000L);
         String token = jwtTokenProvider.generateToken(42L, "STAFF", 7L);
         assertFalse(jwtTokenProvider.validateToken(token));
-        assertTrue(jwtTokenProvider.isExpiredToken(token));
-        assertFalse(jwtTokenProvider.isExpiredToken("not-a-jwt"));
+        assertThrows(ExpiredJwtException.class, () -> jwtTokenProvider.parseClaims(token));
     }
 }

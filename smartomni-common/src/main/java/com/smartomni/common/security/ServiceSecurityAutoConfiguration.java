@@ -56,6 +56,7 @@ public class ServiceSecurityAutoConfiguration {
                                                           ObjectProvider<StringRedisTemplate> stringRedisTemplateProvider) throws Exception {
         return http.csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(new JsonAuthenticationEntryPoint()))
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplateProvider.getIfAvailable()), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(PublicEndpointPaths.PUBLIC_AUTH_ONBOARDING_ERROR).permitAll()

@@ -236,7 +236,7 @@ class AuthControllerTest {
     @DisplayName("POST /api/v1/auth/change-password thành công khi đã xác thực Bearer token")
     void testChangePassword_Success() throws Exception {
         String token = "valid-user-token";
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(org.mockito.Mockito.mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(1L);
         when(jwtTokenProvider.getRole(token)).thenReturn("CUSTOMER");
 

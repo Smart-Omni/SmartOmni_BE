@@ -83,7 +83,18 @@ class TenantSecurityConfigTest {
     @DisplayName("Endpoint bảo mật /api/v1/tenants/me vẫn từ chối khi không có Token")
     void testProtectedEndpointRejectedWithoutToken() throws Exception {
         mockMvc.perform(get("/api/v1/tenants/me"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void expiredTokenReturnsTokenExpired() throws Exception {
+        String token = "expired-tenant-token";
+        org.mockito.Mockito.when(jwtTokenProvider.parseClaims(token))
+                .thenThrow(new io.jsonwebtoken.ExpiredJwtException(null, null, "expired"));
+        mockMvc.perform(get("/api/v1/tenants/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("TOKEN_EXPIRED"));
     }
 
     @Test
@@ -93,7 +104,8 @@ class TenantSecurityConfigTest {
         String token = "valid.tenant.token";
         ValueOperations<String, String> values = org.mockito.Mockito.mock(ValueOperations.class);
         org.mockito.Mockito.when(tokenBlacklistValidator.isBlacklisted(token)).thenReturn(false);
-        org.mockito.Mockito.when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        org.mockito.Mockito.when(jwtTokenProvider.parseClaims(token))
+                .thenReturn(org.mockito.Mockito.mock(io.jsonwebtoken.Claims.class));
         org.mockito.Mockito.when(jwtTokenProvider.getUserId(token)).thenReturn(1L);
         org.mockito.Mockito.when(jwtTokenProvider.getRole(token)).thenReturn("TENANT_ADMIN");
         org.mockito.Mockito.when(jwtTokenProvider.getTenantId(token)).thenReturn(10L);

@@ -4,10 +4,12 @@ import com.smartomni.common.constant.AppConstants;
 import com.smartomni.common.exception.BusinessException;
 import com.smartomni.common.exception.TokenExpiredException;
 import com.smartomni.common.tenant.TenantContext;
+import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -51,24 +53,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith(AppConstants.BEARER_PREFIX)) {
             String token = header.substring(AppConstants.BEARER_PREFIX.length());
 
-            boolean validToken = jwtTokenProvider.validateToken(token);
-            if (!validToken) {
-                if (jwtTokenProvider.isExpiredToken(token)) {
-                    AuthenticationErrorWriter.write(response, new TokenExpiredException("Phiên đăng nhập đã hết hạn"));
-                } else {
-                    AuthenticationErrorWriter.write(response,
-                            new BusinessException("Invalid token", HttpStatus.UNAUTHORIZED, "UNAUTHORIZED"));
-                }
+            try {
+                jwtTokenProvider.parseClaims(token);
+            } catch (ExpiredJwtException e) {
+                AuthenticationErrorWriter.write(response, new TokenExpiredException("Phiên đăng nhập đã hết hạn"));
+                return;
+            } catch (Exception e) {
+                new JsonAuthenticationEntryPoint().commence(request, response,
+                        new BadCredentialsException("Invalid token", e));
                 return;
             }
 
             if (tokenBlacklistValidator != null && tokenBlacklistValidator.isBlacklisted(token)) {
-                AuthenticationErrorWriter.write(response,
-                        new BusinessException("Phiên đăng nhập đã bị thu hồi", HttpStatus.UNAUTHORIZED, "TOKEN_REVOKED"));
+                writeRevoked(response);
                 return;
             }
 
-            if (validToken) {
+            {
                 Long userId = jwtTokenProvider.getUserId(token);
                 String role = jwtTokenProvider.getRole(token);
                 Long tenantId = jwtTokenProvider.getTenantId(token);
@@ -76,17 +77,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 // MANAGER đã bị gỡ (gộp vào STAFF): Redis vẫn có thể ghi ACTIVE nên phải chặn theo role.
                 if (LEGACY_ROLE_MANAGER.equalsIgnoreCase(role)) {
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    response.setContentType("application/json;charset=UTF-8");
-                    response.getWriter().write("{\"success\":false,\"message\":\"Phiên đăng nhập đã bị thu hồi\",\"code\":\"TOKEN_REVOKED\"}");
+                    writeRevoked(response);
                     return;
                 }
 
                 if (!(userId == 0L && "INTERNAL_SERVICE".equals(role))
                         && !hasCurrentAccess(userId, jwtTokenProvider.getTokenVersion(token))) {
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    response.setContentType("application/json;charset=UTF-8");
-                    response.getWriter().write("{\"success\":false,\"message\":\"Phiên đăng nhập đã bị thu hồi\",\"code\":\"TOKEN_REVOKED\"}");
+                    writeRevoked(response);
                     return;
                 }
 
@@ -122,6 +119,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private void writeRevoked(HttpServletResponse response) throws IOException {
+        AuthenticationErrorWriter.write(response,
+                new BusinessException("Phiên đăng nhập đã bị thu hồi", HttpStatus.UNAUTHORIZED, "TOKEN_REVOKED"));
     }
 
     private boolean isTenantLocked(Long tenantId) {

@@ -62,14 +62,33 @@ class AuthSecurityBlacklistTest {
     private org.springframework.data.jpa.mapping.JpaMetamodelMappingContext jpaMetamodelMappingContext;
 
     @Test
+    void protectedEndpointWithoutTokenReturnsJson401() throws Exception {
+        mockMvc.perform(get("/api/v1/users/profile"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void expiredTokenReturnsTokenExpired() throws Exception {
+        String token = "expired-auth-token";
+        when(jwtTokenProvider.parseClaims(token))
+                .thenThrow(new io.jsonwebtoken.ExpiredJwtException(null, null, "expired"));
+        mockMvc.perform(get("/api/v1/users/profile").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("TOKEN_EXPIRED"));
+    }
+
+    @Test
     @DisplayName("Auth service từ chối request khi token nằm trong Redis Blacklist")
     void testAuthServiceRejectsBlacklistedToken() throws Exception {
         String token = "revoked-auth-token";
         when(stringRedisTemplate.hasKey(AppConstants.REDIS_PREFIX_BLACKLIST + token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(org.mockito.Mockito.mock(io.jsonwebtoken.Claims.class));
 
         mockMvc.perform(get("/api/v1/users/profile")
                         .header("Authorization", "Bearer " + token))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("TOKEN_REVOKED"));
     }
 
     @Test
@@ -77,7 +96,7 @@ class AuthSecurityBlacklistTest {
     void testAuthServiceAcceptsValidNonBlacklistedToken() throws Exception {
         String token = "valid-auth-token";
         when(stringRedisTemplate.hasKey(AppConstants.REDIS_PREFIX_BLACKLIST + token)).thenReturn(false);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(org.mockito.Mockito.mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(1L);
         when(jwtTokenProvider.getRole(token)).thenReturn("ADMIN");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);

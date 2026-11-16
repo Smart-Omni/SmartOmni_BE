@@ -2,6 +2,7 @@ package com.smartomni.auth.config;
 
 import com.smartomni.common.constant.AppConstants;
 import com.smartomni.common.security.JwtAuthenticationFilter;
+import com.smartomni.common.security.JsonAuthenticationEntryPoint;
 import com.smartomni.common.security.JwtTokenProvider;
 import com.smartomni.common.security.PublicEndpointPaths;
 import com.smartomni.common.security.TokenBlacklistValidator;
@@ -54,6 +55,7 @@ public class SecurityConfig {
         http
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(new JsonAuthenticationEntryPoint()))
             .addFilterBefore(
                     new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate),
                     UsernamePasswordAuthenticationFilter.class)
