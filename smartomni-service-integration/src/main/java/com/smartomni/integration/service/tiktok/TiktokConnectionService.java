@@ -112,12 +112,17 @@ public class TiktokConnectionService {
     }
 
     public TiktokAuthorizationStartDto start() {
+        return start(null);
+    }
+
+    public TiktokAuthorizationStartDto start(String requestedRedirectUri) {
         Actor actor = requireTenantAdmin();
         if (properties.getAppKey().isBlank() || properties.getAppSecret().isBlank()
                 || properties.getAuthorizationUrl().isBlank()) {
             throw new BusinessException("TikTok authorization is not configured",
                     HttpStatus.SERVICE_UNAVAILABLE, "TIKTOK_NOT_CONFIGURED");
         }
+        String redirectUri = resolveRedirectUri(requestedRedirectUri);
         quotaValidator.assertCanConnect(actor.tenantId(), store.countActiveConnections(actor.tenantId()));
         String state = newState();
         Instant expiresAt = clock.instant().plus(properties.getStateTtl());
@@ -127,7 +132,7 @@ public class TiktokConnectionService {
             // Two concurrent starts created the tenant's connection row at the same time: the second finds it.
             store.prepareStart(actor.tenantId(), actor.userId(), hash(state), expiresAt);
         }
-        return new TiktokAuthorizationStartDto(authorizationUrl(state), expiresAt);
+        return new TiktokAuthorizationStartDto(authorizationUrl(state, redirectUri), expiresAt);
     }
 
     public TiktokConnectionDto complete(TiktokCallbackRequest request) {
@@ -261,14 +266,27 @@ public class TiktokConnectionService {
         return missing;
     }
 
-    private String authorizationUrl(String state) {
+    private String resolveRedirectUri(String requested) {
+        String webRedirectUri = properties.getRedirectUri().trim();
+        if (requested == null || requested.isBlank()) {
+            return webRedirectUri;
+        }
+        String uri = requested.trim();
+        if (uri.equals(webRedirectUri) || properties.getAllowedRedirectUris().stream()
+                .filter(java.util.Objects::nonNull).map(String::trim).anyMatch(uri::equals)) {
+            return uri;
+        }
+        throw new BusinessException("Invalid redirect_uri", HttpStatus.BAD_REQUEST, "INVALID_REDIRECT_URI");
+    }
+
+    private String authorizationUrl(String state, String redirectUri) {
         String base = properties.getAuthorizationUrl();
         StringBuilder url = new StringBuilder(base).append(base.contains("?") ? '&' : '?')
                 .append(encode(properties.getAuthorizationAppKeyParam())).append('=').append(encode(properties.getAppKey()))
                 .append('&').append(encode(properties.getAuthorizationStateParam())).append('=').append(encode(state));
-        if (!properties.getRedirectUri().isBlank()) {
+        if (!redirectUri.isBlank()) {
             url.append('&').append(encode(properties.getAuthorizationRedirectUriParam())).append('=')
-                    .append(encode(properties.getRedirectUri()));
+                    .append(encode(redirectUri));
         }
         return url.toString();
     }

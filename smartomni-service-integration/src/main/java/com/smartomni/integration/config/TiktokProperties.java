@@ -38,6 +38,8 @@ public class TiktokProperties {
      * POSTs code/state to the backend with the Tenant Admin's JWT.
      */
     private String redirectUri = "";
+    /** Exact callback URIs accepted from clients; the configured web redirect is always accepted. */
+    private List<String> allowedRedirectUris = new ArrayList<>();
 
     /** Token endpoints host (UNVERIFIED, secondary sources: https://auth.tiktok-shops.com). */
     private String tokenBaseUrl = "https://auth.tiktok-shops.com";

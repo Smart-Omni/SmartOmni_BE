@@ -2,6 +2,7 @@ package com.smartomni.integration.controller;
 
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.integration.dto.tiktok.TiktokAuthorizationStartDto;
+import com.smartomni.integration.dto.tiktok.TiktokAuthorizationStartRequest;
 import com.smartomni.integration.dto.tiktok.TiktokCallbackRequest;
 import com.smartomni.integration.dto.tiktok.TiktokConnectionDto;
 import com.smartomni.integration.service.tiktok.TiktokConnectionService;
@@ -9,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,8 +27,12 @@ public class TiktokConnectionController {
     private final TiktokConnectionService service;
 
     @PostMapping("/authorization")
-    public ApiResponse<TiktokAuthorizationStartDto> start() {
-        return ApiResponse.success(service.start());
+    public ApiResponse<TiktokAuthorizationStartDto> start(
+            @RequestParam(value = "redirect_uri", required = false) String queryRedirectUri,
+            @RequestBody(required = false) TiktokAuthorizationStartRequest request) {
+        String redirectUri = request != null && request.redirectUri() != null && !request.redirectUri().isBlank()
+                ? request.redirectUri() : queryRedirectUri;
+        return ApiResponse.success(service.start(redirectUri));
     }
 
     /** Called by the frontend callback page with code/state taken from the redirect query string. */
