@@ -151,7 +151,7 @@ class TiktokCatalogDatabaseTest {
     }
 
     private static <T> T as(long tenantId, Supplier<T> action) {
-        try (var scope = TenantContext.openScope(tenantId, "manager", null)) {
+        try (var scope = TenantContext.openScope(tenantId, "staff", null)) {
             return action.get();
         }
     }
@@ -524,7 +524,7 @@ class TiktokCatalogDatabaseTest {
         as(1, importer::syncWarehousesForCurrentTenant);
         as(2, importer::syncWarehousesForCurrentTenant);
         try (Connection app = DriverManager.getConnection(url, "smartomni_app", PASSWORD)) {
-            execute(app, "SELECT set_config('app.tenant_id','2',false), set_config('app.user_role','manager',false)");
+            execute(app, "SELECT set_config('app.tenant_id','2',false), set_config('app.user_role','staff',false)");
             try (var s = app.createStatement(); ResultSet r = s.executeQuery("SELECT count(*), min(tenant_id), max(tenant_id) FROM marketplace_import_runs")) {
                 assertTrue(r.next());
                 assertEquals(1, r.getLong(1));
