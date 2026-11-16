@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS inventory_restock_logs (
     sku_id              bigint NOT NULL,
     quantity            int NOT NULL,
     idempotency_key     varchar(255) NOT NULL,
-    created_at          timestamptz NOT NULL DEFAULT now()
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    updated_at          timestamptz
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_restock_tenant_key
