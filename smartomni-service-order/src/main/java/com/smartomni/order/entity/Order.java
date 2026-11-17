@@ -78,6 +78,18 @@ public class Order extends BaseTenantEntity {
     @Column(name = "restock_status", length = 50)
     private String restockStatus;
 
+    @Column(name = "completed_at")
+    private Instant completedAt;
+
+    @Column(name = "eligible_for_points_at")
+    private Instant eligibleForPointsAt;
+
+    @Column(name = "points_awarded_at")
+    private Instant pointsAwardedAt;
+
+    @Column(name = "points_awarded")
+    private Long pointsAwarded;
+
     public enum Platform { SHOPEE, TIKTOK_SHOP }
     public enum OrderStatus { PENDING, TO_SHIP, SHIPPED, DELIVERING, COMPLETED, CANCELLED, RETURNED, ON_HOLD }
     public enum OrderSource { WEBHOOK, POLLING, MANUAL }

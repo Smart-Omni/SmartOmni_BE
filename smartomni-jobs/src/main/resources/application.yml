@@ -12,3 +12,4 @@ smartomni:
     order-url: ${ORDER_JOB_URL:http://localhost:8085/internal/jobs/poll-orders}
     integration-url: ${INTEGRATION_JOB_URL:http://localhost:8086/internal/jobs/sync-prices}
     inventory-url: ${INVENTORY_JOB_URL:http://localhost:8084/internal/jobs/publish-outbox}
+    loyalty-url: ${LOYALTY_JOB_URL:http://localhost:8085/internal/jobs/award-loyalty-points}
