@@ -1,5 +1,6 @@
 package com.smartomni.integration.dto.tiktok;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -19,7 +20,8 @@ public class ShipPackageRequest {
     @JsonProperty("handover_method")
     private String handoverMethod;
 
-    @JsonProperty("shipping_service_id")
+    /** Kept for SmartOmni internal API compatibility; never serialized to Simulator /ship body. */
+    @JsonIgnore
     private String shippingServiceId;
 
     @JsonProperty("pickup_slot")

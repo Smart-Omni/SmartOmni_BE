@@ -41,7 +41,7 @@ public class TiktokOrderClient {
      */
     public OrderSearchResponse searchOrders(String shopCipher, OrderSearchRequest request) {
         Map<String, String> query = buildSearchQuery(request);
-        String body = serializeBody(request);
+        String body = serializeSearchBody(request);
         JsonNode data = executor.callByShopCipher(shopCipher, "POST", SEARCH_ORDERS_PATH, query, body);
         return convert(data, OrderSearchResponse.class);
     }
@@ -51,28 +51,20 @@ public class TiktokOrderClient {
      */
     public OrderSearchResponse searchOrders(Long connectionId, OrderSearchRequest request) {
         Map<String, String> query = buildSearchQuery(request);
-        String body = serializeBody(request);
+        String body = serializeSearchBody(request);
         JsonNode data = executor.call(connectionId, "POST", SEARCH_ORDERS_PATH, query, body);
         return convert(data, OrderSearchResponse.class);
     }
 
     /**
-     * Lấy chi tiết một đơn hàng qua GET /order/202507/orders/{orderId}.
+     * Lấy chi tiết một đơn hàng qua GET /order/202507/orders?ids={orderId}.
      */
     public TiktokOrderDetailResponse getOrderDetail(Long connectionId, String orderId) {
         if (orderId == null || orderId.isBlank()) {
             return null;
         }
-        String path = GET_ORDERS_PATH + "/" + orderId.trim();
-        JsonNode data = executor.call(connectionId, "GET", path, Map.of(), null);
-        List<TiktokOrderDetailResponse> parsed = parseOrdersList(data);
-        if (!parsed.isEmpty()) {
-            return parsed.get(0);
-        }
-        if (data != null && data.has("order")) {
-            return convert(data.get("order"), TiktokOrderDetailResponse.class);
-        }
-        return convert(data, TiktokOrderDetailResponse.class);
+        List<TiktokOrderDetailResponse> details = getOrderDetails(connectionId, List.of(orderId.trim()));
+        return details.isEmpty() ? null : details.get(0);
     }
 
     /**
@@ -81,12 +73,6 @@ public class TiktokOrderClient {
     public List<TiktokOrderDetailResponse> getOrderDetails(String shopCipher, List<String> orderIds) {
         if (orderIds == null || orderIds.isEmpty()) {
             return List.of();
-        }
-        if (orderIds.size() == 1) {
-            String path = GET_ORDERS_PATH + "/" + orderIds.get(0).trim();
-            JsonNode data = executor.callByShopCipher(shopCipher, "GET", path, Map.of(), null);
-            List<TiktokOrderDetailResponse> parsed = parseOrdersList(data);
-            return parsed.isEmpty() ? List.of(convert(data, TiktokOrderDetailResponse.class)) : parsed;
         }
         Map<String, String> query = Map.of("ids", String.join(",", orderIds));
         JsonNode data = executor.callByShopCipher(shopCipher, "GET", GET_ORDERS_PATH, query, null);
@@ -100,21 +86,32 @@ public class TiktokOrderClient {
         if (orderIds == null || orderIds.isEmpty()) {
             return List.of();
         }
-        if (orderIds.size() == 1) {
-            TiktokOrderDetailResponse detail = getOrderDetail(connectionId, orderIds.get(0));
-            return detail != null ? List.of(detail) : List.of();
-        }
         Map<String, String> query = Map.of("ids", String.join(",", orderIds));
         JsonNode data = executor.call(connectionId, "GET", GET_ORDERS_PATH, query, null);
         return parseOrdersList(data);
     }
 
-    private String serializeBody(OrderSearchRequest request) {
-        if (request == null) {
-            return "{}";
+    private String serializeSearchBody(OrderSearchRequest request) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (request != null) {
+            if (request.getOrderStatus() != null && !request.getOrderStatus().isBlank()) {
+                body.put("order_status", request.getOrderStatus().trim());
+            }
+            if (request.getCreateTimeFrom() != null) {
+                body.put("create_time_ge", request.getCreateTimeFrom());
+            }
+            if (request.getCreateTimeTo() != null) {
+                body.put("create_time_lt", request.getCreateTimeTo());
+            }
+            if (request.getUpdateTimeFrom() != null) {
+                body.put("update_time_ge", request.getUpdateTimeFrom());
+            }
+            if (request.getUpdateTimeTo() != null) {
+                body.put("update_time_lt", request.getUpdateTimeTo());
+            }
         }
         try {
-            return mapper.writeValueAsString(request);
+            return mapper.writeValueAsString(body);
         } catch (JsonProcessingException e) {
             throw new TiktokApiException("Failed to serialize order search request: " + e.getMessage(),
                     400, null, null, false);
@@ -125,31 +122,15 @@ public class TiktokOrderClient {
         Map<String, String> query = new LinkedHashMap<>();
         int pageSize = (request != null && request.getPageSize() != null) ? request.getPageSize() : 20;
         query.put("page_size", Integer.toString(pageSize));
-
         if (request != null) {
             if (request.getPageToken() != null && !request.getPageToken().isBlank()) {
                 query.put("page_token", request.getPageToken());
             }
-            if (request.getOrderStatus() != null && !request.getOrderStatus().isBlank()) {
-                query.put("order_status", request.getOrderStatus());
-            }
-            if (request.getCreateTimeFrom() != null) {
-                query.put("create_time_from", request.getCreateTimeFrom().toString());
-            }
-            if (request.getCreateTimeTo() != null) {
-                query.put("create_time_to", request.getCreateTimeTo().toString());
-            }
-            if (request.getUpdateTimeFrom() != null) {
-                query.put("update_time_from", request.getUpdateTimeFrom().toString());
-            }
-            if (request.getUpdateTimeTo() != null) {
-                query.put("update_time_to", request.getUpdateTimeTo().toString());
-            }
             if (request.getSortBy() != null && !request.getSortBy().isBlank()) {
-                query.put("sort_by", request.getSortBy());
+                query.put("sort_field", request.getSortBy());
             }
             if (request.getSortType() != null && !request.getSortType().isBlank()) {
-                query.put("sort_type", request.getSortType());
+                query.put("sort_order", request.getSortType());
             }
         }
         return query;

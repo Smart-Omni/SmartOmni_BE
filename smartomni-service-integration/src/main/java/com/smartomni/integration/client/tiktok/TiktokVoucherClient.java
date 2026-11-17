@@ -1,9 +1,6 @@
 package com.smartomni.integration.client.tiktok;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.smartomni.integration.dto.tiktok.CreateTiktokVoucherRequest;
 import com.smartomni.integration.dto.tiktok.TiktokVoucherDto;
 import com.smartomni.integration.service.tiktok.TiktokShopApiExecutor;
 import lombok.RequiredArgsConstructor;
@@ -17,117 +14,95 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Client calling TikTok Simulator's Promotion Voucher API ({@code /api/promotion/vouchers}).
+ * Client calling TikTok Simulator's Coupon APIs on develop:
+ * {@code POST /promotion/202406/coupons/search} and {@code GET /promotion/202406/coupons/{couponId}}.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class TiktokVoucherClient {
 
-    public static final String VOUCHERS_PATH = "/api/promotion/vouchers";
+    public static final String SEARCH_COUPONS_PATH = "/promotion/202406/coupons/search";
+    public static final String COUPON_DETAIL_PATH = "/promotion/202406/coupons/";
 
     private final TiktokShopApiExecutor executor;
-    private final ObjectMapper mapper;
 
     /**
-     * Issues a voucher on TikTok Simulator ({@code POST /api/promotion/vouchers}).
+     * Searches coupons from TikTok Simulator ({@code POST /promotion/202406/coupons/search}).
      */
-    public TiktokVoucherDto createVoucher(Long connectionId, CreateTiktokVoucherRequest request) {
-        ObjectNode body = mapper.createObjectNode();
-        if (request.getTitle() != null && !request.getTitle().isBlank()) {
-            body.put("title", request.getTitle().trim());
-        }
-
-        String discountType = request.getDiscountType() != null
-                ? request.getDiscountType().trim().toUpperCase()
-                : "AMOUNT_OFF";
-        if ("PERCENT_OFF".equals(discountType)) {
-            body.put("discount_percent", request.getDiscountValue().intValue());
-            if (request.getMaxDiscountAmount() != null) {
-                body.put("max_discount_amount", request.getMaxDiscountAmount().intValue());
-            }
-        } else {
-            body.put("discount_amount", request.getDiscountValue().intValue());
-        }
-
-        if (request.getMinOrderAmount() != null && request.getMinOrderAmount().signum() > 0) {
-            body.put("min_spend_amount", request.getMinOrderAmount().intValue());
-        }
-        if (request.getUsageLimit() != null) {
-            body.put("usage_limit", request.getUsageLimit());
-        }
-        if (request.getCode() != null && !request.getCode().isBlank()) {
-            body.put("code", request.getCode().trim().toUpperCase());
-        }
-        if (request.getCustomerId() != null && !request.getCustomerId().isBlank()) {
-            body.put("customer_id", request.getCustomerId().trim());
-        }
-        if (request.getStartTime() != null) {
-            body.put("starts_at", request.getStartTime().toString());
-        }
-        if (request.getEndTime() != null) {
-            body.put("ends_at", request.getEndTime().toString());
-        }
-        if (request.getIdempotencyKey() != null && !request.getIdempotencyKey().isBlank()) {
-            body.put("idempotency_key", request.getIdempotencyKey().trim());
-        }
-
-        JsonNode data = executor.call(connectionId, "POST", VOUCHERS_PATH, Map.of(), body.toString());
-        return parseVoucher(data, request);
-    }
-
-    /**
-     * Lists vouchers for a shop from TikTok Simulator ({@code GET /api/promotion/vouchers}).
-     */
-    public List<TiktokVoucherDto> listVouchers(Long connectionId) {
-        JsonNode data = executor.call(connectionId, "GET", VOUCHERS_PATH, Map.of(), null);
+    public List<TiktokVoucherDto> searchCoupons(Long connectionId) {
+        JsonNode data = executor.call(connectionId, "POST", SEARCH_COUPONS_PATH, Map.of("page_size", "50"), "{}");
         List<TiktokVoucherDto> list = new ArrayList<>();
-        if (data != null && data.has("vouchers") && data.get("vouchers").isArray()) {
-            for (JsonNode node : data.get("vouchers")) {
-                list.add(parseVoucher(node, null));
+        if (data != null && data.has("coupons") && data.get("coupons").isArray()) {
+            for (JsonNode node : data.get("coupons")) {
+                TiktokVoucherDto parsed = parseCoupon(node);
+                if (parsed != null) {
+                    list.add(parsed);
+                }
             }
         }
         return list;
     }
 
-    private TiktokVoucherDto parseVoucher(JsonNode data, CreateTiktokVoucherRequest fallback) {
-        if (data == null || data.isMissingNode() || data.isNull()) {
+    /**
+     * Fetches a single coupon detail ({@code GET /promotion/202406/coupons/{couponId}}).
+     */
+    public TiktokVoucherDto getCoupon(Long connectionId, String couponId) {
+        JsonNode data = executor.call(connectionId, "GET", COUPON_DETAIL_PATH + couponId, Map.of(), null);
+        if (data != null && data.has("coupon")) {
+            return parseCoupon(data.get("coupon"));
+        }
+        return parseCoupon(data);
+    }
+
+    private TiktokVoucherDto parseCoupon(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
             return null;
         }
-        String voucherId = text(data, "voucher_id", text(data, "external_voucher_id", null));
-        String code = text(data, "voucher_code", text(data, "code", fallback != null ? fallback.getCode() : null));
-        String title = text(data, "title", fallback != null ? fallback.getTitle() : null);
-        String status = text(data, "status", "ONGOING");
-        String discountType = text(data, "discount_type",
-                fallback != null && fallback.getDiscountType() != null ? fallback.getDiscountType().toUpperCase() : "AMOUNT_OFF");
+        String id = text(node, "id", null);
+        if (id == null || id.isBlank()) {
+            return null;
+        }
+        String title = text(node, "title", "TikTok Coupon " + id);
+        String status = text(node, "status", "ONGOING");
+        String code = text(node, "promo_code", null);
 
-        BigDecimal discountValue = null;
-        if ("PERCENT_OFF".equalsIgnoreCase(discountType) && data.hasNonNull("discount_percent")) {
-            discountValue = data.get("discount_percent").decimalValue();
-        } else if (data.hasNonNull("discount_amount")) {
-            discountValue = data.get("discount_amount").decimalValue();
-        } else if (fallback != null) {
-            discountValue = fallback.getDiscountValue();
+        JsonNode discount = node.path("discount");
+        String discountType = text(discount, "type", "AMOUNT_OFF");
+        BigDecimal discountValue = BigDecimal.ZERO;
+        BigDecimal maxDiscount = null;
+        if ("PERCENT_OFF".equalsIgnoreCase(discountType)) {
+            if (discount.hasNonNull("percentage")) {
+                discountValue = new BigDecimal(discount.get("percentage").asText("0"));
+            }
+            if (discount.hasNonNull("max_discount") && discount.get("max_discount").hasNonNull("amount")) {
+                maxDiscount = new BigDecimal(discount.get("max_discount").get("amount").asText("0"));
+            }
+        } else if (discount.hasNonNull("reduction_amount") && discount.get("reduction_amount").hasNonNull("amount")) {
+            discountValue = new BigDecimal(discount.get("reduction_amount").get("amount").asText("0"));
         }
 
-        BigDecimal maxDiscount = data.hasNonNull("max_discount_amount")
-                ? data.get("max_discount_amount").decimalValue()
-                : (fallback != null ? fallback.getMaxDiscountAmount() : null);
-        BigDecimal minOrder = data.hasNonNull("min_spend_amount")
-                ? data.get("min_spend_amount").decimalValue()
-                : (fallback != null ? fallback.getMinOrderAmount() : null);
-        Integer usageLimit = data.hasNonNull("usage_limit")
-                ? data.get("usage_limit").asInt()
-                : (fallback != null ? fallback.getUsageLimit() : null);
-        Integer redeemedCount = data.hasNonNull("redeemed_count")
-                ? data.get("redeemed_count").asInt()
+        BigDecimal minOrder = null;
+        JsonNode threshold = node.path("threshold");
+        if ("MIN_SPEND".equalsIgnoreCase(text(threshold, "type", ""))
+                && threshold.hasNonNull("min_spend")
+                && threshold.get("min_spend").hasNonNull("amount")) {
+            minOrder = new BigDecimal(threshold.get("min_spend").get("amount").asText("0"));
+        }
+
+        Integer usageLimit = node.path("usage_limits").hasNonNull("redemption_limit")
+                ? node.path("usage_limits").get("redemption_limit").asInt()
+                : null;
+        Integer redeemedCount = node.path("usage_stats").hasNonNull("redeemed_count")
+                ? node.path("usage_stats").get("redeemed_count").asInt()
                 : 0;
 
-        Instant startsAt = parseInstant(text(data, "starts_at", null), fallback != null ? fallback.getStartTime() : null);
-        Instant endsAt = parseInstant(text(data, "ends_at", null), fallback != null ? fallback.getEndTime() : null);
+        Instant startTime = fromUnixSeconds(node.path("claim_duration").path("start_time").asLong(0), Instant.now());
+        Instant endTime = fromUnixSeconds(node.path("claim_duration").path("end_time").asLong(0),
+                startTime.plusSeconds(30L * 24 * 3600));
 
         return TiktokVoucherDto.builder()
-                .tiktokVoucherId(voucherId)
+                .tiktokVoucherId(id)
                 .voucherCode(code)
                 .title(title)
                 .discountType(discountType)
@@ -136,25 +111,18 @@ public class TiktokVoucherClient {
                 .minOrderAmount(minOrder)
                 .usageLimit(usageLimit)
                 .redeemedCount(redeemedCount)
-                .startTime(startsAt)
-                .endTime(endsAt)
+                .startTime(startTime)
+                .endTime(endTime)
                 .status(status)
                 .build();
     }
 
     private static String text(JsonNode node, String field, String fallback) {
-        JsonNode value = node.path(field);
-        return value.isMissingNode() || value.isNull() ? fallback : value.asText();
+        JsonNode v = node.path(field);
+        return v.isMissingNode() || v.isNull() ? fallback : v.asText();
     }
 
-    private static Instant parseInstant(String iso, Instant fallback) {
-        if (iso == null || iso.isBlank()) {
-            return fallback;
-        }
-        try {
-            return Instant.parse(iso);
-        } catch (Exception e) {
-            return fallback;
-        }
+    private static Instant fromUnixSeconds(long seconds, Instant fallback) {
+        return seconds > 0 ? Instant.ofEpochSecond(seconds) : fallback;
     }
 }

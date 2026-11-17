@@ -77,27 +77,20 @@ class TiktokOrderControllerTest {
     }
 
     @Test
-    @DisplayName("listOrders forwards orderId filter to TiktokOrderClient (D1)")
+    @DisplayName("listOrders looks up order by orderId via GET /order/202507/orders?ids=... (D1)")
     void listOrders_WithOrderId_ForwardsFilter() {
         TiktokOrderDetailResponse order = new TiktokOrderDetailResponse();
         order.setOrderId("TK-ORDER-999");
 
-        OrderSearchResponse searchResponse = OrderSearchResponse.builder()
-                .orders(List.of(order))
-                .totalCount(1)
-                .build();
-
-        when(orderClient.searchOrders(eq(77L), any(OrderSearchRequest.class))).thenReturn(searchResponse);
+        when(orderClient.getOrderDetails(77L, List.of("TK-ORDER-999"))).thenReturn(List.of(order));
 
         ResponseEntity<ApiResponse<OrderSearchResponse>> res =
                 controller.listOrders(null, "TK-ORDER-999", null, null, 20, null);
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
+        assertEquals(1, res.getBody().getData().getOrders().size());
         assertEquals("TK-ORDER-999", res.getBody().getData().getOrders().get(0).getOrderId());
-
-        ArgumentCaptor<OrderSearchRequest> captor = ArgumentCaptor.forClass(OrderSearchRequest.class);
-        verify(orderClient).searchOrders(eq(77L), captor.capture());
-        assertEquals("TK-ORDER-999", captor.getValue().getOrderId());
+        verify(orderClient).getOrderDetails(77L, List.of("TK-ORDER-999"));
     }
 
     @Test

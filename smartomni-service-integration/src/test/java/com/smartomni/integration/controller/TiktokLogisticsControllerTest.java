@@ -59,10 +59,10 @@ class TiktokLogisticsControllerTest {
                         .shippingServiceName("Standard")
                         .build()
         );
-        when(fulfillmentClient.getShippingProviders(77L)).thenReturn(providers);
+        when(fulfillmentClient.getShippingProviders(77L, null)).thenReturn(providers);
 
         ResponseEntity<ApiResponse<List<TiktokShippingProviderDto>>> res =
-                controller.getShippingProviders("SHOP-001");
+                controller.getShippingProviders("SHOP-001", null);
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertNotNull(res.getBody());
@@ -108,9 +108,9 @@ class TiktokLogisticsControllerTest {
     @DisplayName("downloadShippingLabel streams PDF bytes with Content-Type: application/pdf (D5)")
     void downloadShippingLabel_ByPackage_Success() {
         byte[] pdfBytes = "%PDF-1.4\n1 0 obj\n<<>>\nendobj".getBytes();
-        when(fulfillmentClient.downloadShippingLabelByPackage(77L, "PKG-001")).thenReturn(pdfBytes);
+        when(fulfillmentClient.downloadShippingLabelByPackage(77L, "PKG-001", "SHIPPING_LABEL")).thenReturn(pdfBytes);
 
-        ResponseEntity<byte[]> res = controller.downloadShippingLabel("PKG-001", null, null, null, null, "SL_PDF");
+        ResponseEntity<byte[]> res = controller.downloadShippingLabel("PKG-001", null, null, null, null, "SHIPPING_LABEL");
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertEquals(MediaType.APPLICATION_PDF, res.getHeaders().getContentType());
@@ -122,14 +122,14 @@ class TiktokLogisticsControllerTest {
     @DisplayName("downloadShippingLabel downloads by orderId when packageId is absent (D5)")
     void downloadShippingLabel_ByOrder_Success() {
         byte[] pdfBytes = "%PDF-1.4\norder-label".getBytes();
-        when(fulfillmentClient.downloadShippingLabelByOrder(77L, "ORD-001")).thenReturn(pdfBytes);
+        when(fulfillmentClient.downloadShippingLabelByOrder(77L, "ORD-001", "SHIPPING_LABEL")).thenReturn(pdfBytes);
 
-        ResponseEntity<byte[]> res = controller.downloadShippingLabel(null, null, null, "ORD-001", null, "SL_PDF");
+        ResponseEntity<byte[]> res = controller.downloadShippingLabel(null, null, null, "ORD-001", null, "SHIPPING_LABEL");
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertEquals(MediaType.APPLICATION_PDF, res.getHeaders().getContentType());
         assertTrue(res.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION).contains("TikTok-Label-ORD-001.pdf"));
-        verify(fulfillmentClient).downloadShippingLabelByOrder(77L, "ORD-001");
+        verify(fulfillmentClient).downloadShippingLabelByOrder(77L, "ORD-001", "SHIPPING_LABEL");
     }
 
     @Test

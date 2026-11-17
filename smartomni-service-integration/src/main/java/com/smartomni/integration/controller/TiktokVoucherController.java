@@ -32,4 +32,10 @@ public class TiktokVoucherController {
     public ResponseEntity<ApiResponse<List<TiktokVoucherDto>>> listVouchers() {
         return ResponseEntity.ok(ApiResponse.success(voucherService.listVouchers()));
     }
+
+    @PostMapping("/sync")
+    public ResponseEntity<ApiResponse<List<TiktokVoucherDto>>> syncCoupons() {
+        return ResponseEntity.ok(ApiResponse.success("Coupons synced from TikTok Simulator",
+                voucherService.syncCouponsFromSimulator()));
+    }
 }

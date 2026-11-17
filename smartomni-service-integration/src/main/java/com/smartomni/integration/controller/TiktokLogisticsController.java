@@ -39,12 +39,14 @@ public class TiktokLogisticsController {
      */
     @GetMapping({"/shipping-providers", "/logistics/shipping-providers"})
     public ResponseEntity<ApiResponse<List<TiktokShippingProviderDto>>> getShippingProviders(
-            @RequestParam(required = false) String shopId) {
+            @RequestParam(required = false) String shopId,
+            @RequestParam(required = false) String packageId) {
 
         MarketplaceConnection connection = tenantConnections.requireConnected();
-        log.info("Fetching TikTok shipping providers: connectionId={}, shopId={}", connection.getId(), shopId);
+        log.info("Fetching TikTok shipping providers: connectionId={}, shopId={}, packageId={}",
+                connection.getId(), shopId, packageId);
 
-        List<TiktokShippingProviderDto> providers = fulfillmentClient.getShippingProviders(connection.getId());
+        List<TiktokShippingProviderDto> providers = fulfillmentClient.getShippingProviders(connection.getId(), packageId);
         return ResponseEntity.ok(ApiResponse.success(providers));
     }
 
@@ -94,7 +96,7 @@ public class TiktokLogisticsController {
             @RequestParam(required = false) String shopId,
             @RequestParam(name = "orderId", required = false) String orderIdParam,
             @RequestParam(name = "packageId", required = false) String packageIdParam,
-            @RequestParam(defaultValue = "SL_PDF") String documentType) {
+            @RequestParam(defaultValue = "SHIPPING_LABEL") String documentType) {
 
         MarketplaceConnection connection = tenantConnections.requireConnected();
         String resolvedPackageId = firstNonBlank(packageId, packageIdParam);
@@ -106,12 +108,12 @@ public class TiktokLogisticsController {
             labelId = resolvedPackageId;
             log.info("Downloading TikTok shipping label by packageId: connectionId={}, packageId={}",
                     connection.getId(), resolvedPackageId);
-            pdfBytes = fulfillmentClient.downloadShippingLabelByPackage(connection.getId(), resolvedPackageId);
+            pdfBytes = fulfillmentClient.downloadShippingLabelByPackage(connection.getId(), resolvedPackageId, documentType);
         } else if (resolvedOrderId != null) {
             labelId = resolvedOrderId;
             log.info("Downloading TikTok shipping label by orderId: connectionId={}, orderId={}",
                     connection.getId(), resolvedOrderId);
-            pdfBytes = fulfillmentClient.downloadShippingLabelByOrder(connection.getId(), resolvedOrderId);
+            pdfBytes = fulfillmentClient.downloadShippingLabelByOrder(connection.getId(), resolvedOrderId, documentType);
         } else {
             throw new BusinessException("packageId or orderId is required to download shipping label",
                     HttpStatus.BAD_REQUEST, TiktokFulfillmentClient.SHIPPING_LABEL_UNAVAILABLE_CODE);

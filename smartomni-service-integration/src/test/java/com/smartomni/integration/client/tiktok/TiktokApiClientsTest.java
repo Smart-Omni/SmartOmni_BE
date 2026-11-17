@@ -26,7 +26,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("TikTok API Clients Unit Tests")
+@DisplayName("TikTok API Clients Unit Tests (Simulator develop contract)")
 class TiktokApiClientsTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -37,7 +37,6 @@ class TiktokApiClientsTest {
     private TiktokFulfillmentClient fulfillmentClient;
     private TiktokCancellationClient cancellationClient;
     private TiktokReturnClient returnClient;
-    private TiktokHttpTransport.BinaryResponse nextBinaryResponse;
 
     @BeforeEach
     void setUp() {
@@ -53,12 +52,6 @@ class TiktokApiClientsTest {
             public JsonNode callByShopCipher(String shopCipher, String method, String path, Map<String, String> query, String body) {
                 recordedCalls.add("callByShopCipher:" + shopCipher + " " + method + " " + path + " query=" + query + " body=" + body);
                 return handleResponse(path);
-            }
-
-            @Override
-            public TiktokHttpTransport.BinaryResponse callBinary(Long connectionId, String method, String path, Map<String, String> query, String body) {
-                recordedCalls.add("callBinary:" + method + " " + path);
-                return nextBinaryResponse;
             }
 
             private JsonNode handleResponse(String path) {
@@ -95,7 +88,7 @@ class TiktokApiClientsTest {
                             {
                               "package_id": "pkg-001",
                               "tracking_number": "TRACK-12345",
-                              "shipping_provider_name": "J&T Express",
+                              "shipping_provider_name": "Simulator Express (fake carrier)",
                               "status": "SHIPPED"
                             }
                             """);
@@ -104,22 +97,17 @@ class TiktokApiClientsTest {
                         return mapper.readTree("""
                             {
                               "doc_url": "https://example.com/waybill.pdf",
-                              "document_type": "SL_PDF",
                               "tracking_number": "TRACK-12345"
                             }
                             """);
                     }
-                    if (path.contains("/fulfillment/202309/shipping_providers")) {
+                    if (path.endsWith("/fulfillment/202309/packages/pkg-001")) {
                         return mapper.readTree("""
                             {
-                              "shipping_providers": [
-                                {
-                                  "shipping_provider_id": "SP-JNT",
-                                  "shipping_provider_name": "J&T Express",
-                                  "shipping_service_id": "SVC-STD",
-                                  "shipping_service_name": "Standard Delivery"
-                                }
-                              ]
+                              "package_id": "pkg-001",
+                              "shipping_provider_id": "SIM-CARRIER-1",
+                              "shipping_provider_name": "Simulator Express (fake carrier)",
+                              "handover_method": "PICKUP"
                             }
                             """);
                     }
@@ -147,7 +135,7 @@ class TiktokApiClientsTest {
                                 {
                                   "return_id": "ret-001",
                                   "order_id": "576000000000000001",
-                                  "return_status": "RETURN_REQUESTED"
+                                  "return_status": "RETURN_OR_REFUND_REQUEST_PENDING"
                                 }
                               ]
                             }
@@ -161,16 +149,15 @@ class TiktokApiClientsTest {
         };
 
         orderClient = new TiktokOrderClient(mockExecutor, mapper);
-        fulfillmentClient = new TiktokFulfillmentClient(mockExecutor, mapper);
+        fulfillmentClient = new TiktokFulfillmentClient(mockExecutor, mapper, orderClient);
         cancellationClient = new TiktokCancellationClient(mockExecutor, mapper);
         returnClient = new TiktokReturnClient(mockExecutor, mapper);
     }
 
     @Test
-    @DisplayName("TiktokOrderClient: searchOrders gọi POST /order/202309/orders/search với order_id trong body")
+    @DisplayName("TiktokOrderClient: searchOrders gọi POST /order/202309/orders/search với create_time_ge")
     void testSearchOrders() {
         OrderSearchRequest request = OrderSearchRequest.builder()
-                .orderId("576000000000000001")
                 .pageSize(20)
                 .pageToken("token_abc")
                 .orderStatus("AWAITING_SHIPMENT")
@@ -185,13 +172,15 @@ class TiktokApiClientsTest {
         assertEquals("576000000000000001", response.getOrders().get(0).getOrderId());
 
         assertTrue(recordedCalls.get(0).contains("callByShopCipher:TEST_CIPHER_001 POST /order/202309/orders/search"));
-        assertTrue(recordedCalls.get(0).contains("\"order_id\":\"576000000000000001\""));
+        assertTrue(recordedCalls.get(0).contains("\"create_time_ge\":1700000000"));
+        assertFalse(recordedCalls.get(0).contains("\"order_id\""));
     }
 
     @Test
-    @DisplayName("TiktokOrderClient: getOrderDetails gọi GET /order/202507/orders với ids phân tách bởi dấu phẩy")
+    @DisplayName("TiktokOrderClient: getOrderDetails gọi GET /order/202507/orders?ids=...")
     void testGetOrderDetails() {
-        List<TiktokOrderDetailResponse> orders = orderClient.getOrderDetails("TEST_CIPHER_001", List.of("576000000000000001", "576000000000000002"));
+        List<TiktokOrderDetailResponse> orders = orderClient.getOrderDetails("TEST_CIPHER_001",
+                List.of("576000000000000001", "576000000000000002"));
 
         assertNotNull(orders);
         assertEquals(1, orders.size());
@@ -202,13 +191,11 @@ class TiktokApiClientsTest {
     }
 
     @Test
-    @DisplayName("TiktokFulfillmentClient: shipPackage gọi POST /fulfillment/202309/packages/{package_id}/ship")
+    @DisplayName("TiktokFulfillmentClient: shipPackage gọi POST /fulfillment/202309/packages/{package_id}/ship chỉ với handover_method")
     void testShipPackage() {
         ShipPackageRequest request = ShipPackageRequest.builder()
-                .selfShipment(ShipPackageRequest.SelfShipment.builder()
-                        .trackingNumber("TRACK-12345")
-                        .shippingProviderId("SP-001")
-                        .build())
+                .handoverMethod("PICKUP")
+                .shippingServiceId("SVC-IGNORED")
                 .build();
 
         TiktokPackageResponse response = fulfillmentClient.shipPackage("TEST_CIPHER_001", "pkg-001", request);
@@ -218,75 +205,54 @@ class TiktokApiClientsTest {
         assertEquals("TRACK-12345", response.getTrackingNumber());
         assertEquals("SHIPPED", response.getStatus());
 
-        assertTrue(recordedCalls.get(0).contains("callByShopCipher:TEST_CIPHER_001 POST /fulfillment/202309/packages/pkg-001/ship"));
+        assertTrue(recordedCalls.get(0).contains("POST /fulfillment/202309/packages/pkg-001/ship"));
+        assertTrue(recordedCalls.get(0).contains("\"handover_method\":\"PICKUP\""));
+        assertFalse(recordedCalls.get(0).contains("shipping_service_id"));
     }
 
     @Test
-    @DisplayName("TiktokFulfillmentClient: getShippingDocuments gọi GET /fulfillment/202309/packages/{package_id}/shipping_documents")
+    @DisplayName("TiktokFulfillmentClient: getShippingDocuments chuẩn hóa SL_PDF -> SHIPPING_LABEL")
     void testGetShippingDocuments() {
         ShippingDocumentResponse response = fulfillmentClient.getShippingDocuments("TEST_CIPHER_001", "pkg-001", "SL_PDF");
 
         assertNotNull(response);
         assertEquals("https://example.com/waybill.pdf", response.getDocUrl());
-        assertEquals("SL_PDF", response.getDocumentType());
 
-        assertTrue(recordedCalls.get(0).contains("callByShopCipher:TEST_CIPHER_001 GET /fulfillment/202309/packages/pkg-001/shipping_documents"));
-        assertTrue(recordedCalls.get(0).contains("document_type=SL_PDF"));
+        assertTrue(recordedCalls.get(0).contains("GET /fulfillment/202309/packages/pkg-001/shipping_documents"));
+        assertTrue(recordedCalls.get(0).contains("document_type=SHIPPING_LABEL"));
     }
 
     @Test
-    @DisplayName("TiktokReturnClient: searchReturns gọi POST /return_refund/202309/returns/search")
-    void testSearchReturns() {
-        ReturnSearchRequest request = ReturnSearchRequest.builder()
-                .pageSize(20)
-                .returnStatus("RETURN_REQUESTED")
-                .build();
-
-        ReturnSearchResponse response = returnClient.searchReturns("TEST_CIPHER_001", request);
-
-        assertNotNull(response);
-        assertEquals(1, response.getReturns().size());
-        assertEquals("ret-001", response.getReturns().get(0).getReturnId());
-
-        assertTrue(recordedCalls.get(0).contains("callByShopCipher:TEST_CIPHER_001 POST /return_refund/202309/returns/search"));
-    }
-
-    @Test
-    @DisplayName("TiktokFulfillmentClient: getShippingProviders gọi GET /fulfillment/202309/shipping_providers")
+    @DisplayName("TiktokFulfillmentClient: getShippingProviders đọc package detail hoặc trả SIM-CARRIER-1")
     void testGetShippingProviders() {
-        List<TiktokShippingProviderDto> providers = fulfillmentClient.getShippingProviders(77L);
+        List<TiktokShippingProviderDto> defaultProviders = fulfillmentClient.getShippingProviders(77L);
+        assertEquals(2, defaultProviders.size());
+        assertEquals("SIM-CARRIER-1", defaultProviders.get(0).getShippingProviderId());
 
-        assertEquals(1, providers.size());
-        assertEquals("SP-JNT", providers.get(0).getShippingProviderId());
-        assertEquals("J&T Express", providers.get(0).getShippingProviderName());
-        assertEquals("SVC-STD", providers.get(0).getShippingServiceId());
-        assertEquals("Standard Delivery", providers.get(0).getShippingServiceName());
-        assertTrue(recordedCalls.get(0).contains("GET /fulfillment/202309/shipping_providers"));
+        List<TiktokShippingProviderDto> pkgProviders = fulfillmentClient.getShippingProviders(77L, "pkg-001");
+        assertEquals(1, pkgProviders.size());
+        assertEquals("SIM-CARRIER-1", pkgProviders.get(0).getShippingProviderId());
+        assertTrue(recordedCalls.get(0).contains("GET /fulfillment/202309/packages/pkg-001"));
     }
 
     @Test
-    @DisplayName("TiktokFulfillmentClient: downloadShippingLabelByPackage trả PDF bytes và ném BusinessException khi lỗi")
-    void testDownloadShippingLabel() {
-        byte[] pdf = "%PDF-1.4 sample".getBytes();
-        nextBinaryResponse = new TiktokHttpTransport.BinaryResponse(200, "application/pdf", pdf);
-        assertArrayEquals(pdf, fulfillmentClient.downloadShippingLabelByPackage(77L, "pkg-001"));
-
-        nextBinaryResponse = new TiktokHttpTransport.BinaryResponse(404, "application/json",
-                "{\"message\":\"Package not found\"}".getBytes());
-        BusinessException ex404 = assertThrows(BusinessException.class,
-                () -> fulfillmentClient.downloadShippingLabelByPackage(77L, "pkg-404"));
-        assertEquals(HttpStatus.NOT_FOUND, ex404.getHttpStatus());
-        assertEquals("SHIPPING_LABEL_UNAVAILABLE", ex404.getErrorCode());
-
-        nextBinaryResponse = new TiktokHttpTransport.BinaryResponse(200, "application/pdf", new byte[0]);
-        BusinessException exEmpty = assertThrows(BusinessException.class,
-                () -> fulfillmentClient.downloadShippingLabelByOrder(77L, "ord-001"));
-        assertEquals(HttpStatus.BAD_GATEWAY, exEmpty.getHttpStatus());
-        assertEquals("SHIPPING_LABEL_UNAVAILABLE", exEmpty.getErrorCode());
+    @DisplayName("TiktokFulfillmentClient: downloadShippingLabelByPackage ném BusinessException khi Simulator lỗi")
+    void testDownloadShippingLabel_ApiError() {
+        TiktokShopApiExecutor failingExecutor = new TiktokShopApiExecutor(null, null, null) {
+            @Override
+            public JsonNode call(Long connectionId, String method, String path, Map<String, String> query, String body) {
+                throw new TiktokApiException("package does not exist in this shop", 404, 404, null, false);
+            }
+        };
+        TiktokFulfillmentClient failingClient = new TiktokFulfillmentClient(failingExecutor, mapper, orderClient);
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> failingClient.downloadShippingLabelByPackage(77L, "pkg-404"));
+        assertEquals(HttpStatus.NOT_FOUND, ex.getHttpStatus());
+        assertEquals("SHIPPING_LABEL_UNAVAILABLE", ex.getErrorCode());
     }
 
     @Test
-    @DisplayName("TiktokCancellationClient: searchCancellations gọi POST /return_refund/202309/cancellations/search")
+    @DisplayName("TiktokCancellationClient: searchCancellations gọi POST /return_refund/202309/cancellations/search với order_ids")
     void testSearchCancellations() {
         CancellationSearchResponse response = cancellationClient.searchCancellations(77L,
                 CancellationSearchRequest.builder().orderId("576000000000000001").build());
@@ -295,5 +261,26 @@ class TiktokApiClientsTest {
         assertEquals(1, response.getCancellations().size());
         assertEquals("cancel-001", response.getCancellations().get(0).getCancelId());
         assertTrue(recordedCalls.get(0).contains("POST /return_refund/202309/cancellations/search"));
+        assertTrue(recordedCalls.get(0).contains("\"order_ids\":[\"576000000000000001\"]"));
+    }
+
+    @Test
+    @DisplayName("TiktokReturnClient: searchReturns gọi POST /return_refund/202309/returns/search với page_size >= 10 và order_ids")
+    void testSearchReturns() {
+        ReturnSearchRequest request = ReturnSearchRequest.builder()
+                .pageSize(5)
+                .orderId("576000000000000001")
+                .returnStatus("RETURN_OR_REFUND_REQUEST_PENDING")
+                .build();
+
+        ReturnSearchResponse response = returnClient.searchReturns("TEST_CIPHER_001", request);
+
+        assertNotNull(response);
+        assertEquals(1, response.getReturns().size());
+        assertEquals("ret-001", response.getReturns().get(0).getReturnId());
+
+        assertTrue(recordedCalls.get(0).contains("POST /return_refund/202309/returns/search"));
+        assertTrue(recordedCalls.get(0).contains("page_size=10"));
+        assertTrue(recordedCalls.get(0).contains("\"order_ids\":[\"576000000000000001\"]"));
     }
 }

@@ -21,11 +21,13 @@ import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 /**
- * Service managing TikTok Shop voucher issuance and persistence with PostgreSQL RLS (WF-02 Part A).
+ * Service managing TikTok Shop voucher issuance and coupon sync with PostgreSQL RLS (WF-02 Part A).
  */
 @Slf4j
 @Service
@@ -47,69 +49,65 @@ public class TiktokVoucherService {
             throw new BusinessException("endTime must be after startTime", HttpStatus.BAD_REQUEST, "INVALID_VOUCHER_DATES");
         }
 
-        CreateTiktokVoucherRequest normalized = CreateTiktokVoucherRequest.builder()
+        String normalizedType = request.getDiscountType().trim().toUpperCase(Locale.ROOT);
+        String code = (request.getCode() != null && !request.getCode().isBlank())
+                ? request.getCode().trim().toUpperCase(Locale.ROOT)
+                : "SO" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(Locale.ROOT);
+        String externalVoucherId = "SO-VCH-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(Locale.ROOT);
+
+        TiktokVoucherDto voucher = TiktokVoucherDto.builder()
+                .tiktokVoucherId(externalVoucherId)
+                .voucherCode(code)
                 .title(request.getTitle().trim())
-                .discountType(request.getDiscountType().trim().toUpperCase(Locale.ROOT))
+                .discountType(normalizedType)
                 .discountValue(request.getDiscountValue())
                 .maxDiscountAmount(request.getMaxDiscountAmount())
                 .minOrderAmount(request.getMinOrderAmount())
                 .usageLimit(request.getUsageLimit())
-                .code(request.getCode())
-                .customerId(request.getCustomerId())
+                .redeemedCount(0)
                 .startTime(startTime)
                 .endTime(endTime)
-                .idempotencyKey(request.getIdempotencyKey())
+                .status("ONGOING")
                 .build();
 
-        TiktokVoucherDto remote = voucherClient.createVoucher(connection.getId(), normalized);
-        if (remote == null || remote.getTiktokVoucherId() == null || remote.getTiktokVoucherId().isBlank()) {
-            throw new BusinessException("TikTok Simulator did not return a voucher_id",
-                    HttpStatus.BAD_GATEWAY, "VOUCHER_CREATION_FAILED");
-        }
+        long tenantId = connection.getTenantId();
+        String role = currentRole();
+        String idempotencyKey = request.getIdempotencyKey();
+
+        return transactionTemplate.execute(status -> {
+            applyRls(tenantId, role);
+            long voucherDbId = upsertVoucherRow(tenantId, connection, voucher, idempotencyKey);
+            voucher.setId(voucherDbId);
+            voucher.setTenantId(tenantId);
+            voucher.setConnectionId(connection.getId());
+            voucher.setShopId(connection.getShopId());
+            voucher.setCreatedAt(Instant.now());
+            return voucher;
+        });
+    }
+
+    /**
+     * Syncs read-only coupons from TikTok Simulator ({@code POST /promotion/202406/coupons/search}) into DB.
+     */
+    public List<TiktokVoucherDto> syncCouponsFromSimulator() {
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+        List<TiktokVoucherDto> coupons = voucherClient.searchCoupons(connection.getId());
 
         long tenantId = connection.getTenantId();
         String role = currentRole();
 
         return transactionTemplate.execute(status -> {
             applyRls(tenantId, role);
-
-            List<Long> existingIds = jdbcTemplate.query(
-                    "SELECT id FROM tiktok_vouchers WHERE tenant_id = ? AND connection_id = ? AND tiktok_voucher_id = ?",
-                    (rs, i) -> rs.getLong("id"),
-                    tenantId, connection.getId(), remote.getTiktokVoucherId());
-
-            long voucherDbId;
-            if (existingIds.isEmpty()) {
-                voucherDbId = insertVoucher(tenantId, connection, remote, normalized);
-            } else {
-                voucherDbId = existingIds.get(0);
-                jdbcTemplate.update(
-                        "UPDATE tiktok_vouchers SET status = ?, redeemed_count = ?, updated_at = now() "
-                                + "WHERE tenant_id = ? AND id = ?",
-                        remote.getStatus() != null ? remote.getStatus() : "ONGOING",
-                        remote.getRedeemedCount() != null ? remote.getRedeemedCount() : 0,
-                        tenantId, voucherDbId);
+            List<TiktokVoucherDto> saved = new ArrayList<>();
+            for (TiktokVoucherDto coupon : coupons) {
+                long id = upsertVoucherRow(tenantId, connection, coupon, null);
+                coupon.setId(id);
+                coupon.setTenantId(tenantId);
+                coupon.setConnectionId(connection.getId());
+                coupon.setShopId(connection.getShopId());
+                saved.add(coupon);
             }
-
-            return TiktokVoucherDto.builder()
-                    .id(voucherDbId)
-                    .tenantId(tenantId)
-                    .connectionId(connection.getId())
-                    .shopId(connection.getShopId())
-                    .tiktokVoucherId(remote.getTiktokVoucherId())
-                    .voucherCode(remote.getVoucherCode())
-                    .title(remote.getTitle() != null ? remote.getTitle() : normalized.getTitle())
-                    .discountType(remote.getDiscountType() != null ? remote.getDiscountType() : normalized.getDiscountType())
-                    .discountValue(remote.getDiscountValue() != null ? remote.getDiscountValue() : normalized.getDiscountValue())
-                    .maxDiscountAmount(remote.getMaxDiscountAmount())
-                    .minOrderAmount(remote.getMinOrderAmount())
-                    .usageLimit(remote.getUsageLimit())
-                    .redeemedCount(remote.getRedeemedCount() != null ? remote.getRedeemedCount() : 0)
-                    .startTime(remote.getStartTime() != null ? remote.getStartTime() : startTime)
-                    .endTime(remote.getEndTime() != null ? remote.getEndTime() : endTime)
-                    .status(remote.getStatus() != null ? remote.getStatus() : "ONGOING")
-                    .createdAt(Instant.now())
-                    .build();
+            return saved;
         });
     }
 
@@ -148,8 +146,24 @@ public class TiktokVoucherService {
         });
     }
 
-    private long insertVoucher(long tenantId, MarketplaceConnection connection,
-                               TiktokVoucherDto remote, CreateTiktokVoucherRequest req) {
+    private long upsertVoucherRow(long tenantId, MarketplaceConnection connection,
+                                  TiktokVoucherDto voucher, String idempotencyKey) {
+        List<Long> existingIds = jdbcTemplate.query(
+                "SELECT id FROM tiktok_vouchers WHERE tenant_id = ? AND connection_id = ? AND tiktok_voucher_id = ?",
+                (rs, i) -> rs.getLong("id"),
+                tenantId, connection.getId(), voucher.getTiktokVoucherId());
+
+        if (!existingIds.isEmpty()) {
+            long existingId = existingIds.get(0);
+            jdbcTemplate.update(
+                    "UPDATE tiktok_vouchers SET status = ?, redeemed_count = ?, updated_at = now() "
+                            + "WHERE tenant_id = ? AND id = ?",
+                    voucher.getStatus() != null ? voucher.getStatus() : "ONGOING",
+                    voucher.getRedeemedCount() != null ? voucher.getRedeemedCount() : 0,
+                    tenantId, existingId);
+            return existingId;
+        }
+
         String sql = "INSERT INTO tiktok_vouchers (tenant_id, connection_id, shop_id, tiktok_voucher_id, voucher_code, "
                 + "title, discount_type, discount_value, max_discount_amount, min_order_amount, usage_limit, "
                 + "redeemed_count, start_time, end_time, status, idempotency_key, created_at, updated_at) "
@@ -161,23 +175,23 @@ public class TiktokVoucherService {
             ps.setLong(1, tenantId);
             ps.setLong(2, connection.getId());
             ps.setString(3, connection.getShopId());
-            ps.setString(4, remote.getTiktokVoucherId());
-            ps.setString(5, remote.getVoucherCode());
-            ps.setString(6, remote.getTitle() != null ? remote.getTitle() : req.getTitle());
-            ps.setString(7, remote.getDiscountType() != null ? remote.getDiscountType() : req.getDiscountType());
-            ps.setBigDecimal(8, remote.getDiscountValue() != null ? remote.getDiscountValue() : req.getDiscountValue());
-            ps.setBigDecimal(9, remote.getMaxDiscountAmount());
-            ps.setBigDecimal(10, remote.getMinOrderAmount());
-            if (remote.getUsageLimit() != null) {
-                ps.setInt(11, remote.getUsageLimit());
+            ps.setString(4, voucher.getTiktokVoucherId());
+            ps.setString(5, voucher.getVoucherCode());
+            ps.setString(6, voucher.getTitle());
+            ps.setString(7, voucher.getDiscountType());
+            ps.setBigDecimal(8, voucher.getDiscountValue());
+            ps.setBigDecimal(9, voucher.getMaxDiscountAmount());
+            ps.setBigDecimal(10, voucher.getMinOrderAmount());
+            if (voucher.getUsageLimit() != null) {
+                ps.setInt(11, voucher.getUsageLimit());
             } else {
                 ps.setNull(11, java.sql.Types.INTEGER);
             }
-            ps.setInt(12, remote.getRedeemedCount() != null ? remote.getRedeemedCount() : 0);
-            ps.setTimestamp(13, Timestamp.from(remote.getStartTime() != null ? remote.getStartTime() : req.getStartTime()));
-            ps.setTimestamp(14, Timestamp.from(remote.getEndTime() != null ? remote.getEndTime() : req.getEndTime()));
-            ps.setString(15, remote.getStatus() != null ? remote.getStatus() : "ONGOING");
-            ps.setString(16, req.getIdempotencyKey());
+            ps.setInt(12, voucher.getRedeemedCount() != null ? voucher.getRedeemedCount() : 0);
+            ps.setTimestamp(13, Timestamp.from(voucher.getStartTime()));
+            ps.setTimestamp(14, Timestamp.from(voucher.getEndTime()));
+            ps.setString(15, voucher.getStatus() != null ? voucher.getStatus() : "ONGOING");
+            ps.setString(16, idempotencyKey);
             return ps;
         }, keys);
 

@@ -63,8 +63,17 @@ public class TiktokOrderController {
 
         MarketplaceConnection connection = tenantConnections.requireConnected();
 
+        if (orderId != null && !orderId.isBlank()) {
+            List<TiktokOrderDetailResponse> details = orderClient.getOrderDetails(
+                    connection.getId(), List.of(orderId.trim()));
+            OrderSearchResponse singleResult = OrderSearchResponse.builder()
+                    .orders(details)
+                    .totalCount(details.size())
+                    .build();
+            return ResponseEntity.ok(ApiResponse.success(singleResult));
+        }
+
         OrderSearchRequest request = OrderSearchRequest.builder()
-                .orderId(orderId != null && !orderId.isBlank() ? orderId.trim() : null)
                 .orderStatus(orderStatus)
                 .createTimeFrom(createTimeFrom)
                 .createTimeTo(createTimeTo)
