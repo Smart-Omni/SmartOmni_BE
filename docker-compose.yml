@@ -238,6 +238,11 @@ services:
       SHOPEE_BASE_URL: ${SHOPEE_BASE_URL:-https://shopee-simulator.onrender.com}
       SHOPEE_AUTHORIZATION_URL: ${SHOPEE_AUTHORIZATION_URL:-https://shopee-simulator.onrender.com/api/v2/shop/auth_partner}
       SHOPEE_REDIRECT_URI: ${SHOPEE_REDIRECT_URI:-http://localhost:5174/merchant/channels/shopee/callback}
+      TIKTOK_APP_KEY: ${TIKTOK_APP_KEY:-}
+      TIKTOK_APP_SECRET: ${TIKTOK_APP_SECRET:-}
+      TIKTOK_AUTHORIZATION_URL: ${TIKTOK_AUTHORIZATION_URL:-}
+      TIKTOK_TOKEN_BASE_URL: ${TIKTOK_TOKEN_BASE_URL:-https://auth.tiktok-shops.com}
+      TIKTOK_OPEN_API_BASE_URL: ${TIKTOK_OPEN_API_BASE_URL:-https://open-api.tiktokglobalshop.com}
       TIKTOK_ALLOWED_REDIRECT_URIS: ${TIKTOK_ALLOWED_REDIRECT_URIS:-smartomni://oauth/tiktok}
     networks:
       - smartomni-net
