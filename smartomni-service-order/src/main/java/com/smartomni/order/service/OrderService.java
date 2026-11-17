@@ -118,7 +118,8 @@ public class OrderService {
                 orderItemRepository.save(item);
 
                 // FR-027, FR-028: gọi Inventory Service trừ kho nếu đã map được internal skuId
-                if (itemPayload.getSkuId() != null && itemPayload.getQuantity() != null && itemPayload.getQuantity() > 0) {
+                if (platform != Order.Platform.TIKTOK_SHOP && itemPayload.getSkuId() != null
+                        && itemPayload.getQuantity() != null && itemPayload.getQuantity() > 0) {
                     inventoryServiceClient.deductStock(itemPayload.getSkuId(), itemPayload.getQuantity());
                 }
             }
@@ -358,7 +359,9 @@ public class OrderService {
                     log.info("Xác nhận trả hàng thành công (RECEIVE_APPROVE) cho orderId={}, returnId={}",
                             platformOrderId, request.getReturnId());
                     updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
-                    if (isRestockRequired) {
+                    if (isRestockRequired && order.getPlatform() == Order.Platform.TIKTOK_SHOP) {
+                        order.setRestockStatus("PLATFORM_SYNC");
+                    } else if (isRestockRequired) {
                         if ("RESTOCKED".equals(order.getRestockStatus())) {
                             log.info("Đơn hàng id={} đã được hoàn kho trước đó (idempotent), bỏ qua restock.", order.getId());
                         } else {
@@ -410,7 +413,10 @@ public class OrderService {
                         platformOrderId, request.getReturnId());
                 updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
 
-                if (isRestockRequired && !"REFUND_ONLY".equalsIgnoreCase(request.getReturnType())) {
+                if (isRestockRequired && !"REFUND_ONLY".equalsIgnoreCase(request.getReturnType())
+                        && order.getPlatform() == Order.Platform.TIKTOK_SHOP) {
+                    order.setRestockStatus("PLATFORM_SYNC");
+                } else if (isRestockRequired && !"REFUND_ONLY".equalsIgnoreCase(request.getReturnType())) {
                     if ("RESTOCKED".equals(order.getRestockStatus())) {
                         log.info("Đơn hàng id={} đã được hoàn kho trước đó (idempotent), bỏ qua restock.", order.getId());
                     } else {
@@ -447,6 +453,9 @@ public class OrderService {
     }
 
     private void restockOrderItems(Order order, List<ProcessReturnRequest.ReturnItemDto> returnItems) {
+        if (order.getPlatform() == Order.Platform.TIKTOK_SHOP) {
+            return; // TikTok stock is applied from the absolute inventory webhook snapshot.
+        }
         if (returnItems != null && !returnItems.isEmpty()) {
             log.info("Hoàn trả tồn kho theo danh mục mặt hàng trả lại cho đơn hàng id={}, itemsCount={}",
                     order.getId(), returnItems.size());
