@@ -1,5 +1,6 @@
 package com.smartomni.integration.dto.shopee;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
@@ -14,12 +15,14 @@ public class ShopeeCallbackRequest {
     private String code;
 
     @JsonProperty("shop_id")
+    @JsonAlias("shopId")
     private String shopId;
 
     private String state;
     private String error;
 
     @JsonProperty("error_description")
+    @JsonAlias("errorDescription")
     private String errorDescription;
 
     @Override
