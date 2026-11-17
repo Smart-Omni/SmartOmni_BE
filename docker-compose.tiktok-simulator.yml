@@ -1,0 +1,15 @@
+# Dev only: attach Integration Service to the standalone TikTok simulator's edge network.
+# Start the simulator stack first so this external network exists.
+services:
+  integration-service:
+    environment:
+      TIKTOK_TOKEN_BASE_URL: http://api:8090
+      TIKTOK_OPEN_API_BASE_URL: http://api:8090
+    networks:
+      - smartomni-net
+      - tiktok-simulator
+
+networks:
+  tiktok-simulator:
+    external: true
+    name: smartomni-tiktok-simulator_sim_edge
