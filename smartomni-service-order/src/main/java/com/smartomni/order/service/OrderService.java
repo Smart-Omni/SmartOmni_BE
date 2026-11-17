@@ -96,9 +96,15 @@ public class OrderService {
                 ? TiktokOrderStatusMapper.map(payload.getOrderStatus())
                 : Order.OrderStatus.TO_SHIP;
         order.setStatus(initialStatus);
+        if (initialStatus == Order.OrderStatus.COMPLETED) {
+            markCompletedIfNeeded(order);
+        }
 
         order = orderRepository.save(order);
         recordStatusHistory(order, initialStatus, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK, null);
+        if (initialStatus == Order.OrderStatus.COMPLETED) {
+            recordWalletLedger(order);
+        }
 
         if (payload.getItems() != null) {
             for (var itemPayload : payload.getItems()) {
@@ -159,6 +165,9 @@ public class OrderService {
         }
 
         order.setStatus(newStatus);
+        if (newStatus == Order.OrderStatus.COMPLETED) {
+            markCompletedIfNeeded(order);
+        }
         order = orderRepository.save(order);
 
         // 1. Ghi nhận dòng lịch sử thay đổi trạng thái
@@ -175,6 +184,16 @@ public class OrderService {
         }
 
         return order;
+    }
+
+    private void markCompletedIfNeeded(Order order) {
+        if (order.getCompletedAt() == null) {
+            Instant completedAt = Instant.now();
+            order.setCompletedAt(completedAt);
+            order.setEligibleForPointsAt(completedAt.plus(15, java.time.temporal.ChronoUnit.DAYS));
+        } else if (order.getEligibleForPointsAt() == null) {
+            order.setEligibleForPointsAt(order.getCompletedAt().plus(15, java.time.temporal.ChronoUnit.DAYS));
+        }
     }
 
     /**

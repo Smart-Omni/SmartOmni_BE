@@ -24,6 +24,7 @@ public class TiktokVoucherClient {
 
     public static final String SEARCH_COUPONS_PATH = "/promotion/202406/coupons/search";
     public static final String COUPON_DETAIL_PATH = "/promotion/202406/coupons/";
+    public static final String CREATE_COUPON_PATH = "/promotion/202406/coupons";
 
     private final TiktokShopApiExecutor executor;
 
@@ -49,6 +50,29 @@ public class TiktokVoucherClient {
      */
     public TiktokVoucherDto getCoupon(Long connectionId, String couponId) {
         JsonNode data = executor.call(connectionId, "GET", COUPON_DETAIL_PATH + couponId, Map.of(), null);
+        if (data != null && data.has("coupon")) {
+            return parseCoupon(data.get("coupon"));
+        }
+        return parseCoupon(data);
+    }
+
+    /**
+     * Calls TikTok Shop coupon creation endpoint ({@code POST /promotion/202406/coupons}) when API mode is enabled.
+     */
+    public TiktokVoucherDto createCoupon(Long connectionId, String title, BigDecimal discountPercent,
+                                         Instant startsAt, Instant endsAt, String requestKey) {
+        long startSec = (startsAt != null ? startsAt : Instant.now()).getEpochSecond();
+        long endSec = (endsAt != null ? endsAt : Instant.now().plusSeconds(30L * 24 * 3600)).getEpochSecond();
+        String safeTitle = (title != null ? title.replace("\"", "") : "SmartOmni Loyalty Voucher");
+        String body = String.format(
+                "{\"title\":\"%s\",\"request_key\":\"%s\",\"discount\":{\"type\":\"PERCENT_OFF\",\"percentage\":\"%s\"},"
+                        + "\"claim_duration\":{\"start_time\":%d,\"end_time\":%d},\"usage_limits\":{\"redemption_limit\":1}}",
+                safeTitle,
+                requestKey != null ? requestKey : "",
+                discountPercent != null ? discountPercent.stripTrailingZeros().toPlainString() : "10",
+                startSec,
+                endSec);
+        JsonNode data = executor.call(connectionId, "POST", CREATE_COUPON_PATH, Map.of(), body);
         if (data != null && data.has("coupon")) {
             return parseCoupon(data.get("coupon"));
         }

@@ -211,6 +211,7 @@ services:
       SPRING_RABBITMQ_HOST: rabbitmq
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
       SMARTOMNI_SERVICES_INVENTORY-URL: http://inventory-service:8084
+      SMARTOMNI_SERVICES_INTEGRATION-URL: http://integration-service:8086
       SMARTOMNI_JOBS_TOKEN: ${INTERNAL_JOB_TOKEN:?Set INTERNAL_JOB_TOKEN in .env}
     networks:
       - smartomni-net

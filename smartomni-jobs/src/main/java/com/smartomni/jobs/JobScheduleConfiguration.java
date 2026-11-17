@@ -42,16 +42,6 @@ public class JobScheduleConfiguration {
         return trigger("publish-outbox", publishOutboxJob, 30);
     }
 
-    @Bean
-    JobDetail awardLoyaltyPointsJob(@Value("${smartomni.jobs.loyalty-url:http://localhost:8085/internal/jobs/award-loyalty-points}") String url) {
-        return job("award-loyalty-points", url);
-    }
-
-    @Bean
-    Trigger awardLoyaltyPointsTrigger(JobDetail awardLoyaltyPointsJob) {
-        return trigger("award-loyalty-points", awardLoyaltyPointsJob, 3600);
-    }
-
     private JobDetail job(String name, String url) {
         return JobBuilder.newJob(InternalHttpJob.class)
                 .withIdentity(name)

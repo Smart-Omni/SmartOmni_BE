@@ -15,6 +15,8 @@ import java.util.Optional;
 public interface MarketplaceConnectionRepository extends JpaRepository<MarketplaceConnection, Long> {
     Optional<MarketplaceConnection> findByTenantIdAndPlatform(Long tenantId, MarketplaceConnection.Platform platform);
     List<MarketplaceConnection> findByTenantId(Long tenantId);
+
+    Optional<MarketplaceConnection> findByIdAndTenantId(Long id, Long tenantId);
     long countByTenantIdAndStatusNot(Long tenantId, MarketplaceConnection.ConnectionStatus status);
     List<MarketplaceConnection> findByStatus(MarketplaceConnection.ConnectionStatus status); // dung cho Polling Scheduler (UC-34) va Price Sync (UC-43)
 

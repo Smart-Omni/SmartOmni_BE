@@ -14,7 +14,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * Exposes the TikTok Shop catalog view enriched with SmartOmni internal SKU mappings (D8)
+ * Exposes the TikTok Shop catalog view enriched with SmartOmni internal SKU
+ * mappings (D8)
  * and manual trigger for WF-01 catalog auto-import.
  */
 @RestController
@@ -31,7 +32,7 @@ public class TiktokCatalogViewController {
 
     @Autowired
     public TiktokCatalogViewController(TiktokCatalogService catalogService,
-                                       TiktokAutoImportService autoImportService) {
+            TiktokAutoImportService autoImportService) {
         this.catalogService = catalogService;
         this.autoImportService = autoImportService;
     }

@@ -51,6 +51,7 @@ smartomni:
       - localhost
   services:
     inventory-url: http://localhost:8084
+    integration-url: http://localhost:8086
   polling:
     fixed-delay-ms: 180000  # 3 phut - UC-34
 
