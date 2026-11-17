@@ -6,8 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.smartomni.integration.config.TiktokProperties;
+import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos;
 import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.Product;
 import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.ProductPage;
+import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.Sku;
 import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.Warehouse;
 import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.WarehouseList;
 import com.smartomni.integration.service.tiktok.TiktokShopApiExecutor;
@@ -93,29 +95,74 @@ public class TiktokCatalogClient {
      * Updates product stock on TikTok Shop (POST /product/202309/products/{product_id}/stocks/update).
      */
     public void updateStock(Long connectionId, String productId, String skuId, Integer quantity) {
-        String path = "/product/202309/products/" + productId + "/stocks/update";
-        ObjectNode body = mapper.createObjectNode();
-        ArrayNode skus = body.putArray("skus");
-        ObjectNode skuEntry = skus.addObject();
-        skuEntry.put("id", skuId);
-        ArrayNode stockInfos = skuEntry.putArray("stock_infos");
-        ObjectNode stockInfo = stockInfos.addObject();
-        stockInfo.put("available_stock", quantity != null ? quantity : 0);
-
-        executor.call(connectionId, "POST", path, Map.of(), body.toString());
+        Product product = getProduct(connectionId, productId);
+        List<Warehouse> warehouses = listWarehouses(connectionId);
+        JsonNode result = executor.call(connectionId, "POST", inventoryPath(productId), Map.of(),
+                stockBody(product, warehouses, skuId, quantity));
+        verifyStockResult(result, skuId);
     }
 
     public void updateStock(String shopId, String productId, String skuId, Integer quantity) {
-        String path = "/product/202309/products/" + productId + "/stocks/update";
-        ObjectNode body = mapper.createObjectNode();
-        ArrayNode skus = body.putArray("skus");
-        ObjectNode skuEntry = skus.addObject();
-        skuEntry.put("id", skuId);
-        ArrayNode stockInfos = skuEntry.putArray("stock_infos");
-        ObjectNode stockInfo = stockInfos.addObject();
-        stockInfo.put("available_stock", quantity != null ? quantity : 0);
+        Product product = convert(executor.callByShopCipher(shopId, "GET", DETAIL_PATH + productId, Map.of(), null), Product.class);
+        WarehouseList list = convert(executor.callByShopCipher(shopId, "GET", WAREHOUSES_PATH, Map.of(), null), WarehouseList.class);
+        JsonNode result = executor.callByShopCipher(shopId, "POST", inventoryPath(productId), Map.of(),
+                stockBody(product, list.warehouses(), skuId, quantity));
+        verifyStockResult(result, skuId);
+    }
 
-        executor.callByShopCipher(shopId, "POST", path, Map.of(), body.toString());
+    private static String inventoryPath(String productId) {
+        if (productId == null || !productId.matches("[A-Za-z0-9_-]{1,64}")) {
+            throw new IllegalArgumentException("Invalid TikTok product id");
+        }
+        return DETAIL_PATH + productId + "/inventory/update";
+    }
+
+    private String stockBody(Product product, List<Warehouse> warehouses, String skuId, Integer quantity) {
+        if (quantity == null || quantity < 0) throw new IllegalArgumentException("Stock must be non-negative");
+        Sku sku = product.skus().stream().filter(s -> skuId != null && skuId.equals(s.id())).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("TikTok SKU is not on the product"));
+        if (sku.inventory().isEmpty()) throw new IllegalArgumentException("TikTok SKU has no assigned warehouse");
+        var levels = new java.util.ArrayList<>(sku.inventory());
+        levels.sort(java.util.Comparator.comparing(TiktokCatalogDtos.Inventory::warehouseId));
+        String defaultWarehouse = warehouses.stream().filter(w -> Boolean.TRUE.equals(w.isDefault()))
+                .map(Warehouse::id).filter(id -> levels.stream().anyMatch(i -> id.equals(i.warehouseId())))
+                .findFirst().orElse(levels.get(0).warehouseId());
+        levels.sort(java.util.Comparator.comparing(i -> !defaultWarehouse.equals(i.warehouseId())));
+        long current = 0;
+        for (var level : levels) {
+            if (level.quantity() == null || level.quantity() < 0) throw new IllegalArgumentException("TikTok warehouse stock is missing");
+            current += level.quantity();
+        }
+        long delta = quantity - current;
+        ObjectNode body = mapper.createObjectNode();
+        ObjectNode entry = body.putArray("skus").addObject();
+        entry.put("id", skuId);
+        ArrayNode inventory = entry.putArray("inventory");
+        for (var level : levels) {
+            long next = level.quantity();
+            if (delta < 0) {
+                long decrease = Math.min(next, -delta);
+                next -= decrease;
+                delta += decrease;
+            } else if (delta > 0 && defaultWarehouse.equals(level.warehouseId())) {
+                next += delta;
+                delta = 0;
+            }
+            if (next > 99_999) throw new IllegalArgumentException("TikTok warehouse stock exceeds supported range");
+            ObjectNode warehouse = inventory.addObject();
+            warehouse.put("warehouse_id", level.warehouseId());
+            warehouse.put("quantity", next);
+        }
+        return body.toString();
+    }
+
+    private void verifyStockResult(JsonNode result, String skuId) {
+        for (JsonNode error : result.path("errors")) {
+            if (skuId.equals(error.path("detail").path("sku_id").asText())) {
+                throw new TiktokApiException("TikTok rejected SKU inventory update", 200,
+                        error.path("code").asInt(), null, false);
+            }
+        }
     }
 
     /**
