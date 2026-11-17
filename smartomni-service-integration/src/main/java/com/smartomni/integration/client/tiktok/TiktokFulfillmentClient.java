@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartomni.common.exception.BusinessException;
+import com.smartomni.integration.config.TiktokProperties;
 import com.smartomni.integration.dto.tiktok.ShipPackageRequest;
 import com.smartomni.integration.dto.tiktok.ShippingDocumentResponse;
 import com.smartomni.integration.dto.tiktok.TiktokOrderDetailResponse;
@@ -40,17 +41,25 @@ public class TiktokFulfillmentClient {
     private final TiktokShopApiExecutor executor;
     private final ObjectMapper mapper;
     private final TiktokOrderClient orderClient;
+    private final TiktokProperties properties;
 
     public TiktokFulfillmentClient(TiktokShopApiExecutor executor, ObjectMapper mapper) {
-        this(executor, mapper, null);
+        this(executor, mapper, null, null);
+    }
+
+    public TiktokFulfillmentClient(TiktokShopApiExecutor executor, ObjectMapper mapper,
+                                   TiktokOrderClient orderClient) {
+        this(executor, mapper, orderClient, null);
     }
 
     @Autowired
     public TiktokFulfillmentClient(TiktokShopApiExecutor executor, ObjectMapper mapper,
-                                   @Autowired(required = false) TiktokOrderClient orderClient) {
+                                   @Autowired(required = false) TiktokOrderClient orderClient,
+                                   @Autowired(required = false) TiktokProperties properties) {
         this.executor = executor;
         this.mapper = mapper;
         this.orderClient = orderClient;
+        this.properties = properties;
     }
 
     /**
@@ -184,9 +193,10 @@ public class TiktokFulfillmentClient {
     }
 
     private byte[] fetchPdfFromUrl(String docUrl) {
+        String resolvedUrl = rewriteLocalhostUrlIfNeeded(docUrl);
         try {
             RestTemplate restTemplate = new RestTemplate();
-            ResponseEntity<byte[]> response = restTemplate.getForEntity(docUrl, byte[].class);
+            ResponseEntity<byte[]> response = restTemplate.getForEntity(resolvedUrl, byte[].class);
             byte[] bytes = response.getBody();
             if (!response.getStatusCode().is2xxSuccessful() || bytes == null || bytes.length == 0) {
                 throw new BusinessException("Shipping label PDF is empty or unavailable",
@@ -196,9 +206,33 @@ public class TiktokFulfillmentClient {
         } catch (BusinessException be) {
             throw be;
         } catch (Exception ex) {
-            log.error("Failed to download shipping label PDF from {}: {}", docUrl, ex.getMessage());
+            log.error("Failed to download shipping label PDF from {}: {}", resolvedUrl, ex.getMessage());
             throw new BusinessException("Failed to fetch shipping label PDF from TikTok Simulator",
                     HttpStatus.BAD_GATEWAY, SHIPPING_LABEL_UNAVAILABLE_CODE);
+        }
+    }
+
+    private String rewriteLocalhostUrlIfNeeded(String docUrl) {
+        if (docUrl == null || properties == null || properties.getOpenApiBaseUrl() == null) {
+            return docUrl;
+        }
+        try {
+            java.net.URI docUri = java.net.URI.create(docUrl);
+            String docHost = docUri.getHost();
+            if (!"localhost".equalsIgnoreCase(docHost) && !"127.0.0.1".equals(docHost)) {
+                return docUrl;
+            }
+            java.net.URI baseUri = java.net.URI.create(properties.getOpenApiBaseUrl());
+            if (baseUri.getHost() == null || "localhost".equalsIgnoreCase(baseUri.getHost())
+                    || "127.0.0.1".equals(baseUri.getHost())) {
+                return docUrl;
+            }
+            String pathAndQuery = docUri.getRawPath()
+                    + (docUri.getRawQuery() != null ? "?" + docUri.getRawQuery() : "");
+            String base = properties.getOpenApiBaseUrl().replaceAll("/+$", "");
+            return base + pathAndQuery;
+        } catch (Exception ignored) {
+            return docUrl;
         }
     }
 

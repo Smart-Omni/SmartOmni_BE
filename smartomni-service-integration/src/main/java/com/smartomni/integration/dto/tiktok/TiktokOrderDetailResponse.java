@@ -1,5 +1,6 @@
 package com.smartomni.integration.dto.tiktok;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
@@ -22,9 +23,11 @@ import java.util.List;
 public class TiktokOrderDetailResponse {
 
     @JsonProperty("order_id")
+    @JsonAlias("id")
     private String orderId;
 
     @JsonProperty("order_status")
+    @JsonAlias("status")
     private String orderStatus;
 
     @JsonProperty("payment")
@@ -40,9 +43,11 @@ public class TiktokOrderDetailResponse {
     private String packageId;
 
     @JsonProperty("package_list")
+    @JsonAlias("packages")
     private List<OrderPackage> packageList;
 
     @JsonProperty("buyer_user_id")
+    @JsonAlias("user_id")
     private String buyerUserId;
 
     @JsonProperty("buyer_email")
@@ -200,6 +205,7 @@ public class TiktokOrderDetailResponse {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class OrderPackage {
         @JsonProperty("package_id")
+        @JsonAlias("id")
         private String packageId;
 
         @JsonProperty("package_status")
