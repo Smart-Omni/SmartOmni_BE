@@ -105,7 +105,7 @@ class TiktokAutoImportServiceTest {
     @DisplayName("Automatically links to existing local SKU when seller_sku matches sku_code")
     void autoImport_MatchingSellerSku_LinksExisting() {
         Product detail = new Product("TK-P2", "Quần Jean", "ACTIVATE", null, List.of(), List.of(
-                new Sku("TK-S9", "JEAN-32", new Price("VND", "420000", null), List.of(), null, List.of())
+                new Sku("TK-S9", "JEAN-32", new Price("VND", "420000", null), List.of(new Inventory("WH-1", 0)), null, List.of())
         ));
 
         doAnswer(inv -> {
@@ -131,13 +131,15 @@ class TiktokAutoImportServiceTest {
         verify(store, never()).createProduct(any(), any(), anyBoolean());
         verify(store, never()).createSku(anyLong(), any(), any(), any());
         verify(store).insertLink(501L, 77L, "TK-P2", "TK-S9", "JEAN-32", "VND", "ACTIVATE", null, new BigDecimal("420000"));
+        verify(store).initInventoryIfAbsent(501L, 0);
     }
 
     @Test
     @DisplayName("Idempotent re-run skips already mapped SKUs, updates link snapshot, and sets RLS context")
     void autoImport_AlreadyMapped_SkipsWithoutDuplicates() {
         Product detail = new Product("TK-P3", "Nón Kết", "ACTIVATE", null, List.of(), List.of(
-                new Sku("TK-S10", "CAP-BLK", new Price("VND", "150000", null), List.of(), null, List.of())
+                new Sku("TK-S10", "CAP-BLK", new Price("VND", "150000", null),
+                        List.of(new Inventory("WH-1", 4), new Inventory("WH-2", 3)), null, List.of())
         ));
 
         doAnswer(inv -> {
@@ -167,6 +169,7 @@ class TiktokAutoImportServiceTest {
         verify(store, never()).insertLink(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any());
         verify(store).updateLinkMeta(888L, "TK-P3", "CAP-BLK", "VND", "ACTIVATE", null);
         verify(store).updateLinkPrice(eq(888L), eq(new BigDecimal("150000")), eq("VND"), any(Instant.class));
+        verify(store).initInventoryIfAbsent(501L, 7);
         verify(store).applyRlsContext(42L, "tenant_admin");
     }
 }
