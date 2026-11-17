@@ -1,5 +1,7 @@
 package com.smartomni.integration.dto.tiktok;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -14,6 +16,8 @@ public class TiktokCallbackRequest {
     private String code;
     private String state;
     private String error;
+    @JsonProperty("error_description")
+    @JsonAlias("errorDescription")
     private String errorDescription;
 
     @Override
