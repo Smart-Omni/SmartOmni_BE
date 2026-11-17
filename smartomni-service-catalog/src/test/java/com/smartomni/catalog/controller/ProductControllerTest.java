@@ -13,6 +13,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -43,6 +46,7 @@ class ProductControllerTest {
         ProductService productService = new ProductService(productRepository, skuRepository);
         mockMvc = MockMvcBuilders.standaloneSetup(new ProductController(productService))
                 .setControllerAdvice(new GlobalExceptionHandler())
+                .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
                 .build();
     }
 
@@ -152,6 +156,52 @@ class ProductControllerTest {
                 .andExpect(jsonPath("$.data.length()").value(2))
                 .andExpect(jsonPath("$.data[0].skuCode").value("SKU-P1-01"))
                 .andExpect(jsonPath("$.data[1].skuCode").value("SKU-P2-01"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/products?page=0&size=20 trả về 200 OK")
+    void listProducts_DefaultPagination_Returns200() throws Exception {
+        TenantContext.setTenantId(1L);
+        Product p = new Product();
+        p.setId(1L);
+        p.setName("Áo Thun");
+        when(productRepository.findByTenantId(eq(1L), any(Pageable.class)))
+                .thenAnswer(inv -> new PageImpl<>(List.of(p), inv.getArgument(1), 1));
+
+        mockMvc.perform(get("/api/v1/products?page=0&size=20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.content[0].id").value(1));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/products?page=0&size=20&sort=id,desc trả về 200 OK")
+    void listProducts_ValidSort_Returns200() throws Exception {
+        TenantContext.setTenantId(1L);
+        Product p = new Product();
+        p.setId(2L);
+        p.setName("Quần Jean");
+        when(productRepository.findByTenantId(eq(1L), any(Pageable.class)))
+                .thenAnswer(inv -> new PageImpl<>(List.of(p), inv.getArgument(1), 1));
+
+        mockMvc.perform(get("/api/v1/products?page=0&size=20&sort=id,desc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.content[0].id").value(2));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/products?page=0&size=20&sort=string trả về 400 INVALID_SORT_PARAMETER")
+    void listProducts_InvalidSort_Returns400() throws Exception {
+        TenantContext.setTenantId(1L);
+
+        mockMvc.perform(get("/api/v1/products?page=0&size=20&sort=string"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INVALID_SORT_PARAMETER"))
+                .andExpect(jsonPath("$.message").value("Trường sắp xếp không hợp lệ: string"));
+
+        verify(productRepository, never()).findByTenantId(any(), any());
     }
 }
 

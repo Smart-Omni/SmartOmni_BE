@@ -7,9 +7,12 @@ import com.smartomni.catalog.service.ProductService;
 import com.smartomni.common.dto.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -22,7 +25,8 @@ public class ProductController {
     private final ProductService productService;
 
     @GetMapping
-    public ApiResponse<Page<Product>> list(Pageable pageable) {
+    public ApiResponse<Page<Product>> list(
+            @ParameterObject @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.DESC) Pageable pageable) {
         return ApiResponse.success(productService.listProducts(pageable));
     }
 

@@ -18,6 +18,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * UC-08: Quan ly san pham (Catalog Management) - FR-018,019,020
@@ -27,6 +28,8 @@ import java.util.List;
 public class ProductService {
 
     public static final int FREE_PLAN_MAX_SKUS = 100;
+    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
+            "id", "tenantId", "name", "description", "status", "createdBy", "createdAt", "updatedAt");
 
     private final ProductRepository productRepository;
     private final ProductSkuRepository skuRepository;
@@ -130,6 +133,16 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public Page<Product> listProducts(Pageable pageable) {
+        if (pageable != null && pageable.getSort().isSorted()) {
+            for (var order : pageable.getSort()) {
+                if (!ALLOWED_SORT_FIELDS.contains(order.getProperty())) {
+                    throw new BusinessException(
+                            "Trường sắp xếp không hợp lệ: " + order.getProperty(),
+                            HttpStatus.BAD_REQUEST,
+                            "INVALID_SORT_PARAMETER");
+                }
+            }
+        }
         return productRepository.findByTenantId(TenantContext.getTenantId(), pageable);
     }
 
