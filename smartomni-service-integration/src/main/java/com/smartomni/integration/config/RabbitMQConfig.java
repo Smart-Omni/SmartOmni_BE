@@ -13,6 +13,8 @@ import org.springframework.context.annotation.Configuration;
 public class RabbitMQConfig {
 
     public static final String ORDER_EXCHANGE = "smartomni.order.exchange";
+    public static final String INVENTORY_QUEUE = "smartomni.tiktok.inventory.changed.queue";
+    public static final String INVENTORY_ROUTING_KEY = "inventory.tiktok.changed";
     public static final String RETURN_QUEUE = "smartomni.return.incoming.queue";
     public static final String RETURN_ROUTING_KEY = "return.incoming";
     public static final String RETURN_DLQ = "smartomni.return.incoming.dlq";
@@ -20,6 +22,16 @@ public class RabbitMQConfig {
     @Bean
     public DirectExchange orderExchange() {
         return new DirectExchange(ORDER_EXCHANGE, true, false);
+    }
+
+    @Bean
+    public Queue tiktokInventoryQueue() {
+        return QueueBuilder.durable(INVENTORY_QUEUE).build();
+    }
+
+    @Bean
+    public Binding tiktokInventoryBinding(Queue tiktokInventoryQueue, DirectExchange orderExchange) {
+        return BindingBuilder.bind(tiktokInventoryQueue).to(orderExchange).with(INVENTORY_ROUTING_KEY);
     }
 
     @Bean
