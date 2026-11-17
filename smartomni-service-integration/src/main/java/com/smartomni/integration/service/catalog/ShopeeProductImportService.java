@@ -196,11 +196,13 @@ public class ShopeeProductImportService {
                                 v.getSellerSku() != null ? v.getSellerSku() : plan.link.sellerSku(),
                                 v.getCurrency(), dto.getPlatformStatus(), null);
                         reportPrice(dto, v, priceChanges.apply(plan.link, v.getPrice(), v.getCurrency()), run);
+                        initStock(plan.link.skuId(), dto, v, run);
                         changes++;
                     }
                     case LINK_EXISTING -> {
                         store.insertLink(plan.sku.id(), connectionId, dto.getPlatformItemId(), v.getExternalSkuId(),
                                 v.getSellerSku(), v.getCurrency(), dto.getPlatformStatus(), null, v.getPrice());
+                        initStock(plan.sku.id(), dto, v, run);
                         run.skusLinked++;
                         changes++;
                     }
@@ -213,6 +215,7 @@ public class ShopeeProductImportService {
                         long skuId = store.createSku(productId, v.getSellerSku(), v.getVariantName(), v.getPrice());
                         store.insertLink(skuId, connectionId, dto.getPlatformItemId(), v.getExternalSkuId(),
                                 v.getSellerSku(), v.getCurrency(), dto.getPlatformStatus(), null, v.getPrice());
+                        initStock(skuId, dto, v, run);
                         run.skusCreated++;
                         changes++;
                     }
@@ -227,6 +230,14 @@ public class ShopeeProductImportService {
                 run.productsSkipped++;
             }
         });
+    }
+
+    private void initStock(long skuId, MarketplaceProductDto dto, VariantDto variant, Run run) {
+        if (variant.getStock() == null || variant.getStock().isEmpty() || variant.getStock().get(0).getQuantity() == null) {
+            run.addItem(dto.getPlatformItemId(), variant.getExternalSkuId(), "STOCK_MISSING", "Shopee did not provide valid SKU stock");
+            return;
+        }
+        store.initInventoryIfAbsent(skuId, variant.getStock().get(0).getQuantity());
     }
 
     private Plan plan(long connectionId, VariantDto v, Map<String, Integer> sellerSkuCounts) {
