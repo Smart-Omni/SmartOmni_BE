@@ -40,13 +40,28 @@ class LoyaltyCustomerServiceTest {
 
     @Test
     void rejectsMissingTenantOrUserContext() {
-        assertThatThrownBy(() -> service.claimOrderPoints(10L, null, new ClaimPointsRequest(100L, null)))
+        assertThatThrownBy(() -> service.claimOrderPoints(10L, null, new ClaimPointsRequest(100L, BigDecimal.valueOf(1000))))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getHttpStatus()).isEqualTo(HttpStatus.FORBIDDEN));
 
-        assertThatThrownBy(() -> service.claimOrderPoints(null, 1L, new ClaimPointsRequest(100L, null)))
+        assertThatThrownBy(() -> service.claimOrderPoints(null, 1L, new ClaimPointsRequest(100L, BigDecimal.valueOf(1000))))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getHttpStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+    }
+
+    @Test
+    void rejectsMissingOrNonPositiveTotalAmount() {
+        assertThatThrownBy(() -> service.claimOrderPoints(10L, 1L, new ClaimPointsRequest(100L, null)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> {
+                    BusinessException be = (BusinessException) ex;
+                    assertThat(be.getErrorCode()).isEqualTo("INVALID_TOTAL_AMOUNT");
+                    assertThat(be.getHttpStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+                });
+
+        assertThatThrownBy(() -> service.claimOrderPoints(10L, 1L, new ClaimPointsRequest(100L, BigDecimal.ZERO)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode()).isEqualTo("INVALID_TOTAL_AMOUNT"));
     }
 
     @Test
@@ -54,7 +69,7 @@ class LoyaltyCustomerServiceTest {
         when(jdbcTemplate.query(contains("FROM users"), any(RowMapper.class), eq(1L), eq(10L)))
                 .thenReturn(List.of("staff"));
 
-        assertThatThrownBy(() -> service.claimOrderPoints(10L, 1L, new ClaimPointsRequest(100L, null)))
+        assertThatThrownBy(() -> service.claimOrderPoints(10L, 1L, new ClaimPointsRequest(100L, BigDecimal.valueOf(250000))))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode()).isEqualTo("FORBIDDEN_CUSTOMER_ROLE"));
     }
@@ -65,7 +80,7 @@ class LoyaltyCustomerServiceTest {
                 .thenReturn(List.of("customer"));
         mockOrderRow(100L, "completed", BigDecimal.valueOf(500000), Instant.now().plus(3, ChronoUnit.DAYS));
 
-        assertThatThrownBy(() -> service.claimOrderPoints(10L, 1L, new ClaimPointsRequest(100L, null)))
+        assertThatThrownBy(() -> service.claimOrderPoints(10L, 1L, new ClaimPointsRequest(100L, BigDecimal.valueOf(500000))))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode()).isEqualTo("ORDER_NOT_ELIGIBLE_YET"));
     }
@@ -90,7 +105,7 @@ class LoyaltyCustomerServiceTest {
         when(jdbcTemplate.queryForObject(contains("FROM returns_refunds"), eq(Integer.class), eq(1L), eq(100L)))
                 .thenReturn(1);
 
-        assertThatThrownBy(() -> service.claimOrderPoints(10L, 1L, new ClaimPointsRequest(100L, null)))
+        assertThatThrownBy(() -> service.claimOrderPoints(10L, 1L, new ClaimPointsRequest(100L, BigDecimal.valueOf(250000))))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode()).isEqualTo("ORDER_HAS_APPROVED_RETURN"));
     }
@@ -108,7 +123,7 @@ class LoyaltyCustomerServiceTest {
                 eq(1L), eq(100L), eq(10L), eq(250L)))
                 .thenThrow(new DataIntegrityViolationException("uq_loyalty_claims_order"));
 
-        assertThatThrownBy(() -> service.claimOrderPoints(10L, 1L, new ClaimPointsRequest(100L, null)))
+        assertThatThrownBy(() -> service.claimOrderPoints(10L, 1L, new ClaimPointsRequest(100L, BigDecimal.valueOf(250000))))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> {
                     BusinessException be = (BusinessException) ex;

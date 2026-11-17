@@ -34,6 +34,10 @@ public class LoyaltyCustomerService {
         if (request == null || request.getOrderId() == null) {
             throw new BusinessException("orderId is required", HttpStatus.BAD_REQUEST, "INVALID_CLAIM_REQUEST");
         }
+        if (request.getTotalAmount() == null || request.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("totalAmount is required and must be greater than 0",
+                    HttpStatus.BAD_REQUEST, "INVALID_TOTAL_AMOUNT");
+        }
 
         // Verify customer belongs to the same tenant and is active with role 'customer'
         List<String> roles = jdbcTemplate.query(
@@ -73,7 +77,7 @@ public class LoyaltyCustomerService {
             throw new BusinessException("Order total amount must be at least 1,000 VND",
                     HttpStatus.BAD_REQUEST, "ORDER_AMOUNT_TOO_LOW");
         }
-        if (request.getTotalAmount() != null && order.totalAmount().compareTo(request.getTotalAmount()) != 0) {
+        if (order.totalAmount().compareTo(request.getTotalAmount()) != 0) {
             throw new BusinessException("Order total amount does not match",
                     HttpStatus.BAD_REQUEST, "ORDER_AMOUNT_MISMATCH");
         }

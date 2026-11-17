@@ -133,23 +133,27 @@ class LoyaltyDatabaseIntegrationTest {
 
                 // Duplicate claim in same tenant -> 409 CONFLICT
                 BusinessException dup = assertThrows(BusinessException.class,
-                        () -> customerService.claimOrderPoints(customerA, tenantA, new ClaimPointsRequest(eligibleOrder, null)));
+                        () -> customerService.claimOrderPoints(customerA, tenantA,
+                                new ClaimPointsRequest(eligibleOrder, BigDecimal.valueOf(550000))));
                 assertEquals("ORDER_ALREADY_CLAIMED", dup.getErrorCode());
 
                 // Early claim (< 15 days) -> rejected
                 BusinessException early = assertThrows(BusinessException.class,
-                        () -> customerService.claimOrderPoints(customerA, tenantA, new ClaimPointsRequest(earlyOrder, null)));
+                        () -> customerService.claimOrderPoints(customerA, tenantA,
+                                new ClaimPointsRequest(earlyOrder, BigDecimal.valueOf(300000))));
                 assertEquals("ORDER_NOT_ELIGIBLE_YET", early.getErrorCode());
 
                 // Order with approved return -> rejected
                 BusinessException ret = assertThrows(BusinessException.class,
-                        () -> customerService.claimOrderPoints(customerA, tenantA, new ClaimPointsRequest(returnedOrder, null)));
+                        () -> customerService.claimOrderPoints(customerA, tenantA,
+                                new ClaimPointsRequest(returnedOrder, BigDecimal.valueOf(200000))));
                 assertEquals("ORDER_HAS_APPROVED_RETURN", ret.getErrorCode());
 
                 // Cross-tenant customerB cannot claim tenantA order
                 setRls(appConn, tenantB, "customer");
                 BusinessException cross = assertThrows(BusinessException.class,
-                        () -> customerService.claimOrderPoints(customerB, tenantB, new ClaimPointsRequest(eligibleOrder, null)));
+                        () -> customerService.claimOrderPoints(customerB, tenantB,
+                                new ClaimPointsRequest(eligibleOrder, BigDecimal.valueOf(550000))));
                 assertEquals("ORDER_NOT_FOUND", cross.getErrorCode());
 
                 // Verify profile & Silver tier (550 points >= 500)
