@@ -6,6 +6,7 @@ import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.tenant.dto.SubscriptionCheckoutResponse;
 import com.smartomni.tenant.dto.SubscriptionInvoiceDto;
 import com.smartomni.tenant.dto.SubscriptionOrderStatusResponse;
+import com.smartomni.tenant.dto.SubscriptionSummaryResponse;
 import com.smartomni.tenant.service.SubscriptionService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -121,5 +122,28 @@ class SubscriptionControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data[0].id").value(101))
                 .andExpect(jsonPath("$.data[0].status").value("PAID"));
+    }
+
+    @Test
+    @DisplayName("getSubscriptionSummary: Lấy thông tin tóm tắt gói cước của tenant -> 200 OK")
+    void getSubscriptionSummary_success() throws Exception {
+        SubscriptionSummaryResponse summary = SubscriptionSummaryResponse.builder()
+                .planName("PRO")
+                .isPro(true)
+                .status("ACTIVE")
+                .daysRemaining(25L)
+                .canRenewEarly(false)
+                .build();
+
+        when(subscriptionService.getSubscriptionSummary(10L)).thenReturn(summary);
+
+        mockMvc.perform(get("/api/v1/tenants/subscription/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.planName").value("PRO"))
+                .andExpect(jsonPath("$.data.pro").value(true))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.daysRemaining").value(25))
+                .andExpect(jsonPath("$.data.canRenewEarly").value(false));
     }
 }

@@ -8,6 +8,7 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcType;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 
 @Getter
@@ -38,4 +39,13 @@ public class TenantInvoice extends BaseEntity {
 
     @Column(name = "due_date")
     private LocalDate dueDate;
+
+    @Column(name = "payment_code", length = 50)
+    private String paymentCode;
+
+    @Column(name = "gateway_transaction_id", length = 100)
+    private String gatewayTransactionId;
+
+    @Column(name = "paid_at")
+    private Instant paidAt;
 }

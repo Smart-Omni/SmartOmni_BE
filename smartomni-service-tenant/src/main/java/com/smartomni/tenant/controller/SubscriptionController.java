@@ -5,6 +5,7 @@ import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.tenant.dto.SubscriptionCheckoutResponse;
 import com.smartomni.tenant.dto.SubscriptionInvoiceDto;
 import com.smartomni.tenant.dto.SubscriptionOrderStatusResponse;
+import com.smartomni.tenant.dto.SubscriptionSummaryResponse;
 import com.smartomni.tenant.service.SubscriptionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +20,13 @@ import java.util.List;
 public class SubscriptionController {
 
     private final SubscriptionService subscriptionService;
+
+    @GetMapping("/status")
+    public ApiResponse<SubscriptionSummaryResponse> getSubscriptionSummary() {
+        Long tenantId = TenantContext.getTenantId();
+        SubscriptionSummaryResponse response = subscriptionService.getSubscriptionSummary(tenantId);
+        return ApiResponse.success(response);
+    }
 
     @PostMapping("/checkout")
     public ApiResponse<SubscriptionCheckoutResponse> checkout() {

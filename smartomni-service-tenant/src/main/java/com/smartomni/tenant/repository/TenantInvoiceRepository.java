@@ -16,4 +16,6 @@ public interface TenantInvoiceRepository extends JpaRepository<TenantInvoice, Lo
     List<TenantInvoice> findByTenantIdAndStatusOrderByCreatedAtDesc(Long tenantId, InvoiceStatus status);
 
     Optional<TenantInvoice> findFirstByTenantIdAndStatusOrderByCreatedAtDesc(Long tenantId, InvoiceStatus status);
+
+    Optional<TenantInvoice> findFirstByTenantIdAndStatusOrderByBillingPeriodEndDesc(Long tenantId, InvoiceStatus status);
 }

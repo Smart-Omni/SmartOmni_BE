@@ -6,6 +6,7 @@ import com.smartomni.tenant.config.SepayProperties;
 import com.smartomni.tenant.dto.SubscriptionCheckoutResponse;
 import com.smartomni.tenant.dto.SubscriptionInvoiceDto;
 import com.smartomni.tenant.dto.SubscriptionOrderStatusResponse;
+import com.smartomni.tenant.dto.SubscriptionSummaryResponse;
 import com.smartomni.tenant.entity.*;
 import com.smartomni.tenant.repository.*;
 import com.smartomni.tenant.util.SepaySignatureValidator;
@@ -345,5 +346,115 @@ class SubscriptionServiceTest {
         verify(paymentRepository).save(payment);
         verify(invoiceRepository).save(invoice);
         verify(tenantRepository).save(tenant);
+    }
+
+    @Test
+    @DisplayName("createCheckoutSession: Pro tenant còn hơn 5 ngày -> Ném BusinessException SUBSCRIPTION_EARLY_RENEWAL_TOO_EARLY")
+    void createCheckoutSession_proTenant_renewalTooEarly_throwsException() {
+        tenant.setPlanType("PRO");
+        tenant.setPlanId(2L);
+        when(tenantRepository.findById(10L)).thenReturn(Optional.of(tenant));
+
+        TenantInvoice activeInvoice = new TenantInvoice();
+        activeInvoice.setId(101L);
+        activeInvoice.setStatus(InvoiceStatus.PAID);
+        activeInvoice.setBillingPeriodEnd(LocalDate.now().plusDays(15));
+        when(invoiceRepository.findFirstByTenantIdAndStatusOrderByBillingPeriodEndDesc(10L, InvoiceStatus.PAID))
+                .thenReturn(Optional.of(activeInvoice));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> subscriptionService.createCheckoutSession(10L, 1L));
+        assertEquals("SUBSCRIPTION_EARLY_RENEWAL_TOO_EARLY", ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("createCheckoutSession: Pro tenant còn <= 5 ngày -> Cho phép tạo checkout gia hạn sớm")
+    void createCheckoutSession_proTenant_canRenewEarly_success() {
+        tenant.setPlanType("PRO");
+        tenant.setPlanId(2L);
+        when(tenantRepository.findById(10L)).thenReturn(Optional.of(tenant));
+
+        TenantInvoice activeInvoice = new TenantInvoice();
+        activeInvoice.setId(101L);
+        activeInvoice.setStatus(InvoiceStatus.PAID);
+        activeInvoice.setBillingPeriodEnd(LocalDate.now().plusDays(4));
+        when(invoiceRepository.findFirstByTenantIdAndStatusOrderByBillingPeriodEndDesc(10L, InvoiceStatus.PAID))
+                .thenReturn(Optional.of(activeInvoice));
+        when(subscriptionPlanRepository.findByName("PRO")).thenReturn(Optional.of(proPlan));
+
+        SubscriptionPayment mockPayment = new SubscriptionPayment();
+        mockPayment.setId(202L);
+        mockPayment.setTenantId(10L);
+        mockPayment.setAmount(proPlan.getPrice());
+        when(paymentRepository.save(any(SubscriptionPayment.class))).thenReturn(mockPayment);
+
+        SubscriptionCheckoutResponse response = subscriptionService.createCheckoutSession(10L, 1L);
+        assertNotNull(response);
+        assertEquals("PRO", response.getPlanName());
+    }
+
+    @Test
+    @DisplayName("getSubscriptionSummary: FREE tenant -> Trả về status FREE và canRenewEarly = false")
+    void getSubscriptionSummary_freeTenant() {
+        when(tenantRepository.findById(10L)).thenReturn(Optional.of(tenant));
+        when(invoiceRepository.findFirstByTenantIdAndStatusOrderByBillingPeriodEndDesc(10L, InvoiceStatus.PAID))
+                .thenReturn(Optional.empty());
+
+        SubscriptionSummaryResponse summary = subscriptionService.getSubscriptionSummary(10L);
+
+        assertNotNull(summary);
+        assertEquals("FREE", summary.getPlanName());
+        assertFalse(summary.isPro());
+        assertEquals("FREE", summary.getStatus());
+        assertFalse(summary.isCanRenewEarly());
+    }
+
+    @Test
+    @DisplayName("getSubscriptionSummary: PRO tenant còn 20 ngày -> Trả về status ACTIVE và canRenewEarly = false")
+    void getSubscriptionSummary_proTenant_active() {
+        tenant.setPlanType("PRO");
+        tenant.setPlanId(2L);
+        when(tenantRepository.findById(10L)).thenReturn(Optional.of(tenant));
+
+        TenantInvoice activeInvoice = new TenantInvoice();
+        activeInvoice.setId(101L);
+        activeInvoice.setStatus(InvoiceStatus.PAID);
+        activeInvoice.setBillingPeriodStart(LocalDate.now().minusDays(10));
+        activeInvoice.setBillingPeriodEnd(LocalDate.now().plusDays(20));
+        when(invoiceRepository.findFirstByTenantIdAndStatusOrderByBillingPeriodEndDesc(10L, InvoiceStatus.PAID))
+                .thenReturn(Optional.of(activeInvoice));
+
+        SubscriptionSummaryResponse summary = subscriptionService.getSubscriptionSummary(10L);
+
+        assertNotNull(summary);
+        assertEquals("PRO", summary.getPlanName());
+        assertTrue(summary.isPro());
+        assertEquals("ACTIVE", summary.getStatus());
+        assertEquals(20L, summary.getDaysRemaining());
+        assertFalse(summary.isCanRenewEarly());
+    }
+
+    @Test
+    @DisplayName("getSubscriptionSummary: PRO tenant còn 3 ngày -> Trả về status EXPIRING_SOON và canRenewEarly = true")
+    void getSubscriptionSummary_proTenant_expiringSoon() {
+        tenant.setPlanType("PRO");
+        tenant.setPlanId(2L);
+        when(tenantRepository.findById(10L)).thenReturn(Optional.of(tenant));
+
+        TenantInvoice activeInvoice = new TenantInvoice();
+        activeInvoice.setId(101L);
+        activeInvoice.setStatus(InvoiceStatus.PAID);
+        activeInvoice.setBillingPeriodStart(LocalDate.now().minusDays(27));
+        activeInvoice.setBillingPeriodEnd(LocalDate.now().plusDays(3));
+        when(invoiceRepository.findFirstByTenantIdAndStatusOrderByBillingPeriodEndDesc(10L, InvoiceStatus.PAID))
+                .thenReturn(Optional.of(activeInvoice));
+
+        SubscriptionSummaryResponse summary = subscriptionService.getSubscriptionSummary(10L);
+
+        assertNotNull(summary);
+        assertEquals("PRO", summary.getPlanName());
+        assertTrue(summary.isPro());
+        assertEquals("EXPIRING_SOON", summary.getStatus());
+        assertEquals(3L, summary.getDaysRemaining());
+        assertTrue(summary.isCanRenewEarly());
     }
 }

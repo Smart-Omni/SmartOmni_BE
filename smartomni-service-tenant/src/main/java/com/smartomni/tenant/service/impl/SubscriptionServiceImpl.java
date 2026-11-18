@@ -59,6 +59,24 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException("Tenant not found", HttpStatus.NOT_FOUND, "TENANT_NOT_FOUND"));
 
+        // Early renewal check:
+        // If tenant is currently PRO and period has NOT ended:
+        if ("PRO".equalsIgnoreCase(tenant.getPlanType())) {
+            Optional<TenantInvoice> activeInvoiceOpt = invoiceRepository
+                    .findFirstByTenantIdAndStatusOrderByBillingPeriodEndDesc(tenant.getId(), InvoiceStatus.PAID);
+            if (activeInvoiceOpt.isPresent() && activeInvoiceOpt.get().getBillingPeriodEnd() != null) {
+                LocalDate periodEnd = activeInvoiceOpt.get().getBillingPeriodEnd();
+                long daysRemaining = ChronoUnit.DAYS.between(LocalDate.now(), periodEnd);
+                if (daysRemaining > 5) {
+                    throw new BusinessException(
+                            "Gói Pro của bạn vẫn còn " + daysRemaining + " ngày hiệu lực. Bạn chỉ có thể gia hạn sớm khi còn từ 5 ngày trở xuống.",
+                            HttpStatus.BAD_REQUEST,
+                            "SUBSCRIPTION_EARLY_RENEWAL_TOO_EARLY"
+                    );
+                }
+            }
+        }
+
         SubscriptionPlan proPlan = subscriptionPlanRepository.findByName("PRO")
                 .or(() -> subscriptionPlanRepository.findByName("Pro"))
                 .orElseThrow(() -> new BusinessException("Gói dịch vụ PRO chưa được cấu hình", HttpStatus.NOT_FOUND, "SUBSCRIPTION_PLAN_NOT_FOUND"));
@@ -68,9 +86,10 @@ public class SubscriptionServiceImpl implements SubscriptionService {
                 : sepayProperties.getProPlanPrice();
 
         // Option 2 (Stripe/Shopify model): Checkout sessions do not create pending invoices.
-        // Invoices are only created upon confirmed payment. Reuse pending payment session if exists.
+        // Invoices are only created upon confirmed payment. Reuse pending payment session if within 15 minutes.
         SubscriptionPayment payment = paymentRepository
                 .findFirstByTenantIdAndStatusOrderByCreatedAtDesc(tenant.getId(), PaymentStatus.PENDING)
+                .filter(p -> p.getCreatedAt() != null && p.getCreatedAt().isAfter(Instant.now().minus(15, ChronoUnit.MINUTES)))
                 .orElseGet(() -> {
                     SubscriptionPayment newPayment = new SubscriptionPayment();
                     newPayment.setTenantId(tenant.getId());
@@ -166,14 +185,79 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         return invoiceRepository.findByTenantIdAndStatusOrderByCreatedAtDesc(tenantId, InvoiceStatus.PAID).stream()
                 .map(inv -> SubscriptionInvoiceDto.builder()
                         .id(inv.getId())
+                        .invoiceNumber("INV-" + inv.getId())
+                        .paymentCode(inv.getPaymentCode())
+                        .gatewayTransactionId(inv.getGatewayTransactionId())
+                        .paymentMethod("Chuyển khoản SePay (VietQR)")
                         .period((inv.getBillingPeriodStart() != null ? inv.getBillingPeriodStart().toString() : "")
                                 + " - " + (inv.getBillingPeriodEnd() != null ? inv.getBillingPeriodEnd().toString() : ""))
                         .amount(inv.getAmount())
                         .status(inv.getStatus() != null ? inv.getStatus().name() : "PAID")
                         .dueDate(inv.getDueDate())
+                        .paidAt(inv.getPaidAt() != null ? inv.getPaidAt() : inv.getCreatedAt())
                         .createdAt(inv.getCreatedAt())
                         .build())
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public SubscriptionSummaryResponse getSubscriptionSummary(Long tenantId) {
+        if (tenantId == null) {
+            return SubscriptionSummaryResponse.builder()
+                    .planName("FREE")
+                    .isPro(false)
+                    .status("FREE")
+                    .periodStart(null)
+                    .periodEnd(null)
+                    .daysRemaining(0L)
+                    .canRenewEarly(false)
+                    .currentInvoiceId(null)
+                    .build();
+        }
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new BusinessException("Tenant not found", HttpStatus.NOT_FOUND, "TENANT_NOT_FOUND"));
+
+        boolean isProTenant = "PRO".equalsIgnoreCase(tenant.getPlanType());
+        Optional<TenantInvoice> latestInvoiceOpt = invoiceRepository
+                .findFirstByTenantIdAndStatusOrderByBillingPeriodEndDesc(tenantId, InvoiceStatus.PAID);
+
+        if (!isProTenant || latestInvoiceOpt.isEmpty()) {
+            return SubscriptionSummaryResponse.builder()
+                    .planName("FREE")
+                    .isPro(false)
+                    .status("FREE")
+                    .periodStart(null)
+                    .periodEnd(null)
+                    .daysRemaining(0L)
+                    .canRenewEarly(false)
+                    .currentInvoiceId(null)
+                    .build();
+        }
+
+        TenantInvoice latestInvoice = latestInvoiceOpt.get();
+        LocalDate now = LocalDate.now();
+        LocalDate periodEnd = latestInvoice.getBillingPeriodEnd();
+        LocalDate periodStart = latestInvoice.getBillingPeriodStart();
+
+        long daysRemaining = periodEnd != null ? ChronoUnit.DAYS.between(now, periodEnd) : 0L;
+        boolean isExpired = daysRemaining < 0;
+
+        boolean isProActive = isProTenant && !isExpired;
+        boolean canRenewEarly = isProActive && daysRemaining <= 5;
+        String status = isExpired ? "EXPIRED" : (daysRemaining <= 5 ? "EXPIRING_SOON" : "ACTIVE");
+
+        return SubscriptionSummaryResponse.builder()
+                .planName(isProActive ? "PRO" : "FREE")
+                .isPro(isProActive)
+                .status(status)
+                .periodStart(periodStart)
+                .periodEnd(periodEnd)
+                .daysRemaining(Math.max(0L, daysRemaining))
+                .canRenewEarly(canRenewEarly)
+                .currentInvoiceId(latestInvoice.getId())
+                .build();
     }
 
     @Override
@@ -238,6 +322,8 @@ public class SubscriptionServiceImpl implements SubscriptionService {
             return false;
         }
 
+        final String finalOrderCode = orderCode;
+
         Long paymentId = extractPaymentId(orderCode);
         if (paymentId == null) {
             log.warn("Webhook transaction {} could not extract payment ID from code '{}'", payload.getId(), orderCode);
@@ -280,11 +366,16 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         TenantInvoice invoice;
         if (payment.getInvoiceId() != null) {
             invoice = invoiceRepository.findById(payment.getInvoiceId())
-                    .orElseGet(() -> createPaidInvoice(payment, proPlan));
+                    .orElseGet(() -> createPaidInvoice(payment, proPlan, gatewayTxnId, finalOrderCode));
             invoice.setStatus(InvoiceStatus.PAID);
+            invoice.setGatewayTransactionId(gatewayTxnId);
+            invoice.setPaidAt(Instant.now());
+            if (invoice.getPaymentCode() == null) {
+                invoice.setPaymentCode(finalOrderCode);
+            }
             invoice = invoiceRepository.save(invoice);
         } else {
-            invoice = createPaidInvoice(payment, proPlan);
+            invoice = createPaidInvoice(payment, proPlan, gatewayTxnId, finalOrderCode);
         }
 
         // Complete payment successfully
@@ -346,18 +437,24 @@ public class SubscriptionServiceImpl implements SubscriptionService {
                 .or(() -> subscriptionPlanRepository.findByName("Pro"))
                 .orElse(null);
 
+        String simTxnId = "SIM-" + System.currentTimeMillis();
+
         // Option 2 (Stripe/Shopify model): Generate official PAID invoice upon payment confirmation
         TenantInvoice invoice;
         if (payment.getInvoiceId() != null) {
             invoice = invoiceRepository.findById(payment.getInvoiceId())
-                    .orElseGet(() -> createPaidInvoice(payment, proPlan));
+                    .orElseGet(() -> createPaidInvoice(payment, proPlan, simTxnId, orderCode));
             invoice.setStatus(InvoiceStatus.PAID);
+            invoice.setGatewayTransactionId(simTxnId);
+            invoice.setPaidAt(Instant.now());
+            if (invoice.getPaymentCode() == null) {
+                invoice.setPaymentCode(orderCode);
+            }
             invoice = invoiceRepository.save(invoice);
         } else {
-            invoice = createPaidInvoice(payment, proPlan);
+            invoice = createPaidInvoice(payment, proPlan, simTxnId, orderCode);
         }
 
-        String simTxnId = "SIM-" + System.currentTimeMillis();
         payment.setStatus(PaymentStatus.SUCCESS);
         payment.setPaidAt(Instant.now());
         payment.setGatewayTransactionId(simTxnId);
@@ -389,14 +486,39 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     }
 
     private TenantInvoice createPaidInvoice(SubscriptionPayment payment, SubscriptionPlan plan) {
+        String orderCode = SepayVietQrHelper.generateOrderCode(payment.getTenantId(), payment.getId());
+        return createPaidInvoice(payment, plan, payment.getGatewayTransactionId(), orderCode);
+    }
+
+    private TenantInvoice createPaidInvoice(SubscriptionPayment payment, SubscriptionPlan plan, String gatewayTxnId, String orderCode) {
         TenantInvoice invoice = new TenantInvoice();
         invoice.setTenantId(payment.getTenantId());
         invoice.setPlanId(plan != null ? plan.getId() : null);
         invoice.setAmount(payment.getAmount());
         invoice.setStatus(InvoiceStatus.PAID);
-        invoice.setBillingPeriodStart(LocalDate.now());
-        invoice.setBillingPeriodEnd(LocalDate.now().plusMonths(1));
         invoice.setDueDate(LocalDate.now());
+        invoice.setPaidAt(payment.getPaidAt() != null ? payment.getPaidAt() : Instant.now());
+
+        if (orderCode == null || orderCode.isBlank()) {
+            orderCode = SepayVietQrHelper.generateOrderCode(payment.getTenantId(), payment.getId());
+        }
+        invoice.setPaymentCode(orderCode);
+        invoice.setGatewayTransactionId(gatewayTxnId != null ? gatewayTxnId : payment.getGatewayTransactionId());
+
+        Optional<TenantInvoice> latestActivePaid = invoiceRepository
+                .findFirstByTenantIdAndStatusOrderByBillingPeriodEndDesc(payment.getTenantId(), InvoiceStatus.PAID);
+
+        if (latestActivePaid.isPresent()
+                && latestActivePaid.get().getBillingPeriodEnd() != null
+                && latestActivePaid.get().getBillingPeriodEnd().isAfter(LocalDate.now())) {
+            LocalDate nextStart = latestActivePaid.get().getBillingPeriodEnd();
+            invoice.setBillingPeriodStart(nextStart);
+            invoice.setBillingPeriodEnd(nextStart.plusMonths(1));
+        } else {
+            invoice.setBillingPeriodStart(LocalDate.now());
+            invoice.setBillingPeriodEnd(LocalDate.now().plusMonths(1));
+        }
+
         return invoiceRepository.save(invoice);
     }
 

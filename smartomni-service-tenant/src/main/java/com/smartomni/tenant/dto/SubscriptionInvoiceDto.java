@@ -16,9 +16,14 @@ import java.time.LocalDate;
 public class SubscriptionInvoiceDto {
 
     private Long id;
+    private String invoiceNumber;
+    private String paymentCode;
+    private String gatewayTransactionId;
+    private String paymentMethod;
     private String period;
     private BigDecimal amount;
     private String status;
     private LocalDate dueDate;
+    private Instant paidAt;
     private Instant createdAt;
 }
