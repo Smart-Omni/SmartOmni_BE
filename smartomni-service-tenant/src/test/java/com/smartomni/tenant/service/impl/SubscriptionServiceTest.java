@@ -83,15 +83,8 @@ class SubscriptionServiceTest {
         when(tenantRepository.findById(10L)).thenReturn(Optional.of(tenant));
         when(subscriptionPlanRepository.findByName("PRO")).thenReturn(Optional.of(proPlan));
 
-        TenantInvoice mockInvoice = new TenantInvoice();
-        mockInvoice.setId(101L);
-        mockInvoice.setTenantId(10L);
-        mockInvoice.setAmount(proPlan.getPrice());
-        when(invoiceRepository.save(any(TenantInvoice.class))).thenReturn(mockInvoice);
-
         SubscriptionPayment mockPayment = new SubscriptionPayment();
         mockPayment.setId(201L);
-        mockPayment.setInvoiceId(101L);
         mockPayment.setTenantId(10L);
         mockPayment.setAmount(proPlan.getPrice());
         when(paymentRepository.save(any(SubscriptionPayment.class))).thenReturn(mockPayment);
@@ -180,7 +173,7 @@ class SubscriptionServiceTest {
         invoice.setBillingPeriodStart(LocalDate.now());
         invoice.setBillingPeriodEnd(LocalDate.now().plusMonths(1));
 
-        when(invoiceRepository.findByTenantIdOrderByCreatedAtDesc(10L)).thenReturn(List.of(invoice));
+        when(invoiceRepository.findByTenantIdAndStatusOrderByCreatedAtDesc(10L, InvoiceStatus.PAID)).thenReturn(List.of(invoice));
 
         List<SubscriptionInvoiceDto> result = subscriptionService.getTenantInvoices(10L);
 
@@ -216,6 +209,7 @@ class SubscriptionServiceTest {
         invoice.setId(101L);
         invoice.setStatus(InvoiceStatus.PENDING);
         when(invoiceRepository.findById(101L)).thenReturn(Optional.of(invoice));
+        when(invoiceRepository.save(any(TenantInvoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         when(subscriptionPlanRepository.findByName("PRO")).thenReturn(Optional.of(proPlan));
         when(tenantRepository.findById(10L)).thenReturn(Optional.of(tenant));
@@ -337,6 +331,7 @@ class SubscriptionServiceTest {
 
         when(paymentRepository.findByIdAndTenantId(201L, 10L)).thenReturn(Optional.of(payment));
         when(invoiceRepository.findById(101L)).thenReturn(Optional.of(invoice));
+        when(invoiceRepository.save(any(TenantInvoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(subscriptionPlanRepository.findByName("PRO")).thenReturn(Optional.of(proPlan));
         when(tenantRepository.findById(10L)).thenReturn(Optional.of(tenant));
 

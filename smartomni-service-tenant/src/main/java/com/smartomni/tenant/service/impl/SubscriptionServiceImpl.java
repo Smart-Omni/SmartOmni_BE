@@ -67,27 +67,12 @@ public class SubscriptionServiceImpl implements SubscriptionService {
                 ? proPlan.getPrice()
                 : sepayProperties.getProPlanPrice();
 
-        // Reuse existing PENDING invoice to prevent duplicate billing entries for the same period
-        TenantInvoice invoice = invoiceRepository
-                .findFirstByTenantIdAndStatusOrderByCreatedAtDesc(tenant.getId(), InvoiceStatus.PENDING)
-                .orElseGet(() -> {
-                    TenantInvoice newInvoice = new TenantInvoice();
-                    newInvoice.setTenantId(tenant.getId());
-                    newInvoice.setPlanId(proPlan.getId());
-                    newInvoice.setAmount(amount);
-                    newInvoice.setStatus(InvoiceStatus.PENDING);
-                    newInvoice.setBillingPeriodStart(LocalDate.now());
-                    newInvoice.setBillingPeriodEnd(LocalDate.now().plusMonths(1));
-                    newInvoice.setDueDate(LocalDate.now().plusDays(1));
-                    return invoiceRepository.save(newInvoice);
-                });
-
-        // Reuse active PENDING payment attempt if available, otherwise create a new one
+        // Option 2 (Stripe/Shopify model): Checkout sessions do not create pending invoices.
+        // Invoices are only created upon confirmed payment. Reuse pending payment session if exists.
         SubscriptionPayment payment = paymentRepository
-                .findFirstByInvoiceIdAndStatusOrderByCreatedAtDesc(invoice.getId(), PaymentStatus.PENDING)
+                .findFirstByTenantIdAndStatusOrderByCreatedAtDesc(tenant.getId(), PaymentStatus.PENDING)
                 .orElseGet(() -> {
                     SubscriptionPayment newPayment = new SubscriptionPayment();
-                    newPayment.setInvoiceId(invoice.getId());
                     newPayment.setTenantId(tenant.getId());
                     newPayment.setAmount(amount);
                     newPayment.setPaymentMethod("SEPAY");
@@ -178,13 +163,13 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         if (tenantId == null) {
             return List.of();
         }
-        return invoiceRepository.findByTenantIdOrderByCreatedAtDesc(tenantId).stream()
+        return invoiceRepository.findByTenantIdAndStatusOrderByCreatedAtDesc(tenantId, InvoiceStatus.PAID).stream()
                 .map(inv -> SubscriptionInvoiceDto.builder()
                         .id(inv.getId())
                         .period((inv.getBillingPeriodStart() != null ? inv.getBillingPeriodStart().toString() : "")
                                 + " - " + (inv.getBillingPeriodEnd() != null ? inv.getBillingPeriodEnd().toString() : ""))
                         .amount(inv.getAmount())
-                        .status(inv.getStatus() != null ? inv.getStatus().name() : "PENDING")
+                        .status(inv.getStatus() != null ? inv.getStatus().name() : "PAID")
                         .dueDate(inv.getDueDate())
                         .createdAt(inv.getCreatedAt())
                         .build())
@@ -286,25 +271,32 @@ public class SubscriptionServiceImpl implements SubscriptionService {
             return false;
         }
 
+        // Upgrade tenant to PRO
+        SubscriptionPlan proPlan = subscriptionPlanRepository.findByName("PRO")
+                .or(() -> subscriptionPlanRepository.findByName("Pro"))
+                .orElse(null);
+
+        // Option 2 (Stripe/Shopify model): Generate official PAID invoice upon payment confirmation
+        TenantInvoice invoice;
+        if (payment.getInvoiceId() != null) {
+            invoice = invoiceRepository.findById(payment.getInvoiceId())
+                    .orElseGet(() -> createPaidInvoice(payment, proPlan));
+            invoice.setStatus(InvoiceStatus.PAID);
+            invoice = invoiceRepository.save(invoice);
+        } else {
+            invoice = createPaidInvoice(payment, proPlan);
+        }
+
         // Complete payment successfully
         payment.setStatus(PaymentStatus.SUCCESS);
         payment.setPaidAt(Instant.now());
         payment.setGatewayTransactionId(gatewayTxnId);
         payment.setSignatureValid(true);
         payment.setIsAnomaly(false);
-        paymentRepository.save(payment);
-
-        if (payment.getInvoiceId() != null) {
-            invoiceRepository.findById(payment.getInvoiceId()).ifPresent(inv -> {
-                inv.setStatus(InvoiceStatus.PAID);
-                invoiceRepository.save(inv);
-            });
+        if (invoice != null && invoice.getId() != null) {
+            payment.setInvoiceId(invoice.getId());
         }
-
-        // Upgrade tenant to PRO
-        SubscriptionPlan proPlan = subscriptionPlanRepository.findByName("PRO")
-                .or(() -> subscriptionPlanRepository.findByName("Pro"))
-                .orElse(null);
+        paymentRepository.save(payment);
 
         if (proPlan != null) {
             tenantRepository.findById(payment.getTenantId()).ifPresent(tenant -> {
@@ -350,24 +342,31 @@ public class SubscriptionServiceImpl implements SubscriptionService {
             return true;
         }
 
+        SubscriptionPlan proPlan = subscriptionPlanRepository.findByName("PRO")
+                .or(() -> subscriptionPlanRepository.findByName("Pro"))
+                .orElse(null);
+
+        // Option 2 (Stripe/Shopify model): Generate official PAID invoice upon payment confirmation
+        TenantInvoice invoice;
+        if (payment.getInvoiceId() != null) {
+            invoice = invoiceRepository.findById(payment.getInvoiceId())
+                    .orElseGet(() -> createPaidInvoice(payment, proPlan));
+            invoice.setStatus(InvoiceStatus.PAID);
+            invoice = invoiceRepository.save(invoice);
+        } else {
+            invoice = createPaidInvoice(payment, proPlan);
+        }
+
         String simTxnId = "SIM-" + System.currentTimeMillis();
         payment.setStatus(PaymentStatus.SUCCESS);
         payment.setPaidAt(Instant.now());
         payment.setGatewayTransactionId(simTxnId);
         payment.setSignatureValid(true);
         payment.setIsAnomaly(false);
-        paymentRepository.save(payment);
-
-        if (payment.getInvoiceId() != null) {
-            invoiceRepository.findById(payment.getInvoiceId()).ifPresent(inv -> {
-                inv.setStatus(InvoiceStatus.PAID);
-                invoiceRepository.save(inv);
-            });
+        if (invoice != null && invoice.getId() != null) {
+            payment.setInvoiceId(invoice.getId());
         }
-
-        SubscriptionPlan proPlan = subscriptionPlanRepository.findByName("PRO")
-                .or(() -> subscriptionPlanRepository.findByName("Pro"))
-                .orElse(null);
+        paymentRepository.save(payment);
 
         if (proPlan != null) {
             tenantRepository.findById(payment.getTenantId()).ifPresent(tenant -> {
@@ -387,6 +386,18 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         }
 
         return true;
+    }
+
+    private TenantInvoice createPaidInvoice(SubscriptionPayment payment, SubscriptionPlan plan) {
+        TenantInvoice invoice = new TenantInvoice();
+        invoice.setTenantId(payment.getTenantId());
+        invoice.setPlanId(plan != null ? plan.getId() : null);
+        invoice.setAmount(payment.getAmount());
+        invoice.setStatus(InvoiceStatus.PAID);
+        invoice.setBillingPeriodStart(LocalDate.now());
+        invoice.setBillingPeriodEnd(LocalDate.now().plusMonths(1));
+        invoice.setDueDate(LocalDate.now());
+        return invoiceRepository.save(invoice);
     }
 
     private Long extractPaymentId(String orderCode) {

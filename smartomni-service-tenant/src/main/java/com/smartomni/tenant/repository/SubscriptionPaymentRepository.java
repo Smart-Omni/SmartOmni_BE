@@ -14,5 +14,7 @@ public interface SubscriptionPaymentRepository extends JpaRepository<Subscriptio
 
     Optional<SubscriptionPayment> findByIdAndTenantId(Long id, Long tenantId);
 
+    Optional<SubscriptionPayment> findFirstByTenantIdAndStatusOrderByCreatedAtDesc(Long tenantId, PaymentStatus status);
+
     Optional<SubscriptionPayment> findFirstByInvoiceIdAndStatusOrderByCreatedAtDesc(Long invoiceId, PaymentStatus status);
 }
