@@ -80,9 +80,10 @@ class SubscriptionControllerTest {
         mockMvc.perform(post("/api/v1/tenants/subscription/checkout")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.orderCode").value("PRO001000201"))
-                .andExpect(jsonPath("$.amount").value(499000.00))
-                .andExpect(jsonPath("$.planName").value("PRO"));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.orderCode").value("PRO001000201"))
+                .andExpect(jsonPath("$.data.amount").value(499000.00))
+                .andExpect(jsonPath("$.data.planName").value("PRO"));
     }
 
     @Test
@@ -99,8 +100,9 @@ class SubscriptionControllerTest {
 
         mockMvc.perform(get("/api/v1/tenants/subscription/orders/PRO001000201/status"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PAID"))
-                .andExpect(jsonPath("$.planName").value("PRO"));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("PAID"))
+                .andExpect(jsonPath("$.data.planName").value("PRO"));
     }
 
     @Test
@@ -116,7 +118,8 @@ class SubscriptionControllerTest {
 
         mockMvc.perform(get("/api/v1/tenants/subscription/invoices"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(101))
-                .andExpect(jsonPath("$[0].status").value("PAID"));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data[0].id").value(101))
+                .andExpect(jsonPath("$.data[0].status").value("PAID"));
     }
 }
