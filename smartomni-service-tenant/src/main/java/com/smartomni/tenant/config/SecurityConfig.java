@@ -44,6 +44,8 @@ public class SecurityConfig {
                 .requestMatchers(
                         "/api/v1/tenants/check-subdomain",
                         "/api/v1/tenants/public/**",
+                        "/webhook/sepay",
+                        "/api/v1/payments/sepay/**",
                         "/actuator/**"
                 ).permitAll()
                 .anyRequest().authenticated()
