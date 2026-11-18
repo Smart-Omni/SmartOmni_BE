@@ -124,15 +124,15 @@ public class InventoryService {
     }
 
     private void createOutboxEventsForAllLinkedPlatforms(Inventory inventory) {
-        // TODO: goi Catalog Service de lay danh sach platform da lien ket voi SKU nay,
-        // sau do tao 1 InventoryOutboxEvent (status=PENDING) cho MOI platform.
-        // Vi du minh hoa cho 1 platform:
-        InventoryOutboxEvent event = new InventoryOutboxEvent();
-        event.setTenantId(inventory.getTenantId());
-        event.setSkuId(inventory.getSkuId());
-        event.setPlatform(InventoryOutboxEvent.Platform.SHOPEE);
-        event.setQuantity(inventory.getQuantityOnHand());
-        outboxEventRepository.save(event);
+        for (InventoryOutboxEvent.Platform platform :
+                skuOwnershipRepository.linkedPlatforms(inventory.getTenantId(), inventory.getSkuId())) {
+            InventoryOutboxEvent event = new InventoryOutboxEvent();
+            event.setTenantId(inventory.getTenantId());
+            event.setSkuId(inventory.getSkuId());
+            event.setPlatform(platform);
+            event.setQuantity(inventory.getQuantityOnHand());
+            outboxEventRepository.save(event);
+        }
     }
 
     private Long requireTenantId() {

@@ -1,6 +1,7 @@
 package com.smartomni.inventory.repository;
 
 import com.smartomni.common.dto.InventoryItemDto;
+import com.smartomni.inventory.entity.InventoryOutboxEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -16,6 +17,18 @@ public class SkuOwnershipRepository {
         return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
                 "SELECT EXISTS (SELECT 1 FROM product_skus WHERE tenant_id = ? AND id = ?)",
                 Boolean.class, tenantId, skuId));
+    }
+
+    public List<InventoryOutboxEvent.Platform> linkedPlatforms(Long tenantId, Long skuId) {
+        return jdbcTemplate.queryForList("""
+                SELECT DISTINCT c.platform::text
+                FROM product_marketplace_links l
+                JOIN marketplace_connections c ON c.id = l.connection_id AND c.tenant_id = l.tenant_id
+                WHERE l.tenant_id = ? AND l.sku_id = ? AND c.status = 'connected'
+                  AND c.platform IN ('shopee', 'tiktok_shop')
+                """, String.class, tenantId, skuId).stream()
+                .map(value -> InventoryOutboxEvent.Platform.valueOf(value.toUpperCase(java.util.Locale.ROOT)))
+                .toList();
     }
 
     public List<InventoryItemDto> listEnrichedInventory(Long tenantId, int limit, int offset) {
