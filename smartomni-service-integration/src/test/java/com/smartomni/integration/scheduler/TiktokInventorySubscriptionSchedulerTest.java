@@ -26,6 +26,7 @@ class TiktokInventorySubscriptionSchedulerTest {
         var second = connection(2L, 22L, MarketplaceConnection.Platform.TIKTOK_SHOP);
         var shopee = connection(3L, 33L, MarketplaceConnection.Platform.SHOPEE);
         when(transactions.execute(any())).thenAnswer(inv -> {
+            assertEquals("super_admin", TenantContext.getCurrentRole());
             var callback = (org.springframework.transaction.support.TransactionCallback<?>) inv.getArgument(0);
             return callback.doInTransaction(null);
         });

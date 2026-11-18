@@ -23,7 +23,7 @@ public class TiktokInventorySubscriptionScheduler {
     public void ensureSubscriptions() {
         if (subscriptions == null) return;
         java.util.List<MarketplaceConnection> active;
-        try (var scope = TenantContext.openScope(null, "order_polling_worker", null)) {
+        try (var scope = TenantContext.openScope(null, "super_admin", null)) {
             active = transactions.execute(status -> connections.findByStatus(MarketplaceConnection.ConnectionStatus.CONNECTED));
         }
         if (active == null) return;
