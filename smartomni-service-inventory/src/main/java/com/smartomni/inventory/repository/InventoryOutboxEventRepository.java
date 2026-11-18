@@ -7,5 +7,6 @@ import java.util.List;
 
 @org.springframework.transaction.annotation.Transactional(readOnly = true)
 public interface InventoryOutboxEventRepository extends JpaRepository<InventoryOutboxEvent, Long> {
-    List<InventoryOutboxEvent> findTop100ByStatusOrderByCreatedAtAsc(InventoryOutboxEvent.OutboxStatus status);
+    List<InventoryOutboxEvent> findTop100ByStatusAndPlatformOrderByCreatedAtAsc(
+            InventoryOutboxEvent.OutboxStatus status, InventoryOutboxEvent.Platform platform);
 }
