@@ -2,7 +2,10 @@ package com.smartomni.tenant.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartomni.common.exception.BusinessException;
+import com.smartomni.common.persistence.RlsSession;
 import com.smartomni.common.tenant.TenantContext;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.http.HttpStatus;
 import com.smartomni.tenant.config.SepayProperties;
 import com.smartomni.tenant.dto.*;
@@ -42,6 +45,9 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     private final SepayProperties sepayProperties;
     private final SepaySignatureValidator signatureValidator;
     private final ObjectMapper objectMapper;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Override
     @Transactional
@@ -206,6 +212,10 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     }
 
     private boolean handleVerifiedWebhook(SepayWebhookPayload payload) {
+        if (entityManager != null) {
+            RlsSession.set(entityManager, "app.user_role", "super_admin");
+        }
+
         if (payload.getId() == null) {
             log.warn("Webhook rejected: missing payload id");
             return false;

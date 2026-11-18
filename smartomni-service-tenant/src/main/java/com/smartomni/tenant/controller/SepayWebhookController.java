@@ -1,5 +1,6 @@
 package com.smartomni.tenant.controller;
 
+import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.tenant.config.SepayProperties;
 import com.smartomni.tenant.dto.SepayWebhookResponse;
 import com.smartomni.tenant.service.SubscriptionService;
@@ -39,14 +40,19 @@ public class SepayWebhookController {
                     .body(new SepayWebhookResponse(false, "Invalid or expired signature"));
         }
 
-        // Process verified webhook
-        boolean verified = subscriptionService.processWebhook(rawBody, signature, timestamp);
+        // Process verified webhook as super_admin to allow cross-tenant updates under RLS
+        TenantContext.setCurrentRole("super_admin");
+        try {
+            boolean verified = subscriptionService.processWebhook(rawBody, signature, timestamp);
 
-        if (verified) {
-            return ResponseEntity.ok(new SepayWebhookResponse(true, "Transaction verified and processed"));
-        } else {
-            // SePay protocol: 200 OK with success: false for unmatched or underpaid transfers
-            return ResponseEntity.ok(new SepayWebhookResponse(false, "Transaction unmatched, underpaid, or already handled"));
+            if (verified) {
+                return ResponseEntity.ok(new SepayWebhookResponse(true, "Transaction verified and processed"));
+            } else {
+                // SePay protocol: 200 OK with success: false for unmatched or underpaid transfers
+                return ResponseEntity.ok(new SepayWebhookResponse(false, "Transaction unmatched, underpaid, or already handled"));
+            }
+        } finally {
+            TenantContext.clear();
         }
     }
 }
