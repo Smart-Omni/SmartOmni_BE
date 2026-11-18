@@ -326,6 +326,69 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         return true;
     }
 
+    @Override
+    @Transactional
+    public boolean simulatePaymentSuccess(Long tenantId, String orderCode) {
+        if (entityManager != null) {
+            RlsSession.set(entityManager, "app.user_role", "super_admin");
+        }
+        Long paymentId = extractPaymentId(orderCode);
+        if (paymentId == null) {
+            return false;
+        }
+
+        Optional<SubscriptionPayment> paymentOpt = tenantId != null
+                ? paymentRepository.findByIdAndTenantId(paymentId, tenantId)
+                : paymentRepository.findById(paymentId);
+
+        if (paymentOpt.isEmpty()) {
+            return false;
+        }
+
+        SubscriptionPayment payment = paymentOpt.get();
+        if (payment.getStatus() == PaymentStatus.SUCCESS) {
+            return true;
+        }
+
+        String simTxnId = "SIM-" + System.currentTimeMillis();
+        payment.setStatus(PaymentStatus.SUCCESS);
+        payment.setPaidAt(Instant.now());
+        payment.setGatewayTransactionId(simTxnId);
+        payment.setSignatureValid(true);
+        payment.setIsAnomaly(false);
+        paymentRepository.save(payment);
+
+        if (payment.getInvoiceId() != null) {
+            invoiceRepository.findById(payment.getInvoiceId()).ifPresent(inv -> {
+                inv.setStatus(InvoiceStatus.PAID);
+                invoiceRepository.save(inv);
+            });
+        }
+
+        SubscriptionPlan proPlan = subscriptionPlanRepository.findByName("PRO")
+                .or(() -> subscriptionPlanRepository.findByName("Pro"))
+                .orElse(null);
+
+        if (proPlan != null) {
+            tenantRepository.findById(payment.getTenantId()).ifPresent(tenant -> {
+                TenantSubscriptionHistory history = new TenantSubscriptionHistory();
+                history.setTenantId(tenant.getId());
+                history.setOldPlanId(tenant.getPlanId());
+                history.setNewPlanId(proPlan.getId());
+                history.setChangedBy(payment.getConfirmedBy());
+                history.setChangedAt(Instant.now());
+                historyRepository.save(history);
+
+                tenant.setPlanId(proPlan.getId());
+                tenant.setPlanType("PRO");
+                tenantRepository.save(tenant);
+                log.info("Tenant {} successfully upgraded to PRO plan via simulation on orderCode {}", tenant.getId(), orderCode);
+            });
+        }
+
+        return true;
+    }
+
     private Long extractPaymentId(String orderCode) {
         if (orderCode == null) return null;
         String cleanCode = orderCode.trim().toUpperCase();

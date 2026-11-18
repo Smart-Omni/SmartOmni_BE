@@ -320,4 +320,35 @@ class SubscriptionServiceTest {
         assertFalse(result);
         verify(tenantRepository, never()).save(any());
     }
+
+    @Test
+    @DisplayName("simulatePaymentSuccess: Giả lập thanh toán thành công -> Cập nhật payment, invoice và upgrade tenant lên PRO")
+    void simulatePaymentSuccess_validOrderCode_succeeds() {
+        SubscriptionPayment payment = new SubscriptionPayment();
+        payment.setId(201L);
+        payment.setTenantId(10L);
+        payment.setInvoiceId(101L);
+        payment.setAmount(new BigDecimal("499000.00"));
+        payment.setStatus(PaymentStatus.PENDING);
+
+        TenantInvoice invoice = new TenantInvoice();
+        invoice.setId(101L);
+        invoice.setStatus(InvoiceStatus.PENDING);
+
+        when(paymentRepository.findByIdAndTenantId(201L, 10L)).thenReturn(Optional.of(payment));
+        when(invoiceRepository.findById(101L)).thenReturn(Optional.of(invoice));
+        when(subscriptionPlanRepository.findByName("PRO")).thenReturn(Optional.of(proPlan));
+        when(tenantRepository.findById(10L)).thenReturn(Optional.of(tenant));
+
+        boolean result = subscriptionService.simulatePaymentSuccess(10L, "PRO001000201");
+
+        assertTrue(result);
+        assertEquals(PaymentStatus.SUCCESS, payment.getStatus());
+        assertEquals(InvoiceStatus.PAID, invoice.getStatus());
+        assertEquals(2L, tenant.getPlanId());
+        assertEquals("PRO", tenant.getPlanType());
+        verify(paymentRepository).save(payment);
+        verify(invoiceRepository).save(invoice);
+        verify(tenantRepository).save(tenant);
+    }
 }

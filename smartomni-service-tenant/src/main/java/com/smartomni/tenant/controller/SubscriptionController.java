@@ -35,6 +35,13 @@ public class SubscriptionController {
         return ApiResponse.success(response);
     }
 
+    @PostMapping("/orders/{orderCode}/simulate-pay")
+    public ApiResponse<Boolean> simulatePayment(@PathVariable String orderCode) {
+        Long tenantId = TenantContext.getTenantId();
+        boolean success = subscriptionService.simulatePaymentSuccess(tenantId, orderCode);
+        return ApiResponse.success("Giả lập thanh toán SePay thành công", success);
+    }
+
     @GetMapping("/invoices")
     public ApiResponse<List<SubscriptionInvoiceDto>> getInvoices() {
         Long tenantId = TenantContext.getTenantId();

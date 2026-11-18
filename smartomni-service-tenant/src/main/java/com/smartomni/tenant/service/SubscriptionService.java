@@ -15,4 +15,6 @@ public interface SubscriptionService {
     List<SubscriptionInvoiceDto> getTenantInvoices(Long tenantId);
 
     boolean processWebhook(String rawBody, String signature, String timestamp);
+
+    boolean simulatePaymentSuccess(Long tenantId, String orderCode);
 }
