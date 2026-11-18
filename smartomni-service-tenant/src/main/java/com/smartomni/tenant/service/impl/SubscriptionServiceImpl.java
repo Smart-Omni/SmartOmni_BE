@@ -61,7 +61,7 @@ public class SubscriptionServiceImpl implements SubscriptionService {
 
         // Early renewal check:
         // If tenant is currently PRO and period has NOT ended:
-        if ("PRO".equalsIgnoreCase(tenant.getPlanType())) {
+        if (isProTenant(tenant)) {
             Optional<TenantInvoice> activeInvoiceOpt = invoiceRepository
                     .findFirstByTenantIdAndStatusOrderByBillingPeriodEndDesc(tenant.getId(), InvoiceStatus.PAID);
             if (activeInvoiceOpt.isPresent() && activeInvoiceOpt.get().getBillingPeriodEnd() != null) {
@@ -219,7 +219,7 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException("Tenant not found", HttpStatus.NOT_FOUND, "TENANT_NOT_FOUND"));
 
-        boolean isProTenant = "PRO".equalsIgnoreCase(tenant.getPlanType());
+        boolean isProTenant = isProTenant(tenant);
         Optional<TenantInvoice> latestInvoiceOpt = invoiceRepository
                 .findFirstByTenantIdAndStatusOrderByBillingPeriodEndDesc(tenantId, InvoiceStatus.PAID);
 
@@ -546,6 +546,22 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         }
 
         return null;
+    }
+
+    private boolean isProTenant(Tenant tenant) {
+        if (tenant == null) {
+            return false;
+        }
+        if (tenant.getPlanId() != null) {
+            if (Long.valueOf(2L).equals(tenant.getPlanId())) {
+                return true;
+            }
+            Optional<SubscriptionPlan> planOpt = subscriptionPlanRepository.findById(tenant.getPlanId());
+            if (planOpt.isPresent() && "PRO".equalsIgnoreCase(planOpt.get().getName())) {
+                return true;
+            }
+        }
+        return "PRO".equalsIgnoreCase(tenant.getPlanType());
     }
 
     private String extractCodeFromContent(String content) {
