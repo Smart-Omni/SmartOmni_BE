@@ -167,7 +167,8 @@ public class TiktokWebhookController {
 
         if (Integer.valueOf(71).equals(payload.getType())) {
             try {
-                rabbitTemplate.convertAndSend(ORDER_EXCHANGE, RabbitMQConfig.INVENTORY_ROUTING_KEY, rawPayload);
+                rabbitTemplate.convertAndSend(ORDER_EXCHANGE, RabbitMQConfig.INVENTORY_ROUTING_KEY,
+                        Map.of("tenantId", tenantId, "connectionId", connection.getId(), "payload", rawPayload));
                 saveAuditLog(tenantId, payload, rawPayload, true, true, null);
                 return ResponseEntity.ok(Map.of("code", 0, "message", "success"));
             } catch (Exception ex) {

@@ -138,7 +138,8 @@ class TiktokWebhookControllerTest {
                         .header("Authorization", signature).header("Timestamp", String.valueOf(timestamp)).content(body))
                 .andExpect(status().isOk());
 
-        verify(rabbitTemplate).convertAndSend(TiktokWebhookController.ORDER_EXCHANGE, RabbitMQConfig.INVENTORY_ROUTING_KEY, body);
+        verify(rabbitTemplate).convertAndSend(TiktokWebhookController.ORDER_EXCHANGE, RabbitMQConfig.INVENTORY_ROUTING_KEY,
+                java.util.Map.of("tenantId", 100L, "connectionId", 10L, "payload", body));
         verify(rabbitTemplate, never()).convertAndSend(TiktokWebhookController.ORDER_EXCHANGE, TiktokWebhookController.ORDER_ROUTING_KEY, body);
     }
 

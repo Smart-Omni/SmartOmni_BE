@@ -15,6 +15,7 @@ public class RabbitMQConfig {
     public static final String ORDER_EXCHANGE = "smartomni.order.exchange";
     public static final String INVENTORY_QUEUE = "smartomni.tiktok.inventory.changed.queue";
     public static final String INVENTORY_ROUTING_KEY = "inventory.tiktok.changed";
+    public static final String INVENTORY_DLQ = "smartomni.tiktok.inventory.changed.dlq";
     public static final String RETURN_QUEUE = "smartomni.return.incoming.queue";
     public static final String RETURN_ROUTING_KEY = "return.incoming";
     public static final String RETURN_DLQ = "smartomni.return.incoming.dlq";
@@ -26,7 +27,14 @@ public class RabbitMQConfig {
 
     @Bean
     public Queue tiktokInventoryQueue() {
-        return QueueBuilder.durable(INVENTORY_QUEUE).build();
+        return QueueBuilder.durable(INVENTORY_QUEUE)
+                .withArgument("x-dead-letter-exchange", "")
+                .withArgument("x-dead-letter-routing-key", INVENTORY_DLQ).build();
+    }
+
+    @Bean
+    public Queue tiktokInventoryDeadLetterQueue() {
+        return QueueBuilder.durable(INVENTORY_DLQ).build();
     }
 
     @Bean
