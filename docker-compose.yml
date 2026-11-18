@@ -191,6 +191,7 @@ services:
       <<: *database-environment
       SPRING_DATA_REDIS_HOST: redis
       SMARTOMNI_JOBS_TOKEN: ${INTERNAL_JOB_TOKEN:?Set INTERNAL_JOB_TOKEN in .env}
+      SMARTOMNI_SERVICES_INTEGRATION_URL: http://integration-service:8086
     networks:
       - smartomni-net
 
