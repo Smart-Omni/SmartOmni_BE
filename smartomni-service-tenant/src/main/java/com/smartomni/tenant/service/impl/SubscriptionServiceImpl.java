@@ -67,24 +67,34 @@ public class SubscriptionServiceImpl implements SubscriptionService {
                 ? proPlan.getPrice()
                 : sepayProperties.getProPlanPrice();
 
-        TenantInvoice invoice = new TenantInvoice();
-        invoice.setTenantId(tenant.getId());
-        invoice.setPlanId(proPlan.getId());
-        invoice.setAmount(amount);
-        invoice.setStatus(InvoiceStatus.PENDING);
-        invoice.setBillingPeriodStart(LocalDate.now());
-        invoice.setBillingPeriodEnd(LocalDate.now().plusMonths(1));
-        invoice.setDueDate(LocalDate.now().plusDays(1));
-        invoice = invoiceRepository.save(invoice);
+        // Reuse existing PENDING invoice to prevent duplicate billing entries for the same period
+        TenantInvoice invoice = invoiceRepository
+                .findFirstByTenantIdAndStatusOrderByCreatedAtDesc(tenant.getId(), InvoiceStatus.PENDING)
+                .orElseGet(() -> {
+                    TenantInvoice newInvoice = new TenantInvoice();
+                    newInvoice.setTenantId(tenant.getId());
+                    newInvoice.setPlanId(proPlan.getId());
+                    newInvoice.setAmount(amount);
+                    newInvoice.setStatus(InvoiceStatus.PENDING);
+                    newInvoice.setBillingPeriodStart(LocalDate.now());
+                    newInvoice.setBillingPeriodEnd(LocalDate.now().plusMonths(1));
+                    newInvoice.setDueDate(LocalDate.now().plusDays(1));
+                    return invoiceRepository.save(newInvoice);
+                });
 
-        SubscriptionPayment payment = new SubscriptionPayment();
-        payment.setInvoiceId(invoice.getId());
-        payment.setTenantId(tenant.getId());
-        payment.setAmount(amount);
-        payment.setPaymentMethod("SEPAY");
-        payment.setStatus(PaymentStatus.PENDING);
-        payment.setConfirmedBy(userId);
-        payment = paymentRepository.save(payment);
+        // Reuse active PENDING payment attempt if available, otherwise create a new one
+        SubscriptionPayment payment = paymentRepository
+                .findFirstByInvoiceIdAndStatusOrderByCreatedAtDesc(invoice.getId(), PaymentStatus.PENDING)
+                .orElseGet(() -> {
+                    SubscriptionPayment newPayment = new SubscriptionPayment();
+                    newPayment.setInvoiceId(invoice.getId());
+                    newPayment.setTenantId(tenant.getId());
+                    newPayment.setAmount(amount);
+                    newPayment.setPaymentMethod("SEPAY");
+                    newPayment.setStatus(PaymentStatus.PENDING);
+                    newPayment.setConfirmedBy(userId);
+                    return paymentRepository.save(newPayment);
+                });
 
         String orderCode = SepayVietQrHelper.generateOrderCode(tenant.getId(), payment.getId());
         String qrUrl = SepayVietQrHelper.buildQrUrl(
