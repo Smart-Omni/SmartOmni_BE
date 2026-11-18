@@ -14,9 +14,9 @@ import java.math.BigDecimal;
 public class SepayProperties {
 
     private boolean enabled = true;
-    private String accountNumber = "0000000000";
+    private String accountNumber = "0000000001";
     private String bankId = "MBBank";
-    private String accountHolder = "SMARTOMNI VIETNAM";
+    private String accountHolder = "HO KINH DOANH SmartOmni";
     private String webhookSecret = "test_sepay_secret_key_123";
     private BigDecimal proPlanPrice = new BigDecimal("499000.00");
     private String qrTemplate = "compact";

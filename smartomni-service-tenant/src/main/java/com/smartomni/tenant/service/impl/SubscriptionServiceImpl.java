@@ -105,7 +105,7 @@ public class SubscriptionServiceImpl implements SubscriptionService {
                 sepayProperties.getQrTemplate()
         );
 
-        Instant expiresAt = Instant.now().plus(24, ChronoUnit.HOURS);
+        Instant expiresAt = Instant.now().plus(15, ChronoUnit.MINUTES);
 
         log.info("Created subscription checkout session: orderCode={}, tenantId={}, amount={}", orderCode, tenantId, amount);
 
