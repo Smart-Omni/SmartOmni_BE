@@ -78,8 +78,10 @@ public class TiktokInventoryWebhookService {
 
         jdbc.update("INSERT INTO inventory (tenant_id, sku_id, quantity_on_hand, reserved_quantity, version, created_at, updated_at) "
                         + "VALUES (?, ?, ?, 0, 0, now(), now()) ON CONFLICT (sku_id) DO UPDATE "
-                        + "SET quantity_on_hand = EXCLUDED.quantity_on_hand, version = inventory.version + 1, updated_at = now() "
-                        + "WHERE inventory.tenant_id = EXCLUDED.tenant_id AND inventory.quantity_on_hand IS DISTINCT FROM EXCLUDED.quantity_on_hand",
+                        + "SET quantity_on_hand = EXCLUDED.quantity_on_hand + inventory.reserved_quantity, "
+                        + "version = inventory.version + 1, updated_at = now() "
+                        + "WHERE inventory.tenant_id = EXCLUDED.tenant_id "
+                        + "AND inventory.quantity_on_hand - inventory.reserved_quantity IS DISTINCT FROM EXCLUDED.quantity_on_hand",
                 tenantId, skuId, total);
     }
 
