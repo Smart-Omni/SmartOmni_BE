@@ -116,9 +116,12 @@ public class ShopeeProductImportService {
                 List<ShopeeItemDetail> items = catalog.getItemBaseInfo(connectionId, itemIds);
                 for (ShopeeItemDetail item : items) {
                     run.productsSeen++;
-                    List<ShopeeModelDetail> models = item.hasModel()
-                            ? catalog.getModelList(connectionId, item.itemId())
-                            : List.of();
+                    List<ShopeeModelDetail> models = List.of();
+                    try {
+                        models = catalog.getModelList(connectionId, item.itemId());
+                    } catch (Exception e) {
+                        log.debug("No models for item {}: {}", item.itemId(), e.getMessage());
+                    }
 
                     MarketplaceProductDto dto = ShopeeProductMapper.toDto(item, models);
                     persistProduct(connectionId, dto, run);
@@ -179,9 +182,11 @@ public class ShopeeProductImportService {
             Long productId = null;
             boolean productCreated = false;
             int changes = 0;
+            String productUrl = "https://shopiz-kappa.vercel.app/product/" + dto.getPlatformItemId();
 
             for (Plan plan : plans) {
                 VariantDto v = plan.variant;
+                int qty = extractStock(v);
                 switch (plan.action) {
                     case UNMATCHED -> {
                         run.skusUnmatched++;
@@ -192,15 +197,17 @@ public class ShopeeProductImportService {
                         run.addItem(dto.getPlatformItemId(), v.getExternalSkuId(), "SKU_CONFLICT", plan.reason);
                     }
                     case UPDATE -> {
+                        store.initInventoryIfAbsent(plan.link.skuId(), qty);
                         store.updateLinkMeta(plan.link.id(), dto.getPlatformItemId(),
                                 v.getSellerSku() != null ? v.getSellerSku() : plan.link.sellerSku(),
-                                v.getCurrency(), dto.getPlatformStatus(), null);
+                                v.getCurrency(), dto.getPlatformStatus(), productUrl);
                         reportPrice(dto, v, priceChanges.apply(plan.link, v.getPrice(), v.getCurrency()), run);
                         changes++;
                     }
                     case LINK_EXISTING -> {
+                        store.initInventoryIfAbsent(plan.sku.id(), qty);
                         store.insertLink(plan.sku.id(), connectionId, dto.getPlatformItemId(), v.getExternalSkuId(),
-                                v.getSellerSku(), v.getCurrency(), dto.getPlatformStatus(), null, v.getPrice());
+                                v.getSellerSku(), v.getCurrency(), dto.getPlatformStatus(), productUrl, v.getPrice());
                         run.skusLinked++;
                         changes++;
                     }
@@ -211,12 +218,20 @@ public class ShopeeProductImportService {
                             productCreated = true;
                         }
                         long skuId = store.createSku(productId, v.getSellerSku(), v.getVariantName(), v.getPrice());
+                        store.initInventoryIfAbsent(skuId, qty);
                         store.insertLink(skuId, connectionId, dto.getPlatformItemId(), v.getExternalSkuId(),
-                                v.getSellerSku(), v.getCurrency(), dto.getPlatformStatus(), null, v.getPrice());
+                                v.getSellerSku(), v.getCurrency(), dto.getPlatformStatus(), productUrl, v.getPrice());
                         run.skusCreated++;
                         changes++;
                     }
                 }
+            }
+
+            if (productId == null) {
+                productId = store.findProductIdByPlatformItemId(connectionId, dto.getPlatformItemId()).orElse(null);
+            }
+            if (productId != null && dto.getImageUrls() != null && !dto.getImageUrls().isEmpty()) {
+                store.saveProductImage(productId, dto.getImageUrls().get(0));
             }
 
             if (productCreated) {
@@ -294,6 +309,17 @@ public class ShopeeProductImportService {
         } catch (JsonProcessingException e) {
             return "[]";
         }
+    }
+
+    private static int extractStock(VariantDto v) {
+        if (v == null || v.getStock() == null) return 0;
+        int sum = 0;
+        for (var s : v.getStock()) {
+            if (s != null && s.getQuantity() != null && s.getQuantity() > 0) {
+                sum += s.getQuantity();
+            }
+        }
+        return sum;
     }
 
     private enum Action { UPDATE, LINK_EXISTING, CREATE, UNMATCHED, CONFLICT }

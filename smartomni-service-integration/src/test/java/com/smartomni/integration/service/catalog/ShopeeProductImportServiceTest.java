@@ -85,7 +85,9 @@ class ShopeeProductImportServiceTest {
 
         verify(store).createProduct(eq("T-Shirt"), any(), eq(false));
         verify(store).createSku(eq(501L), eq("TS-BLK-L"), eq("Black / L"), eq(new BigDecimal("250000")));
-        verify(store).insertLink(eq(701L), eq(88L), eq("1001"), eq("9001"), eq("TS-BLK-L"), eq("VND"), eq("NORMAL"), isNull(), eq(new BigDecimal("250000")));
+        verify(store).initInventoryIfAbsent(eq(701L), eq(50));
+        verify(store).insertLink(eq(701L), eq(88L), eq("1001"), eq("9001"), eq("TS-BLK-L"), eq("VND"), eq("NORMAL"), eq("https://shopiz-kappa.vercel.app/product/1001"), eq(new BigDecimal("250000")));
+        verify(store).saveProductImage(eq(501L), eq("http://img.jpg"));
         verify(store).finishRun(eq(101L), eq("completed"), any(), eq(100), eq(false), isNull(), anyString());
     }
 
