@@ -192,10 +192,12 @@ public class UnifiedCatalogService {
                         .build());
             }
 
-            // Image fallback
+            // Image fallback & Google thumbnail optimization
             String imageUrl = imagesByProductId.get(p.getId());
             if (imageUrl == null || imageUrl.isBlank()) {
                 imageUrl = resolveDefaultImage(p.getName());
+            } else if (imageUrl.contains("googleusercontent.com/d/") && !imageUrl.contains("=")) {
+                imageUrl = imageUrl + "=s200";
             }
 
             unifiedList.add(UnifiedProductDto.builder()
@@ -235,6 +237,9 @@ public class UnifiedCatalogService {
             String sSku = rs.getString("seller_sku");
             BigDecimal price = rs.getBigDecimal("platform_price");
             String img = rs.getString("image_url");
+            if (img != null && img.contains("googleusercontent.com/d/") && !img.contains("=")) {
+                img = img + "=s200";
+            }
             String pUrl = rs.getString("platform_product_url");
 
             String displayName = sSku != null ? sSku : "Marketplace Item " + pItemId;

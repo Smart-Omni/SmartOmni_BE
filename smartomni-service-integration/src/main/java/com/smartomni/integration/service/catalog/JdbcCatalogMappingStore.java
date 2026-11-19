@@ -157,10 +157,13 @@ public class JdbcCatalogMappingStore implements CatalogMappingStore {
     @Override
     public void saveProductImage(long productId, String imageUrl) {
         if (imageUrl == null || imageUrl.isBlank()) return;
+        String normalizedUrl = (imageUrl.contains("googleusercontent.com/d/") && !imageUrl.contains("="))
+                ? imageUrl + "=s200"
+                : imageUrl;
         jdbc.update("INSERT INTO product_images (tenant_id, product_id, url, sort_order, created_at) "
                         + "SELECT ?, ?, ?, 0, now() "
                         + "WHERE NOT EXISTS (SELECT 1 FROM product_images WHERE tenant_id = ? AND product_id = ? AND url = ?)",
-                tenant(), productId, imageUrl, tenant(), productId, imageUrl);
+                tenant(), productId, normalizedUrl, tenant(), productId, normalizedUrl);
     }
 
     @Override
