@@ -59,3 +59,12 @@ smartomni:
 
 app:
   domain-pattern: ${APP_DOMAIN_PATTERN:https://{slug}.smartomni.vn}
+
+sepay:
+  enabled: ${SEPAY_ENABLED:true}
+  account-number: ${SEPAY_ACCOUNT_NUMBER:0000000001}
+  bank-id: ${SEPAY_BANK_ID:MBBank}
+  account-holder: ${SEPAY_ACCOUNT_HOLDER:HO KINH DOANH SmartOmni}
+  webhook-secret: ${SEPAY_WEBHOOK_SECRET:test_sepay_secret_key_123}
+  pro-plan-price: ${SEPAY_PRO_PRICE:499000.00}
+  qr-template: ${SEPAY_QR_TEMPLATE:compact}
