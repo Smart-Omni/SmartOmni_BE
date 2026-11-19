@@ -37,14 +37,16 @@ class ProductControllerTest {
     private ObjectMapper objectMapper;
     private ProductRepository productRepository;
     private ProductSkuRepository skuRepository;
+    private com.smartomni.catalog.service.UnifiedCatalogService unifiedCatalogService;
 
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
         productRepository = mock(ProductRepository.class);
         skuRepository = mock(ProductSkuRepository.class);
+        unifiedCatalogService = mock(com.smartomni.catalog.service.UnifiedCatalogService.class);
         ProductService productService = new ProductService(productRepository, skuRepository);
-        mockMvc = MockMvcBuilders.standaloneSetup(new ProductController(productService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new ProductController(productService, unifiedCatalogService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
                 .build();
