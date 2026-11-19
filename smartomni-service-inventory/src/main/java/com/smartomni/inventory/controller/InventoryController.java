@@ -2,6 +2,7 @@ package com.smartomni.inventory.controller;
 
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.common.dto.InventoryItemDto;
+import com.smartomni.inventory.scheduler.OutboxPublisherScheduler;
 import com.smartomni.inventory.service.InventoryService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 public class InventoryController {
 
     private final InventoryService inventoryService;
+    private final OutboxPublisherScheduler outboxPublisherScheduler;
 
     @GetMapping
     public ApiResponse<Page<InventoryItemDto>> list(Pageable pageable) {
@@ -24,6 +26,11 @@ public class InventoryController {
     @PostMapping("/{skuId}/adjust")
     public ApiResponse<Void> adjust(@PathVariable Long skuId, @RequestParam int quantity) {
         inventoryService.adjustStock(skuId, quantity);
+        try {
+            outboxPublisherScheduler.publishPendingEvents();
+        } catch (Exception ignored) {
+            // Background quartz worker will retry if instantaneous push fails
+        }
         return ApiResponse.success("Cap nhat ton kho thanh cong", null);
     }
 
