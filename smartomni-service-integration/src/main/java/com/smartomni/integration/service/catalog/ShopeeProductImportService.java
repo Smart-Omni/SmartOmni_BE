@@ -186,7 +186,6 @@ public class ShopeeProductImportService {
 
             for (Plan plan : plans) {
                 VariantDto v = plan.variant;
-                int qty = extractStock(v);
                 switch (plan.action) {
                     case UNMATCHED -> {
                         run.skusUnmatched++;
@@ -197,7 +196,7 @@ public class ShopeeProductImportService {
                         run.addItem(dto.getPlatformItemId(), v.getExternalSkuId(), "SKU_CONFLICT", plan.reason);
                     }
                     case UPDATE -> {
-                        store.initInventoryIfAbsent(plan.link.skuId(), qty);
+                        initStock(plan.link.skuId(), dto, v, run);
                         store.updateLinkMeta(plan.link.id(), dto.getPlatformItemId(),
                                 v.getSellerSku() != null ? v.getSellerSku() : plan.link.sellerSku(),
                                 v.getCurrency(), dto.getPlatformStatus(), productUrl);
@@ -205,7 +204,7 @@ public class ShopeeProductImportService {
                         changes++;
                     }
                     case LINK_EXISTING -> {
-                        store.initInventoryIfAbsent(plan.sku.id(), qty);
+                        initStock(plan.sku.id(), dto, v, run);
                         store.insertLink(plan.sku.id(), connectionId, dto.getPlatformItemId(), v.getExternalSkuId(),
                                 v.getSellerSku(), v.getCurrency(), dto.getPlatformStatus(), productUrl, v.getPrice());
                         run.skusLinked++;
@@ -218,7 +217,7 @@ public class ShopeeProductImportService {
                             productCreated = true;
                         }
                         long skuId = store.createSku(productId, v.getSellerSku(), v.getVariantName(), v.getPrice());
-                        store.initInventoryIfAbsent(skuId, qty);
+                        initStock(skuId, dto, v, run);
                         store.insertLink(skuId, connectionId, dto.getPlatformItemId(), v.getExternalSkuId(),
                                 v.getSellerSku(), v.getCurrency(), dto.getPlatformStatus(), productUrl, v.getPrice());
                         run.skusCreated++;
@@ -311,15 +310,31 @@ public class ShopeeProductImportService {
         }
     }
 
-    private static int extractStock(VariantDto v) {
-        if (v == null || v.getStock() == null) return 0;
-        int sum = 0;
-        for (var s : v.getStock()) {
-            if (s != null && s.getQuantity() != null && s.getQuantity() > 0) {
-                sum += s.getQuantity();
+    /**
+     * Initializes the SKU balance from Shopee stock once. When Shopee does not report a usable stock value the
+     * balance is left absent (FE shows "not initialized") and the run reports {@code STOCK_MISSING}.
+     */
+    private void initStock(long skuId, MarketplaceProductDto dto, VariantDto variant, Run run) {
+        if (variant.getStock() == null || variant.getStock().isEmpty()) {
+            run.addItem(dto.getPlatformItemId(), variant.getExternalSkuId(), "STOCK_MISSING",
+                    "Shopee did not provide SKU stock");
+            return;
+        }
+        long total = 0;
+        for (MarketplaceProductDto.StockDto stock : variant.getStock()) {
+            if (stock == null || stock.getQuantity() == null || stock.getQuantity() < 0) {
+                run.addItem(dto.getPlatformItemId(), variant.getExternalSkuId(), "STOCK_MISSING",
+                        "Shopee provided incomplete SKU stock");
+                return;
+            }
+            total += stock.getQuantity();
+            if (total > Integer.MAX_VALUE) {
+                run.addItem(dto.getPlatformItemId(), variant.getExternalSkuId(), "STOCK_MISSING",
+                        "Shopee SKU stock exceeds supported range");
+                return;
             }
         }
-        return sum;
+        store.initInventoryIfAbsent(skuId, (int) total);
     }
 
     private enum Action { UPDATE, LINK_EXISTING, CREATE, UNMATCHED, CONFLICT }
