@@ -1,6 +1,7 @@
 package com.smartomni.inventory.client;
 
 import com.smartomni.inventory.entity.InventoryOutboxEvent;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -11,6 +12,7 @@ public class TiktokInventoryStockClient {
     private final RestClient restClient;
     private final String internalToken;
 
+    @Autowired
     public TiktokInventoryStockClient(
             @Value("${smartomni.services.integration-url:http://localhost:8086}") String integrationUrl,
             @Value("${smartomni.jobs.token:}") String internalToken) {
