@@ -35,6 +35,8 @@ public final class TiktokOrderStatusMapper {
             case "AWAITING_COLLECTION", "112", "IN_TRANSIT", "121", "PARTIALLY_SHIPPING", "114" -> Order.OrderStatus.SHIPPED;
             case "DELIVERED", "122", "COMPLETED", "130" -> Order.OrderStatus.COMPLETED;
             case "CANCELLED", "CANCELED", "140" -> Order.OrderStatus.CANCELLED;
+            // The simulator stopped sending ON_HOLD (7f721af); production TikTok still can, so the mapping stays.
+            // Nothing here depends on release_date.
             case "IN_CANCEL", "ON_HOLD" -> Order.OrderStatus.ON_HOLD;
             default -> {
                 throw new BusinessException("Trạng thái sàn không xác định: " + tiktokStatus,
