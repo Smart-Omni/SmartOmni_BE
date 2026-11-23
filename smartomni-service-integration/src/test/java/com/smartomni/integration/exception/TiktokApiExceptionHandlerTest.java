@@ -35,6 +35,16 @@ class TiktokApiExceptionHandlerTest {
     }
 
     @Test
+    void missingScopeIs409ScopeMissingAndOther403IsReconnect() {
+        assertMapped(new TiktokApiException("TikTok rejected the request: HTTP 403 the authorization does not grant sim.order.read",
+                403, 99999, null, false), HttpStatus.CONFLICT, "TIKTOK_SCOPE_MISSING");
+        assertMapped(new TiktokApiException("TikTok rejected the request: HTTP 403 missing_scope", 403, null, null, false),
+                HttpStatus.CONFLICT, "TIKTOK_SCOPE_MISSING");
+        assertMapped(new TiktokApiException("TikTok rejected the request: HTTP 403 access token was not issued to this app_key",
+                403, null, null, false), HttpStatus.CONFLICT, "TIKTOK_RECONNECT_REQUIRED");
+    }
+
+    @Test
     void notFoundIs502() {
         assertMapped(new TiktokApiException("missing", 404, null, null, false), HttpStatus.BAD_GATEWAY, "TIKTOK_NOT_FOUND");
     }

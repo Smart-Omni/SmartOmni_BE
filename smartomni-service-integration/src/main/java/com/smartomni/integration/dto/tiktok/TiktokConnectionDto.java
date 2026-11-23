@@ -33,7 +33,8 @@ public record TiktokConnectionDto(
         String scopes = c.getGrantedScopes();
         return new TiktokConnectionDto(c.getId(), status.name(), needsReconnect, c.getShopId(), c.getShopName(),
                 c.getShopRegion(), c.getSellerType(),
-                scopes == null || scopes.isBlank() ? List.of() : Arrays.asList(scopes.trim().split("\\s+")),
+                // null = TikTok did not report the granted scopes (unknown), not "no scopes"
+                scopes == null || scopes.isBlank() ? null : Arrays.asList(scopes.trim().split("\\s+")),
                 c.getConnectedAt(), c.getAccessTokenExpiresAt(), c.getRefreshTokenExpiresAt(),
                 c.getLastErrorCode(), c.getLastErrorAt());
     }
