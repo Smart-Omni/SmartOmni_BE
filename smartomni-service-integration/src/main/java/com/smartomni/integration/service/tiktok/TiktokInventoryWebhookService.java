@@ -1,5 +1,6 @@
 package com.smartomni.integration.service.tiktok;
 
+import com.smartomni.integration.dto.tiktok.TiktokWebhookType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.smartomni.integration.dto.tiktok.TiktokWebhookPayload;
 import com.smartomni.integration.service.catalog.CatalogMappingStore;
@@ -21,7 +22,7 @@ public class TiktokInventoryWebhookService {
     /** The caller has opened the tenant scope before this transaction begins. */
     @Transactional
     public void apply(long tenantId, long connectionId, TiktokWebhookPayload payload) {
-        if (!Integer.valueOf(71).equals(payload.getType()) || payload.getData() == null) {
+        if (!Integer.valueOf(TiktokWebhookType.INVENTORY_CHANGED_BY_SHOP.code()).equals(payload.getType()) || payload.getData() == null) {
             throw new IllegalArgumentException("Expected TikTok inventory webhook");
         }
         mappings.applyRlsContext(tenantId, "tenant_admin");
