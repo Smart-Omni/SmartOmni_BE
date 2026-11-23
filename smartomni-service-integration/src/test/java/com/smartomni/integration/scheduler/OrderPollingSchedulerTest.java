@@ -186,7 +186,7 @@ class OrderPollingSchedulerTest {
 
         ArgumentCaptor<OrderSearchRequest> request = ArgumentCaptor.forClass(OrderSearchRequest.class);
         verify(tiktokOrderClient).searchOrders(eq("CIPHER-300"), request.capture());
-        assertEquals(checkpoint, request.getValue().getUpdateTimeFrom());
+        assertEquals(checkpoint - OrderPollingScheduler.DEFAULT_OVERLAP_SECONDS, request.getValue().getUpdateTimeFrom());
         long to = request.getValue().getUpdateTimeTo();
         assertTrue(to >= before && to <= after);
         assertNull(request.getValue().getCreateTimeFrom());
