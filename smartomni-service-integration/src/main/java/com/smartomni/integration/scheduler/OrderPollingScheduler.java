@@ -8,6 +8,7 @@ import com.smartomni.integration.dto.tiktok.TiktokOrderDetailResponse;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
 import com.smartomni.integration.service.tiktok.TiktokOrderIngestionService;
+import com.smartomni.integration.service.tiktok.TiktokSyncCheckpointStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,7 +21,7 @@ import java.util.List;
 /**
  * Scheduler quét và đồng bộ đơn hàng định kỳ từ TikTok Shop (Fallback Polling Sync - UC-34).
  * - Quét các kết nối CONNECTED của sàn TikTok Shop.
- * - Gọi TiktokOrderClient searchOrders để lấy danh sách đơn hàng phát sinh trong khoảng thời gian vừa qua.
+ * - Gọi TiktokOrderClient searchOrders theo cửa sổ update_time từ checkpoint (tiktok_sync_checkpoints) tới hiện tại.
  * - Hỗ trợ phân trang qua next_page_token.
  * - Chuyển từng đơn hàng cho TiktokOrderIngestionService xử lý map SKU và đẩy vào RabbitMQ.
  * - Cô lập lỗi từng tenant (try/catch riêng) để sự cố của 1 tenant không làm ngắt các tenant khác.
@@ -37,6 +38,7 @@ public class OrderPollingScheduler {
     private final TiktokOrderClient tiktokOrderClient;
     private final TiktokOrderIngestionService ingestionService;
     private final TransactionTemplate transactionTemplate;
+    private final TiktokSyncCheckpointStore checkpoints;
 
     @Scheduled(fixedDelayString = "${smartomni.order-polling.fixed-delay-ms:900000}", initialDelayString = "${smartomni.order-polling.initial-delay-ms:60000}")
     public void pollOrdersScheduled() {
@@ -88,7 +90,13 @@ public class OrderPollingScheduler {
     }
 
     /**
-     * Quét và ingest đơn hàng cho một kết nối TikTok cụ thể, xử lý đầy đủ phân trang.
+     * Quét và ingest đơn hàng cho một kết nối TikTok theo cửa sổ {@code update_time} có checkpoint, đi hết phân trang.
+     * <ul>
+     *   <li>Cửa sổ: {@code update_time_ge = checkpoint} (gồm) đến {@code update_time_lt = now} (không gồm). Lần chạy
+     *       đầu tiên (chưa có checkpoint) dùng {@code now - lookback}.</li>
+     *   <li>Checkpoint chỉ tiến lên {@code now} khi đã ingest xong cả cửa sổ. Lỗi giữa chừng (một đơn hoặc một trang)
+     *       giữ nguyên checkpoint, nên lần sau quét lại cửa sổ đó; ingest là idempotent theo đơn.</li>
+     * </ul>
      */
     public int pollOrdersForConnection(MarketplaceConnection connection, int lookbackMinutes) {
         if (connection == null || connection.getTenantId() == null) {
@@ -101,17 +109,21 @@ public class OrderPollingScheduler {
         int connectionSyncedCount = 0;
         int pageNumber = 1;
         String pageToken = null;
-
-        long createTimeTo = Instant.now().getEpochSecond();
-        long createTimeFrom = createTimeTo - (lookbackMinutes * 60L);
+        boolean windowComplete = true;
 
         try (var scope = TenantContext.openScope(connection.getTenantId(), "order_polling_worker", null)) {
+            long updateTimeTo = Instant.now().getEpochSecond();
+            long updateTimeFrom = checkpoints.find(connection.getId(), TiktokSyncCheckpointStore.ORDERS)
+                    .orElse(updateTimeTo - (lookbackMinutes * 60L));
+            if (updateTimeFrom >= updateTimeTo) {
+                return 0;
+            }
             do {
                 OrderSearchRequest request = OrderSearchRequest.builder()
                         .pageSize(DEFAULT_PAGE_SIZE)
                         .pageToken(pageToken)
-                        .createTimeFrom(createTimeFrom)
-                        .createTimeTo(createTimeTo)
+                        .updateTimeFrom(updateTimeFrom)
+                        .updateTimeTo(updateTimeTo)
                         .build();
 
                 OrderSearchResponse response;
@@ -130,6 +142,7 @@ public class OrderPollingScheduler {
                             ingestionService.ingestOrder(connection.getTenantId(), order);
                             connectionSyncedCount++;
                         } catch (Exception ex) {
+                            windowComplete = false;
                             log.error("Lỗi khi ingest đơn hàng id={} cho tenant={}: {}",
                                     order.getOrderId(), connection.getTenantId(), ex.getMessage(), ex);
                         }
@@ -142,6 +155,12 @@ public class OrderPollingScheduler {
                 pageNumber++;
 
             } while (pageToken != null);
+
+            if (windowComplete) {
+                checkpoints.advance(connection.getTenantId(), connection.getId(), TiktokSyncCheckpointStore.ORDERS, updateTimeTo);
+            } else {
+                log.warn("Giữ nguyên checkpoint đơn hàng cho connectionId={} vì có đơn ingest lỗi", connection.getId());
+            }
         }
 
         log.info("Hoàn tất polling đơn hàng cho tenant={}, connectionId={}: tổng cộng {} đơn",
