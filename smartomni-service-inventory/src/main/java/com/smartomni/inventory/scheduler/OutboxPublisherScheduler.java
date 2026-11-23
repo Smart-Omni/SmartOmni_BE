@@ -2,9 +2,10 @@ package com.smartomni.inventory.scheduler;
 
 import com.smartomni.inventory.entity.InventoryOutboxEvent;
 import com.smartomni.inventory.repository.InventoryOutboxEventRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
@@ -20,14 +21,40 @@ import java.util.Map;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class OutboxPublisherScheduler {
 
     private static final int MAX_RETRY = 5;
 
     private final InventoryOutboxEventRepository outboxEventRepository;
     private final TransactionTemplate transactionTemplate;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    @Autowired
+    public OutboxPublisherScheduler(InventoryOutboxEventRepository outboxEventRepository,
+                                    TransactionTemplate transactionTemplate,
+                                    @Value("${smartomni.outbox.http.connect-timeout-ms:3000}") int connectTimeoutMs,
+                                    @Value("${smartomni.outbox.http.read-timeout-ms:10000}") int readTimeoutMs) {
+        this(outboxEventRepository, transactionTemplate, buildRestTemplate(connectTimeoutMs, readTimeoutMs));
+    }
+
+    OutboxPublisherScheduler(InventoryOutboxEventRepository outboxEventRepository,
+                             TransactionTemplate transactionTemplate,
+                             RestTemplate restTemplate) {
+        this.outboxEventRepository = outboxEventRepository;
+        this.transactionTemplate = transactionTemplate;
+        this.restTemplate = restTemplate;
+    }
+
+    /** Bounded timeouts: one hung push must not stall the whole publish pass (it runs inside one transaction). */
+    static RestTemplate buildRestTemplate(int connectTimeoutMs, int readTimeoutMs) {
+        if (connectTimeoutMs <= 0 || readTimeoutMs <= 0) {
+            throw new IllegalArgumentException("Outbox HTTP timeouts must be positive");
+        }
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(connectTimeoutMs);
+        factory.setReadTimeout(readTimeoutMs);
+        return new RestTemplate(factory);
+    }
 
     @Value("${smartomni.services.integration-url:http://smartomni-integration-service:8086}")
     private String integrationServiceUrl;
