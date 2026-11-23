@@ -51,7 +51,7 @@ class TiktokReturnControllerTest {
                 .returnId("RET-TK-001")
                 .orderId("ORD-TK-001")
                 .returnStatus("RETURN_REQUESTED")
-                .refundAmount(new BigDecimal("150000"))
+                .refundAmount(new com.smartomni.integration.dto.tiktok.TiktokRefundAmount("VND", "150000", "0", "0", "150000"))
                 .refundCurrency("VND")
                 .build();
 
@@ -78,7 +78,7 @@ class TiktokReturnControllerTest {
                 .returnId("RET-TK-001")
                 .orderId("ORD-TK-001")
                 .returnStatus("RETURN_REQUESTED")
-                .refundAmount(new BigDecimal("150000"))
+                .refundAmount(new com.smartomni.integration.dto.tiktok.TiktokRefundAmount("VND", "150000", "0", "0", "150000"))
                 .build();
 
         when(returnService.getReturnDetail(77L, "RET-TK-001")).thenReturn(detail);
@@ -92,6 +92,27 @@ class TiktokReturnControllerTest {
 
     @Test
     @DisplayName("approveReturn returns success map")
+    void getReturnRecords_Success() {
+        when(returnService.getReturnRecords(77L, "RET-TK-001")).thenReturn(List.of(
+                new com.smartomni.integration.dto.tiktok.TiktokReturnRecord(1800000000L,
+                        "NEW -> RETURN_OR_REFUND_REQUEST_PENDING", "ORDER_RETURN", "n", "n", "BUYER")));
+
+        var res = controller.getReturnRecords("RET-TK-001");
+
+        assertEquals(HttpStatus.OK, res.getStatusCode());
+        assertEquals("ORDER_RETURN", res.getBody().getData().get(0).event());
+    }
+
+    @Test
+    void getReturnDetail_NotFoundIs404() {
+        when(returnService.getReturnDetail(77L, "RET-404")).thenReturn(null);
+
+        var ex = assertThrows(com.smartomni.common.exception.BusinessException.class,
+                () -> controller.getReturnDetail("RET-404"));
+        assertEquals("TIKTOK_RETURN_NOT_FOUND", ex.getErrorCode());
+    }
+
+    @Test
     void approveReturn_Success() {
         when(returnService.approveReturn(77L, "RET-TK-001")).thenReturn(true);
 

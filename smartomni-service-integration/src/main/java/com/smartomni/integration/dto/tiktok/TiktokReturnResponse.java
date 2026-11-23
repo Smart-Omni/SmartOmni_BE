@@ -44,14 +44,22 @@ public class TiktokReturnResponse {
     @JsonProperty("return_type")
     private String returnType;
 
+    /** Object with string amounts; use {@link TiktokRefundAmount#total()} for {@code refund_total}. */
     @JsonProperty("refund_amount")
-    private BigDecimal refundAmount;
+    private TiktokRefundAmount refundAmount;
 
     @JsonProperty("refund_currency")
     private String refundCurrency;
 
     @JsonProperty("return_role")
     private String returnRole;
+
+    /** Who created the request (BUYER, SELLER, OPERATOR, SYSTEM). */
+    @JsonProperty("role")
+    private String role;
+
+    @JsonProperty("arbitration_status")
+    private String arbitrationStatus;
 
     @JsonProperty("create_time")
     private Long createTime;
@@ -69,6 +77,7 @@ public class TiktokReturnResponse {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ReturnLineItem {
         @JsonProperty("return_item_id")
+        @com.fasterxml.jackson.annotation.JsonAlias("return_line_item_id")
         private String returnItemId;
 
         @JsonProperty("order_line_item_id")
@@ -86,7 +95,10 @@ public class TiktokReturnResponse {
         @JsonProperty("quantity")
         private Integer quantity;
 
+        @JsonProperty("product_name")
+        private String productName;
+
         @JsonProperty("refund_amount")
-        private BigDecimal refundAmount;
+        private TiktokRefundAmount refundAmount;
     }
 }

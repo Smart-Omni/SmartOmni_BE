@@ -60,7 +60,22 @@ public class TiktokReturnController {
 
         MarketplaceConnection connection = tenantConnections.requireConnected();
         TiktokReturnResponse detail = returnService.getReturnDetail(connection.getId(), returnId);
+        if (detail == null) {
+            throw new com.smartomni.common.exception.BusinessException("TikTok return not found: " + returnId,
+                    org.springframework.http.HttpStatus.NOT_FOUND, "TIKTOK_RETURN_NOT_FOUND");
+        }
         return ResponseEntity.ok(ApiResponse.success(detail));
+    }
+
+    /**
+     * Processing history of one return request (GET /api/v1/tiktok/returns/{returnId}/records).
+     */
+    @GetMapping("/{returnId}/records")
+    public ResponseEntity<ApiResponse<java.util.List<com.smartomni.integration.dto.tiktok.TiktokReturnRecord>>> getReturnRecords(
+            @PathVariable String returnId) {
+
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+        return ResponseEntity.ok(ApiResponse.success(returnService.getReturnRecords(connection.getId(), returnId)));
     }
 
     /**

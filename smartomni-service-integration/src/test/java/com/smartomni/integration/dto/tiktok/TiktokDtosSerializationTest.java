@@ -153,7 +153,7 @@ class TiktokDtosSerializationTest {
         assertEquals("RETURN_REQUESTED", ret.getReturnStatus());
         assertEquals("DEFECTIVE_PRODUCT", ret.getReturnReason());
         assertEquals("RET-TRACK-112233", ret.getTrackingNumber());
-        assertEquals(new BigDecimal("250000.00"), ret.getRefundAmount());
+        assertEquals(0, new BigDecimal("250000.00").compareTo(ret.getRefundAmount().total()), "legacy scalar refund_amount is read as refund_total");
         assertNotNull(ret.getReturnLineItems());
         assertEquals(1, ret.getReturnLineItems().size());
         assertEquals("SKU-AO-THUN-XL", ret.getReturnLineItems().get(0).getSellerSku());

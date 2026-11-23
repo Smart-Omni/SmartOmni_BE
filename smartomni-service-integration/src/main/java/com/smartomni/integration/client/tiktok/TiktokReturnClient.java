@@ -7,12 +7,17 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.smartomni.integration.dto.tiktok.ReturnSearchRequest;
 import com.smartomni.integration.dto.tiktok.ReturnSearchResponse;
+import com.smartomni.common.exception.BusinessException;
+import com.smartomni.integration.dto.tiktok.TiktokReturnRecord;
 import com.smartomni.integration.dto.tiktok.TiktokReturnResponse;
+import org.springframework.http.HttpStatus;
 import com.smartomni.integration.service.tiktok.TiktokShopApiExecutor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -55,12 +60,39 @@ public class TiktokReturnClient {
     }
 
     /**
-     * Lấy lịch sử/chi tiết một yêu cầu trả hàng / hoàn tiền (GET /return_refund/202309/returns/{returnId}/records).
+     * Chi tiết một yêu cầu trả hàng: Search Returns lọc theo {@code return_ids} (TikTok không có endpoint
+     * GET chi tiết riêng; {@code /records} chỉ là lịch sử).
+     *
+     * @return bản ghi, hoặc {@code null} khi sàn không trả về id này
      */
     public TiktokReturnResponse getReturnDetail(Long connectionId, String returnId) {
-        String path = "/return_refund/202309/returns/" + returnId + "/records";
-        JsonNode data = executor.call(connectionId, "GET", path, Map.of(), null);
-        return convert(data, TiktokReturnResponse.class);
+        requireId(returnId, "returnId");
+        ReturnSearchResponse page = searchReturns(connectionId, ReturnSearchRequest.builder()
+                .returnIds(List.of(returnId.trim())).pageSize(10).build());
+        if (page == null || page.getReturns() == null) {
+            return null;
+        }
+        return page.getReturns().stream().filter(r -> returnId.trim().equals(r.getReturnId())).findFirst().orElse(null);
+    }
+
+    /** Lịch sử xử lý một yêu cầu trả hàng (GET /return_refund/202309/returns/{returnId}/records). */
+    public List<TiktokReturnRecord> getReturnRecords(Long connectionId, String returnId) {
+        requireId(returnId, "returnId");
+        JsonNode data = executor.call(connectionId, "GET",
+                "/return_refund/202309/returns/" + returnId.trim() + "/records", Map.of(), null);
+        List<TiktokReturnRecord> records = new ArrayList<>();
+        if (data != null) {
+            for (JsonNode node : data.path("records")) {
+                records.add(convert(node, TiktokReturnRecord.class));
+            }
+        }
+        return records;
+    }
+
+    private static void requireId(String id, String name) {
+        if (id == null || !id.trim().matches("[A-Za-z0-9_-]{1,64}")) {
+            throw new BusinessException("Invalid " + name, HttpStatus.BAD_REQUEST, "INVALID_" + name.toUpperCase());
+        }
     }
 
     /**
@@ -130,6 +162,16 @@ public class TiktokReturnClient {
             }
             if (request.getCreateTimeTo() != null) {
                 body.put("create_time_lt", request.getCreateTimeTo());
+            }
+            if (request.getUpdateTimeFrom() != null) {
+                body.put("update_time_ge", request.getUpdateTimeFrom());
+            }
+            if (request.getUpdateTimeTo() != null) {
+                body.put("update_time_lt", request.getUpdateTimeTo());
+            }
+            if (request.getReturnIds() != null && !request.getReturnIds().isEmpty()) {
+                ArrayNode ids = body.putArray("return_ids");
+                request.getReturnIds().forEach(ids::add);
             }
         }
         return body.toString();

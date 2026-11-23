@@ -37,4 +37,15 @@ public class CancellationSearchRequest {
 
     @JsonProperty("create_time_to")
     private Long createTimeTo;
+
+    /** Inclusive lower bound on update_time (epoch seconds). */
+    @JsonProperty("update_time_from")
+    private Long updateTimeFrom;
+
+    /** Exclusive upper bound on update_time (epoch seconds). */
+    @JsonProperty("update_time_to")
+    private Long updateTimeTo;
+
+    @JsonProperty("cancel_ids")
+    private java.util.List<String> cancelIds;
 }
