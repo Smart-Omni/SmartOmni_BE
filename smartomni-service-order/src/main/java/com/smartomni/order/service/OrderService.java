@@ -66,10 +66,27 @@ public class OrderService {
         Optional<Order> existing = orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(
                 payload.getTenantId(), platform, payload.getPlatformOrderId());
 
+        Instant incomingUpdate = platformInstant(payload.getPlatformUpdateTime());
+
         if (existing.isPresent()) {
             Order order = existing.get();
             log.info("Đơn hàng {} đã tồn tại (tenant={}, source={})",
                     payload.getPlatformOrderId(), payload.getTenantId(), source);
+
+            // Webhooks can arrive out of order and polling can replay old state: never move an order back.
+            // Without a platform time on either side (e.g. Shopee) the comparison is skipped.
+            if (incomingUpdate != null && order.getPlatformUpdatedAt() != null
+                    && incomingUpdate.isBefore(order.getPlatformUpdatedAt())) {
+                log.info("Bỏ qua cập nhật cũ cho đơn {}: platform update {} < {} (source={})",
+                        payload.getPlatformOrderId(), incomingUpdate, order.getPlatformUpdatedAt(), source);
+                return;
+            }
+            if (incomingUpdate != null) {
+                order.setPlatformUpdatedAt(incomingUpdate);
+            }
+            if (payload.getReconciliationReason() != null) {
+                order.setReconciliationReason(payload.getReconciliationReason());
+            }
 
             if (payload.getOrderStatus() != null && !payload.getOrderStatus().isBlank()) {
                 Order.OrderStatus incomingStatus = TiktokOrderStatusMapper.map(payload.getOrderStatus());
@@ -91,6 +108,8 @@ public class OrderService {
         order.setShippingAddress(payload.getShippingAddress());
         order.setTotalAmount(payload.getTotalAmount());
         order.setSource(source);
+        order.setPlatformUpdatedAt(incomingUpdate);
+        order.setReconciliationReason(payload.getReconciliationReason());
 
         Order.OrderStatus initialStatus = payload.getOrderStatus() != null && !payload.getOrderStatus().isBlank()
                 ? TiktokOrderStatusMapper.map(payload.getOrderStatus())
@@ -185,6 +204,14 @@ public class OrderService {
         }
 
         return order;
+    }
+
+    /** Platform epoch seconds (or millis, as some create_time values are) to an Instant; null when absent. */
+    private static Instant platformInstant(Long epoch) {
+        if (epoch == null || epoch <= 0) {
+            return null;
+        }
+        return epoch > 100_000_000_000L ? Instant.ofEpochMilli(epoch) : Instant.ofEpochSecond(epoch);
     }
 
     private void markCompletedIfNeeded(Order order) {

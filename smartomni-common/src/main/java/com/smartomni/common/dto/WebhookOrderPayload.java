@@ -53,6 +53,17 @@ public class WebhookOrderPayload {
     @JsonProperty("created_at")
     private Instant createdAt;
 
+    /**
+     * Platform {@code update_time} of this order state (epoch seconds). Optional: platforms that do not send it
+     * (Shopee) leave it null and the order service then skips the staleness check.
+     */
+    @JsonProperty("platform_update_time")
+    private Long platformUpdateTime;
+
+    /** Why the order needs manual reconciliation, e.g. {@code SKU_UNMAPPED}; null when nothing is wrong. */
+    @JsonProperty("reconciliation_reason")
+    private String reconciliationReason;
+
     @Builder.Default
     @JsonProperty("items")
     private List<OrderItemPayload> items = new ArrayList<>();

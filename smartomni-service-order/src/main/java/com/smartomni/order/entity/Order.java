@@ -84,6 +84,14 @@ public class Order extends BaseTenantEntity {
     @Column(name = "eligible_for_points_at")
     private Instant eligibleForPointsAt;
 
+    /** Platform update_time of the last applied marketplace state; older events are ignored. */
+    @Column(name = "platform_updated_at")
+    private Instant platformUpdatedAt;
+
+    /** Why the order needs manual reconciliation (e.g. SKU_UNMAPPED). */
+    @Column(name = "reconciliation_reason", length = 64)
+    private String reconciliationReason;
+
     public enum Platform { SHOPEE, TIKTOK_SHOP }
     public enum OrderStatus { PENDING, TO_SHIP, SHIPPED, DELIVERING, COMPLETED, CANCELLED, RETURNED, ON_HOLD }
     public enum OrderSource { WEBHOOK, POLLING, MANUAL }
