@@ -8,110 +8,122 @@ import com.smartomni.integration.dto.InternalIssueVoucherResponse;
 import com.smartomni.integration.dto.tiktok.TiktokVoucherDto;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
+import com.smartomni.integration.service.tiktok.TiktokVoucherStore;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class)
 class MarketplaceVoucherAdapterServiceTest {
 
-    @Mock
-    private MarketplaceConnectionRepository connectionRepository;
-
-    @Mock
-    private TiktokVoucherClient tiktokVoucherClient;
-
-    @InjectMocks
+    private final MarketplaceConnectionRepository connectionRepository = mock(MarketplaceConnectionRepository.class);
+    private final TiktokVoucherClient tiktokVoucherClient = mock(TiktokVoucherClient.class);
+    private final TiktokVoucherStore store = mock(TiktokVoucherStore.class);
     private MarketplaceVoucherAdapterService adapterService;
+    private MarketplaceConnection conn;
+
+    @BeforeEach
+    void setUp() {
+        PlatformTransactionManager ptm = mock(PlatformTransactionManager.class);
+        when(ptm.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        adapterService = new MarketplaceVoucherAdapterService(connectionRepository, tiktokVoucherClient, store,
+                new TransactionTemplate(ptm));
+        TenantContext.setTenantId(1L);
+        conn = connectedTiktok(10L, 1L);
+        when(connectionRepository.findByIdAndTenantId(10L, 1L)).thenReturn(Optional.of(conn));
+    }
 
     @AfterEach
     void cleanup() {
         TenantContext.clear();
     }
 
-    @Test
-    void tiktokImportModeResolvesOngoingCouponCodeFromSimulator() {
-        TenantContext.setTenantId(1L);
-        MarketplaceConnection conn = connectedTiktok(10L, 1L);
-        when(connectionRepository.findByIdAndTenantId(10L, 1L)).thenReturn(Optional.of(conn));
-        when(tiktokVoucherClient.searchCoupons(10L)).thenReturn(List.of(
-                TiktokVoucherDto.builder()
-                        .tiktokVoucherId("TT-COUPON-1")
-                        .voucherCode("SIMSILVER10")
-                        .discountType("PERCENT_OFF")
-                        .discountValue(BigDecimal.TEN)
-                        .status("ONGOING")
-                        .build()));
+    private static TiktokVoucherDto code(String id, String promo, String title) {
+        return TiktokVoucherDto.builder().tiktokVoucherId(id).voucherCode(promo).title(title)
+                .discountType("PERCENT_OFF").discountValue(new BigDecimal("30")).status("ONGOING").build();
+    }
 
-        InternalIssueVoucherResponse res = adapterService.issueVoucher(
-                InternalIssueVoucherRequest.builder()
-                        .connectionId(10L)
-                        .requestKey("req-1")
-                        .title("Silver 10%")
-                        .discountPercent(BigDecimal.TEN)
-                        .provisioningMode("import")
-                        .build());
-
-        assertThat(res.getOutcome()).isEqualTo("ISSUED");
-        assertThat(res.getCode()).isEqualTo("SIMSILVER10");
-        assertThat(res.getExternalVoucherId()).isEqualTo("TT-COUPON-1");
+    private static InternalIssueVoucherRequest importRequest(String key) {
+        return InternalIssueVoucherRequest.builder().connectionId(10L).requestKey(key)
+                .title("Loyalty Diamond 30%").discountPercent(new BigDecimal("30")).provisioningMode("import").build();
     }
 
     @Test
-    void tiktokApiModeReturnsFailedOn4xxRejectionAndPendingOn5xxTimeout() {
-        TenantContext.setTenantId(1L);
-        MarketplaceConnection conn = connectedTiktok(10L, 1L);
-        when(connectionRepository.findByIdAndTenantId(10L, 1L)).thenReturn(Optional.of(conn));
+    void importModeClaimsAFreeCodeOfTheConfiguredBatchOnly() {
+        TiktokVoucherDto diamond1 = code("C1", "DIA-1", "Loyalty Diamond 30%");
+        TiktokVoucherDto other = code("C9", "PLAT-9", "Loyalty Platinum 20%");
+        when(tiktokVoucherClient.searchCoupons(10L, "Loyalty Diamond 30%", List.of("ONGOING"))).thenReturn(List.of(diamond1, other));
+        when(store.claimFree(1L, 10L, List.of("C1"), "req-1")).thenReturn(Optional.of(diamond1));
 
-        when(tiktokVoucherClient.createCoupon(eq(10L), any(), any(), any(), any(), eq("req-4xx")))
-                .thenThrow(new TiktokApiException("promotion.write missing", 403, 403, "forbidden", false));
-        InternalIssueVoucherResponse failed = adapterService.issueVoucher(
-                InternalIssueVoucherRequest.builder()
-                        .connectionId(10L)
-                        .requestKey("req-4xx")
-                        .discountPercent(BigDecimal.TEN)
-                        .provisioningMode("api")
-                        .build());
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(importRequest("req-1"));
+
+        assertThat(res.getOutcome()).isEqualTo("ISSUED");
+        assertThat(res.getCode()).isEqualTo("DIA-1");
+        assertThat(res.getExternalVoucherId()).isEqualTo("C1");
+        verify(store).upsertPulled(1L, 10L, conn.getShopId(), diamond1);
+        verify(store, never()).upsertPulled(anyLong(), anyLong(), any(), eq(other));
+    }
+
+    @Test
+    void sameRequestKeyGetsTheSameCodeAndDoesNotClaimAnother() {
+        when(store.findIssued(1L, 10L, "req-1")).thenReturn(Optional.of(code("C1", "DIA-1", "Loyalty Diamond 30%")));
+
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(importRequest("req-1"));
+
+        assertThat(res.getCode()).isEqualTo("DIA-1");
+        verifyNoInteractions(tiktokVoucherClient);
+        verify(store, never()).claimFree(anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void emptyBatchFails() {
+        when(tiktokVoucherClient.searchCoupons(eq(10L), anyString(), any())).thenReturn(List.of());
+
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(importRequest("req-2"));
+
+        assertThat(res.getOutcome()).isEqualTo("FAILED");
+        assertThat(res.getFailureReason()).contains("No free code");
+    }
+
+    @Test
+    void apiModeIsRefusedWithoutCallingTiktok() {
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(InternalIssueVoucherRequest.builder()
+                .connectionId(10L).requestKey("req-api").discountPercent(BigDecimal.TEN).provisioningMode("api").build());
+
+        assertThat(res.getOutcome()).isEqualTo("FAILED");
+        assertThat(res.getFailureReason()).contains("cannot be created through the API");
+        verifyNoInteractions(tiktokVoucherClient, store);
+    }
+
+    @Test
+    void transientTiktokFailureIsPendingAndRejectionIsFailed() {
+        when(tiktokVoucherClient.searchCoupons(eq(10L), anyString(), any()))
+                .thenThrow(new TiktokApiException("gateway timeout", 504, 504, "timeout", true));
+        assertThat(adapterService.issueVoucher(importRequest("req-5xx")).getOutcome()).isEqualTo("PENDING");
+
+        reset(tiktokVoucherClient);
+        when(tiktokVoucherClient.searchCoupons(eq(10L), anyString(), any()))
+                .thenThrow(new TiktokApiException("scope missing", 403, 403, "forbidden", false));
+        InternalIssueVoucherResponse failed = adapterService.issueVoucher(importRequest("req-4xx"));
         assertThat(failed.getOutcome()).isEqualTo("FAILED");
         assertThat(failed.getFailureReason()).contains("TikTok rejected");
-
-        when(tiktokVoucherClient.createCoupon(eq(10L), any(), any(), any(), any(), eq("req-5xx")))
-                .thenThrow(new TiktokApiException("gateway timeout", 504, 504, "timeout", true));
-        InternalIssueVoucherResponse pending = adapterService.issueVoucher(
-                InternalIssueVoucherRequest.builder()
-                        .connectionId(10L)
-                        .requestKey("req-5xx")
-                        .discountPercent(BigDecimal.TEN)
-                        .provisioningMode("api")
-                        .build());
-        assertThat(pending.getOutcome()).isEqualTo("PENDING");
     }
 
     @Test
     void rejectsDisconnectedConnection() {
-        TenantContext.setTenantId(1L);
-        MarketplaceConnection conn = connectedTiktok(10L, 1L);
         conn.setStatus(MarketplaceConnection.ConnectionStatus.DISCONNECTED);
-        when(connectionRepository.findByIdAndTenantId(10L, 1L)).thenReturn(Optional.of(conn));
 
-        InternalIssueVoucherResponse res = adapterService.issueVoucher(
-                InternalIssueVoucherRequest.builder()
-                        .connectionId(10L)
-                        .requestKey("req-disc")
-                        .provisioningMode("import")
-                        .build());
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(importRequest("req-disc"));
 
         assertThat(res.getOutcome()).isEqualTo("FAILED");
         assertThat(res.getFailureReason()).contains("CONNECTED");
@@ -121,9 +133,9 @@ class MarketplaceVoucherAdapterServiceTest {
         MarketplaceConnection c = new MarketplaceConnection();
         c.setId(id);
         c.setTenantId(tenantId);
+        c.setShopId("SHOP-1");
         c.setPlatform(MarketplaceConnection.Platform.TIKTOK_SHOP);
         c.setStatus(MarketplaceConnection.ConnectionStatus.CONNECTED);
-        c.setShopId("7494000000000000001");
         return c;
     }
 }
