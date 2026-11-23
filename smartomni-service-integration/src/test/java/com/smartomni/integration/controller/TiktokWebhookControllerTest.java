@@ -3,6 +3,7 @@ package com.smartomni.integration.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartomni.common.security.WebhookHmacValidator;
 import com.smartomni.integration.config.TiktokProperties;
+import com.smartomni.integration.config.RabbitMQConfig;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.entity.WebhookEventLog;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
@@ -118,6 +119,28 @@ class TiktokWebhookControllerTest {
 
         // Verify RabbitMQ đã được gửi payload
         verify(rabbitTemplate).convertAndSend(eq("smartomni.order.exchange"), eq("order.incoming"), eq(rawBody));
+    }
+
+    @Test
+    void inventorySnapshotGoesToInventoryQueueOnly() throws Exception {
+        MarketplaceConnection connection = new MarketplaceConnection();
+        connection.setId(10L);
+        connection.setTenantId(100L);
+        connection.setShopCipher(SHOP_CIPHER);
+        when(connectionRepository.findFirstByShopCipher(SHOP_CIPHER)).thenReturn(Optional.of(connection));
+        long timestamp = Instant.now().getEpochSecond();
+        String body = "{\"type\":71,\"tts_notification_id\":\"inventory-1\",\"shop_id\":\""
+                + SHOP_CIPHER + "\",\"timestamp\":" + timestamp
+                + ",\"data\":{\"sku_id\":\"sku-1\",\"quantity_snapshot_after_change\":{\"available_quantity\":0}}}";
+        String signature = webhookHmacValidator.calculateHmacSha256(APP_SECRET + WEBHOOK_PATH + timestamp + body, APP_SECRET);
+
+        mockMvc.perform(post(WEBHOOK_PATH).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", signature).header("Timestamp", String.valueOf(timestamp)).content(body))
+                .andExpect(status().isOk());
+
+        verify(rabbitTemplate).convertAndSend(TiktokWebhookController.ORDER_EXCHANGE, RabbitMQConfig.INVENTORY_ROUTING_KEY,
+                java.util.Map.of("tenantId", 100L, "connectionId", 10L, "payload", body));
+        verify(rabbitTemplate, never()).convertAndSend(TiktokWebhookController.ORDER_EXCHANGE, TiktokWebhookController.ORDER_ROUTING_KEY, body);
     }
 
     @Test

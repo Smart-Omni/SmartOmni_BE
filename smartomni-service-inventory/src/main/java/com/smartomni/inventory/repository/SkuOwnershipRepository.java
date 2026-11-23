@@ -1,6 +1,7 @@
 package com.smartomni.inventory.repository;
 
 import com.smartomni.common.dto.InventoryItemDto;
+import com.smartomni.inventory.entity.InventoryOutboxEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -18,18 +19,31 @@ public class SkuOwnershipRepository {
                 Boolean.class, tenantId, skuId));
     }
 
+    public List<InventoryOutboxEvent.Platform> linkedPlatforms(Long tenantId, Long skuId) {
+        return jdbcTemplate.queryForList("""
+                SELECT DISTINCT c.platform::text
+                FROM product_marketplace_links l
+                JOIN marketplace_connections c ON c.id = l.connection_id AND c.tenant_id = l.tenant_id
+                WHERE l.tenant_id = ? AND l.sku_id = ? AND c.status = 'connected'
+                  AND c.platform IN ('shopee', 'tiktok_shop')
+                """, String.class, tenantId, skuId).stream()
+                .map(value -> InventoryOutboxEvent.Platform.valueOf(value.toUpperCase(java.util.Locale.ROOT)))
+                .toList();
+    }
+
     public List<InventoryItemDto> listEnrichedInventory(Long tenantId, int limit, int offset) {
         String sql = """
-            SELECT COALESCE(s.id, i.sku_id) AS sku_id,
-                   COALESCE(s.sku_code, CONCAT('SKU-', COALESCE(s.id, i.sku_id))) AS sku_code,
+            SELECT s.id AS sku_id,
+                   s.sku_code AS sku_code,
                    COALESCE(p.name, 'Unknown Product') AS product_name,
                    COALESCE(i.quantity_on_hand, 0) AS quantity_on_hand,
-                   COALESCE(i.reserved_quantity, 0) AS reserved_quantity
+                   COALESCE(i.reserved_quantity, 0) AS reserved_quantity,
+                   (i.sku_id IS NOT NULL) AS inventory_initialized
             FROM product_skus s
-            FULL OUTER JOIN inventory i ON i.sku_id = s.id AND i.tenant_id = s.tenant_id
-            LEFT JOIN products p ON s.product_id = p.id
-            WHERE COALESCE(s.tenant_id, i.tenant_id) = ?
-            ORDER BY COALESCE(s.id, i.sku_id) ASC
+            LEFT JOIN inventory i ON i.sku_id = s.id AND i.tenant_id = s.tenant_id
+            LEFT JOIN products p ON s.product_id = p.id AND p.tenant_id = s.tenant_id
+            WHERE s.tenant_id = ?
+            ORDER BY s.id ASC
             LIMIT ? OFFSET ?
             """;
         return jdbcTemplate.query(sql, (rs, rowNum) -> {
@@ -46,16 +60,14 @@ public class SkuOwnershipRepository {
                     .quantityOnHand(onHand)
                     .reservedQuantity(reserved)
                     .availableQuantity(available)
+                    .inventoryInitialized(rs.getBoolean("inventory_initialized"))
                     .build();
         }, tenantId, limit, offset);
     }
 
     public long countEnrichedInventory(Long tenantId) {
         String sql = """
-            SELECT COUNT(DISTINCT COALESCE(s.id, i.sku_id))
-            FROM product_skus s
-            FULL OUTER JOIN inventory i ON i.sku_id = s.id AND i.tenant_id = s.tenant_id
-            WHERE COALESCE(s.tenant_id, i.tenant_id) = ?
+            SELECT COUNT(*) FROM product_skus WHERE tenant_id = ?
             """;
         Long count = jdbcTemplate.queryForObject(sql, Long.class, tenantId);
         return count != null ? count : 0L;

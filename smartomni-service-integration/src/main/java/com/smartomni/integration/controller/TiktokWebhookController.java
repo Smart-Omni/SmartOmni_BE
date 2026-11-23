@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartomni.common.security.WebhookHmacValidator;
 import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.integration.config.TiktokProperties;
+import com.smartomni.integration.config.RabbitMQConfig;
 import com.smartomni.integration.dto.tiktok.TiktokWebhookPayload;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.entity.WebhookEventLog;
@@ -164,6 +165,18 @@ public class TiktokWebhookController {
             return ResponseEntity.ok(Map.of("code", 0, "message", "success"));
         }
 
+        if (Integer.valueOf(71).equals(payload.getType())) {
+            try {
+                rabbitTemplate.convertAndSend(ORDER_EXCHANGE, RabbitMQConfig.INVENTORY_ROUTING_KEY,
+                        Map.of("tenantId", tenantId, "connectionId", connection.getId(), "payload", rawPayload));
+                saveAuditLog(tenantId, payload, rawPayload, true, true, null);
+                return ResponseEntity.ok(Map.of("code", 0, "message", "success"));
+            } catch (Exception ex) {
+                log.error("Lỗi khi xếp hàng webhook tồn TikTok: {}", ex.getMessage(), ex);
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("Inventory webhook queue unavailable");
+            }
+        }
+
         // Ghi log Audit Webhook (webhook_events_log) trạng thái hợp lệ & đã xếp hàng
         saveAuditLog(tenantId, payload, rawPayload, true, true, null);
 
@@ -254,6 +267,7 @@ public class TiktokWebhookController {
             case 1 -> "ORDER_STATUS_CHANGE";
             case 2 -> "REVERSE_STATUS_CHANGE";
             case 3 -> "PACKAGE_STATUS_CHANGE";
+            case 71 -> "INVENTORY_CHANGED_BY_SHOP";
             default -> "TIKTOK_EVENT_TYPE_" + type;
         };
     }

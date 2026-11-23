@@ -69,6 +69,7 @@ smartomni:
     allowed-redirect-uris: ${TIKTOK_ALLOWED_REDIRECT_URIS:} # exact additional callbacks, comma-separated
     token-base-url: ${TIKTOK_TOKEN_BASE_URL:https://auth.tiktok-shops.com}
     open-api-base-url: ${TIKTOK_OPEN_API_BASE_URL:https://open-api.tiktokglobalshop.com}
+    inventory-webhook-url: ${TIKTOK_INVENTORY_WEBHOOK_URL:}
     state-ttl: ${TIKTOK_STATE_TTL:10m}
     required-scopes: ${TIKTOK_REQUIRED_SCOPES:}       # comma separated; empty disables the scope check
     token-rejected-codes: ${TIKTOK_TOKEN_REJECTED_CODES:}  # comma separated envelope codes

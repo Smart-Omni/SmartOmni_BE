@@ -103,6 +103,7 @@ class TiktokCatalogDatabaseTest {
             execute(c, "DELETE FROM price_sync_history");
             execute(c, "DELETE FROM price_sync_configs");
             execute(c, "DELETE FROM product_marketplace_links");
+            execute(c, "DELETE FROM inventory");
             execute(c, "DELETE FROM product_skus");
             execute(c, "DELETE FROM products");
             execute(c, "DELETE FROM marketplace_import_runs");
