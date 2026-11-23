@@ -56,6 +56,8 @@ public class TiktokWebhookController {
     public static final String ORDER_ROUTING_KEY = "order.incoming";
 
     private static final Map<String, Object> SUCCESS = Map.of("code", 0, "message", "success");
+    /** Role with a cross-tenant read policy on marketplace_connections (V6); no write access. */
+    static final String CONNECTION_LOOKUP_ROLE = "price_sync_worker";
 
     private final MarketplaceConnectionRepository connectionRepository;
     private final TiktokWebhookEventRecorder eventRecorder;
@@ -129,10 +131,7 @@ public class TiktokWebhookController {
             return ResponseEntity.badRequest().body("Missing shop_id in payload");
         }
 
-        MarketplaceConnection connection = connectionRepository.findFirstByShopCipher(shopId)
-                .or(() -> connectionRepository.findFirstByShopId(shopId))
-                .or(() -> connectionRepository.findFirstBySellerOpenId(shopId))
-                .orElse(null);
+        MarketplaceConnection connection = findConnectionByShop(shopId);
 
         if (connection == null) {
             log.warn("TikTok Webhook nhận shop_id={} nhưng không tìm thấy kết nối trong hệ thống", shopId);
@@ -280,6 +279,21 @@ public class TiktokWebhookController {
             }
         }
         return ResponseEntity.ok(SUCCESS);
+    }
+
+    /**
+     * The tenant is not known yet, so the lookup runs without a tenant and with the background role that V6 lets
+     * read {@code marketplace_connections} ({@code price_sync_worker_read}). Under forced RLS an unscoped query
+     * would see no rows and every webhook would answer 404. Each repository finder runs in its own read-only
+     * transaction, where this context is applied.
+     */
+    private MarketplaceConnection findConnectionByShop(String shopId) {
+        try (var scope = TenantContext.openScope(null, CONNECTION_LOOKUP_ROLE, null)) {
+            return connectionRepository.findFirstByShopCipher(shopId)
+                    .or(() -> connectionRepository.findFirstByShopId(shopId))
+                    .or(() -> connectionRepository.findFirstBySellerOpenId(shopId))
+                    .orElse(null);
+        }
     }
 
     private long resolveTimestamp(String timestampHeader, String xTtsTimestampHeader, Long bodyTimestamp) {

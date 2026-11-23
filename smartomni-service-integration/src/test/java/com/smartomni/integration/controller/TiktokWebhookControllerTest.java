@@ -115,6 +115,20 @@ class TiktokWebhookControllerTest {
     }
 
     @Test
+    @DisplayName("Tra shop_id chạy không tenant, với role có policy đọc marketplace_connections (RLS)")
+    void shopLookupRunsWithCrossTenantReadRole() throws Exception {
+        when(connectionRepository.findFirstByShopCipher(SHOP_CIPHER)).thenAnswer(inv -> {
+            assertEquals(null, com.smartomni.common.tenant.TenantContext.getTenantId());
+            assertEquals("price_sync_worker", com.smartomni.common.tenant.TenantContext.getCurrentRole());
+            return Optional.of(connection);
+        });
+
+        send(body(1, "notif-rls", "{\"order_id\":\"ORD-1\"}")).andExpect(status().isOk());
+
+        assertEquals(null, com.smartomni.common.tenant.TenantContext.getCurrentRole());
+    }
+
+    @Test
     @DisplayName("Type 1: lỗi tạm thời từ TikTok trả 503 và không đánh dấu đã xử lý (để sàn gửi lại)")
     void orderStatusChangeTransientFailureIs503() throws Exception {
         doThrow(new TiktokApiException("timeout", 0, null, null, true))
