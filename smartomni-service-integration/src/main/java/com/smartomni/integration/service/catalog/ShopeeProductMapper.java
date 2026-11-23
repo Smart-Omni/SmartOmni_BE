@@ -36,13 +36,14 @@ public final class ShopeeProductMapper {
             v.setPrice(item.currentPrice());
             v.setVariantName("Default");
 
-            int stockQty = item.availableStock();
-            if (models != null && !models.isEmpty() && models.get(0).availableStock() > 0) {
-                stockQty = models.get(0).availableStock();
+            Integer stockQty = item.availableStock();
+            if (models != null && !models.isEmpty()) {
+                Integer modelStock = models.get(0).availableStock();
+                if (modelStock != null && (stockQty == null || modelStock > 0)) {
+                    stockQty = modelStock;
+                }
             }
-            MarketplaceProductDto.StockDto stockDto = new MarketplaceProductDto.StockDto();
-            stockDto.setQuantity(stockQty);
-            v.setStock(List.of(stockDto));
+            v.setStock(stock(stockQty));
 
             variants.add(v);
         } else {
@@ -55,14 +56,22 @@ public final class ShopeeProductMapper {
                 v.setPrice(m.currentPrice());
                 v.setVariantName(m.modelName() != null && !m.modelName().isBlank() ? m.modelName() : "Model " + m.modelId());
 
-                MarketplaceProductDto.StockDto stockDto = new MarketplaceProductDto.StockDto();
-                stockDto.setQuantity(m.availableStock());
-                v.setStock(List.of(stockDto));
+                v.setStock(stock(m.availableStock()));
 
                 variants.add(v);
             }
         }
         dto.setVariants(variants);
         return dto;
+    }
+
+    /** Unknown stock stays {@code null} so the importer reports {@code STOCK_MISSING} instead of creating 0. */
+    private static List<MarketplaceProductDto.StockDto> stock(Integer quantity) {
+        if (quantity == null) {
+            return null;
+        }
+        MarketplaceProductDto.StockDto value = new MarketplaceProductDto.StockDto();
+        value.setQuantity(quantity);
+        return List.of(value);
     }
 }

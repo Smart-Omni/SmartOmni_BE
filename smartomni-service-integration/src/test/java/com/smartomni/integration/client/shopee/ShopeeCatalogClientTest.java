@@ -114,6 +114,39 @@ class ShopeeCatalogClientTest {
     }
 
     @Test
+    void availableStockIsNullWhenMissingNonIntegerOrNegative() {
+        ObjectMapper mapper = new ObjectMapper();
+        assertNull(ShopeeCatalogClient.availableStock(json(mapper, "{}")));
+        assertNull(ShopeeCatalogClient.availableStock(json(mapper,
+                "{\"stock_info_v2\":{\"summary_info\":{}}}")));
+        assertNull(ShopeeCatalogClient.availableStock(json(mapper,
+                "{\"stock_info_v2\":{\"summary_info\":{\"total_available_stock\":\"12\"}}}")));
+        assertNull(ShopeeCatalogClient.availableStock(json(mapper,
+                "{\"stock_info_v2\":{\"summary_info\":{\"total_available_stock\":-1}}}")));
+        assertNull(ShopeeCatalogClient.availableStock(json(mapper,
+                "{\"stock_info_v2\":{\"summary_info\":{\"total_available_stock\":1.5}}}")));
+        assertEquals(0, ShopeeCatalogClient.availableStock(json(mapper,
+                "{\"stock_info_v2\":{\"summary_info\":{\"total_available_stock\":0}}}")));
+        assertEquals(12, ShopeeCatalogClient.availableStock(json(mapper,
+                "{\"stock_info_v2\":{\"summary_info\":{\"total_available_stock\":12}}}")));
+    }
+
+    @Test
+    void getItemBaseInfoKeepsMissingStockUnknown() {
+        List<ShopeeCatalogClient.ShopeeItemDetail> items = client.getItemBaseInfo(88L, List.of(1001L));
+
+        assertNull(items.get(0).availableStock());
+    }
+
+    private static com.fasterxml.jackson.databind.JsonNode json(ObjectMapper mapper, String raw) {
+        try {
+            return mapper.readTree(raw);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test
     void listWarehousesParsesWarehouseAddresses() {
         List<ShopeeCatalogClient.ShopeeWarehouseDetail> warehouses = client.listWarehouses(88L);
 
