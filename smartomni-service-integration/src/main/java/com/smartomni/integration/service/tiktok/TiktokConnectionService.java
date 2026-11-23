@@ -61,7 +61,7 @@ public class TiktokConnectionService {
     private final MarketplaceQuotaValidator quotaValidator;
     private final TiktokAutoImportAsyncLauncher autoImportLauncher;
     @Autowired(required = false)
-    private TiktokInventorySubscriptionService inventorySubscription;
+    private TiktokWebhookSubscriptionService webhookSubscription;
     private final SecureRandom random = new SecureRandom();
 
     public TiktokConnectionService(TiktokProperties properties, TiktokConnectionStore store, TiktokAuthClient authClient,
@@ -210,13 +210,13 @@ public class TiktokConnectionService {
     }
 
     private void triggerAutoImportIfConnected(MarketplaceConnection connection) {
-        if (inventorySubscription != null && connection != null
+        if (webhookSubscription != null && connection != null
                 && connection.getStatus() == ConnectionStatus.CONNECTED
                 && connection.getAccessTokenEncrypted() != null) {
             try {
-                inventorySubscription.ensureSubscribed(connection.getId());
+                webhookSubscription.ensureSubscribed(connection.getId());
             } catch (Exception e) {
-                log.warn("TikTok inventory webhook subscription pending: tenant={} connection={} reason={}",
+                log.warn("TikTok webhook subscription pending: tenant={} connection={} reason={}",
                         connection.getTenantId(), connection.getId(), e.getMessage());
             }
         }

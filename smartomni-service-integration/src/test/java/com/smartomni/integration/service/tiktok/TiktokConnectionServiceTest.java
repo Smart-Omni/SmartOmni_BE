@@ -276,11 +276,11 @@ class TiktokConnectionServiceTest {
     }
 
     @Test
-    void connectedCallbackAttemptsInventoryWebhookSubscription() {
+    void connectedCallbackAttemptsWebhookSubscription() {
         stateIs(StateOutcome.OK);
         when(store.link(eq(1L), eq(77L), any())).thenReturn(savedConnection(ConnectionStatus.CONNECTED));
-        var subscriptions = mock(TiktokInventorySubscriptionService.class);
-        org.springframework.test.util.ReflectionTestUtils.setField(service, "inventorySubscription", subscriptions);
+        var subscriptions = mock(TiktokWebhookSubscriptionService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "webhookSubscription", subscriptions);
 
         service.complete(callback("the-code", "state", null));
 
