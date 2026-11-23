@@ -92,6 +92,24 @@ class ShopeeProductImportServiceTest {
     }
 
     @Test
+    void importBackfillsMappedSkuWithoutOverwritingExistingBalance() {
+        when(store.openRun(eq(88L), anyInt())).thenReturn(Optional.of(104L));
+        when(catalog.getItemList(eq(88L), eq(0), eq(50), any()))
+                .thenReturn(new ItemListResult(List.of(1001L), 1, false, 1));
+        when(catalog.getItemBaseInfo(88L, List.of(1001L))).thenReturn(List.of(
+                new ShopeeItemDetail(1001L, "Shirt", "A1", null, "NORMAL", false, "VND",
+                        BigDecimal.TEN, BigDecimal.TEN, 0, null)));
+        when(store.findLinkByExternalSku(88L, "1001")).thenReturn(Optional.of(
+                new CatalogMappingStore.LinkRef(10L, 701L, 501L, 88L, "1001", "1001", "A1",
+                        BigDecimal.TEN, "VND", null)));
+
+        service.importProducts(connection);
+
+        verify(store).initInventoryIfAbsent(701L, 0);
+        verify(store, never()).createSku(anyLong(), any(), any(), any());
+    }
+
+    @Test
     void importRejectsConcurrentRun() {
         when(store.openRun(eq(88L), anyInt())).thenReturn(Optional.empty());
 

@@ -16,4 +16,5 @@ public class InventoryItemDto {
     private Integer quantityOnHand;
     private Integer reservedQuantity;
     private Integer availableQuantity;
+    private Boolean inventoryInitialized;
 }

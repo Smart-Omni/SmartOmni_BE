@@ -198,6 +198,7 @@ public class TiktokAutoImportService {
                     : null;
             BigDecimal salePrice = resolvePrice(sku);
             String currency = sku.price() != null ? sku.price().currency() : null;
+            Integer sourceStock = sumInventory(sku);
 
             // Case 1: Already mapped for this (connectionId, tiktokSkuId)
             Optional<LinkRef> existingLink = store.findLinkByExternalSku(connectionId, externalSkuId);
@@ -211,6 +212,7 @@ public class TiktokAutoImportService {
                 } else {
                     store.touchLink(link.id(), now);
                 }
+                if (sourceStock != null) store.initInventoryIfAbsent(link.skuId(), sourceStock);
                 skipped++;
                 continue;
             }
@@ -227,6 +229,7 @@ public class TiktokAutoImportService {
                     } else {
                         store.insertLink(skuRef.id(), connectionId, product.id(), externalSkuId, sellerSku,
                                 currency, product.status(), productUrl, salePrice);
+                        if (sourceStock != null) store.initInventoryIfAbsent(skuRef.id(), sourceStock);
                         linkedExisting++;
                     }
                     continue;
@@ -241,6 +244,7 @@ public class TiktokAutoImportService {
                 if (store.findLinkBySku(skuRef.id(), connectionId).isEmpty()) {
                     store.insertLink(skuRef.id(), connectionId, product.id(), externalSkuId, sellerSku,
                             currency, product.status(), productUrl, salePrice);
+                    if (sourceStock != null) store.initInventoryIfAbsent(skuRef.id(), sourceStock);
                     linkedExisting++;
                 } else {
                     skipped++;
@@ -258,7 +262,7 @@ public class TiktokAutoImportService {
             String variantName = buildVariantName(sku);
             BigDecimal basePrice = salePrice != null ? salePrice : BigDecimal.ZERO;
             long localSkuId = store.createSku(createdProductId, skuCode, variantName, basePrice);
-            store.initInventoryIfAbsent(localSkuId, sumInventory(sku));
+            if (sourceStock != null) store.initInventoryIfAbsent(localSkuId, sourceStock);
             store.insertLink(localSkuId, connectionId, product.id(), externalSkuId, sellerSku,
                     currency, product.status(), productUrl, salePrice);
             imported++;
@@ -285,14 +289,15 @@ public class TiktokAutoImportService {
         return parsed;
     }
 
-    private static int sumInventory(Sku sku) {
-        int total = 0;
+    private static Integer sumInventory(Sku sku) {
+        if (sku.inventory().isEmpty()) return null;
+        long total = 0;
         for (Inventory inv : sku.inventory()) {
-            if (inv.quantity() != null && inv.quantity() > 0) {
-                total += inv.quantity();
-            }
+            if (inv.quantity() == null || inv.quantity() < 0) return null;
+            total += inv.quantity();
+            if (total > Integer.MAX_VALUE) return null;
         }
-        return total;
+        return (int) total;
     }
 
     private static String buildVariantName(Sku sku) {

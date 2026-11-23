@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 class TiktokCatalogClientTest {
 
@@ -107,5 +109,27 @@ class TiktokCatalogClientTest {
     void warehousesAreListed() {
         assertEquals("W1", client(token -> "").listWarehouses(1L).get(0).id());
         assertEquals("GET /logistics/202309/warehouses body=null", calls.get(0));
+    }
+
+    @Test
+    void stockUpdateUsesWarehouseInventoryEndpointAndSupportsZero() throws Exception {
+        TiktokShopApiExecutor executor = mock(TiktokShopApiExecutor.class);
+        when(executor.call(eq(1L), eq("GET"), eq("/product/202309/products/P1"), anyMap(), isNull()))
+                .thenReturn(mapper.readTree("{\"id\":\"P1\",\"skus\":[{\"id\":\"S1\",\"inventory\":[{\"warehouse_id\":\"W1\",\"quantity\":40},{\"warehouse_id\":\"W2\",\"quantity\":25}]}]}"));
+        when(executor.call(eq(1L), eq("GET"), eq("/logistics/202309/warehouses"), anyMap(), isNull()))
+                .thenReturn(mapper.readTree("{\"warehouses\":[{\"id\":\"W1\",\"is_default\":true},{\"id\":\"W2\"}]}"));
+        when(executor.call(eq(1L), eq("POST"), eq("/product/202309/products/P1/inventory/update"), anyMap(), anyString()))
+                .thenReturn(mapper.readTree("{\"errors\":[]}"));
+        TiktokCatalogClient client = new TiktokCatalogClient(executor, properties, mapper);
+
+        client.updateStock(1L, "P1", "S1", 47);
+        client.updateStock(1L, "P1", "S1", 0);
+
+        var bodies = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(executor, times(2)).call(eq(1L), eq("POST"), eq("/product/202309/products/P1/inventory/update"), anyMap(), bodies.capture());
+        assertEquals(22, mapper.readTree(bodies.getAllValues().get(0)).path("skus").get(0).path("inventory").get(0).path("quantity").asInt());
+        assertEquals(25, mapper.readTree(bodies.getAllValues().get(0)).path("skus").get(0).path("inventory").get(1).path("quantity").asInt());
+        assertEquals(0, mapper.readTree(bodies.getAllValues().get(1)).path("skus").get(0).path("inventory").get(0).path("quantity").asInt());
+        assertEquals(0, mapper.readTree(bodies.getAllValues().get(1)).path("skus").get(0).path("inventory").get(1).path("quantity").asInt());
     }
 }

@@ -3,6 +3,7 @@ package com.smartomni.inventory.service;
 import com.smartomni.common.exception.BusinessException;
 import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.inventory.entity.Inventory;
+import com.smartomni.inventory.entity.InventoryOutboxEvent;
 import com.smartomni.inventory.entity.InventoryRestockLog;
 import com.smartomni.inventory.repository.InventoryOutboxEventRepository;
 import com.smartomni.inventory.repository.InventoryRepository;
@@ -16,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -46,12 +48,14 @@ class InventoryServiceTest {
         TenantContext.setTenantId(1L);
         when(inventoryRepository.findByTenantIdAndSkuId(1L, 9L)).thenReturn(Optional.empty());
         when(skuOwnershipRepository.exists(1L, 9L)).thenReturn(true);
+        when(skuOwnershipRepository.linkedPlatforms(1L, 9L)).thenReturn(List.of(InventoryOutboxEvent.Platform.TIKTOK_SHOP));
 
         service.adjustStock(9L, 5);
 
         verify(inventoryRepository).save(argThat(i -> i.getTenantId().equals(1L)
                 && i.getSkuId().equals(9L) && i.getQuantityOnHand().equals(5)));
-        verify(outboxEventRepository).save(any());
+        verify(outboxEventRepository).save(argThat(e -> e.getPlatform() == InventoryOutboxEvent.Platform.TIKTOK_SHOP
+                && e.getQuantity() == 5));
     }
 
     @Test void ownSkuCanBeAdjusted() {
@@ -60,12 +64,40 @@ class InventoryServiceTest {
         inventory.setTenantId(1L);
         inventory.setSkuId(9L);
         when(inventoryRepository.findByTenantIdAndSkuId(1L, 9L)).thenReturn(Optional.of(inventory));
+        when(skuOwnershipRepository.linkedPlatforms(1L, 9L)).thenReturn(List.of(InventoryOutboxEvent.Platform.TIKTOK_SHOP));
 
         service.adjustStock(9L, 5);
 
         assertEquals(5, inventory.getQuantityOnHand());
         verify(inventoryRepository).save(inventory);
-        verify(outboxEventRepository).save(any());
+        verify(outboxEventRepository).save(argThat(e -> e.getPlatform() == InventoryOutboxEvent.Platform.TIKTOK_SHOP
+                && e.getQuantity() == 5));
+    }
+
+    @Test void unlinkedSkuDoesNotCreatePlatformOutboxEvent() {
+        TenantContext.setTenantId(1L);
+        Inventory inventory = new Inventory();
+        inventory.setTenantId(1L);
+        inventory.setSkuId(9L);
+        when(inventoryRepository.findByTenantIdAndSkuId(1L, 9L)).thenReturn(Optional.of(inventory));
+
+        service.adjustStock(9L, 0);
+
+        verifyNoInteractions(outboxEventRepository);
+    }
+
+    @Test void oneEventPerLinkedPlatform() {
+        TenantContext.setTenantId(1L);
+        Inventory inventory = new Inventory();
+        inventory.setTenantId(1L);
+        inventory.setSkuId(9L);
+        when(inventoryRepository.findByTenantIdAndSkuId(1L, 9L)).thenReturn(Optional.of(inventory));
+        when(skuOwnershipRepository.linkedPlatforms(1L, 9L)).thenReturn(
+                List.of(InventoryOutboxEvent.Platform.SHOPEE, InventoryOutboxEvent.Platform.TIKTOK_SHOP));
+
+        service.adjustStock(9L, 0);
+
+        verify(outboxEventRepository, times(2)).save(any());
     }
 
     @Test void missingTenantIsRejectedBeforeLookup() {
@@ -81,6 +113,7 @@ class InventoryServiceTest {
         inventory.setSkuId(9L);
         inventory.setQuantityOnHand(10);
         when(inventoryRepository.findByTenantIdAndSkuId(1L, 9L)).thenReturn(Optional.of(inventory));
+        when(skuOwnershipRepository.linkedPlatforms(1L, 9L)).thenReturn(List.of(InventoryOutboxEvent.Platform.TIKTOK_SHOP));
 
         service.restock(9L, 2, "KEY-123");
 
@@ -89,7 +122,8 @@ class InventoryServiceTest {
         verify(restockLogRepository).save(argThat(log ->
                 log.getTenantId().equals(1L) && log.getSkuId().equals(9L)
                         && log.getQuantity().equals(2) && log.getIdempotencyKey().equals("KEY-123")));
-        verify(outboxEventRepository).save(any());
+        verify(outboxEventRepository).save(argThat(e -> e.getPlatform() == InventoryOutboxEvent.Platform.TIKTOK_SHOP
+                && e.getQuantity() == 12));
     }
 
     @Test void restock_duplicateIdempotencyKey_skipsStockIncrement() {
@@ -111,13 +145,15 @@ class InventoryServiceTest {
         inventory.setSkuId(9L);
         inventory.setQuantityOnHand(5);
         when(inventoryRepository.findByTenantIdAndSkuId(1L, 9L)).thenReturn(Optional.of(inventory));
+        when(skuOwnershipRepository.linkedPlatforms(1L, 9L)).thenReturn(List.of(InventoryOutboxEvent.Platform.TIKTOK_SHOP));
 
         service.restock(9L, 3);
 
         assertEquals(8, inventory.getQuantityOnHand());
         verify(inventoryRepository).save(inventory);
         verifyNoInteractions(restockLogRepository);
-        verify(outboxEventRepository).save(any());
+        verify(outboxEventRepository).save(argThat(e -> e.getPlatform() == InventoryOutboxEvent.Platform.TIKTOK_SHOP
+                && e.getQuantity() == 8));
     }
 
     @Test

@@ -118,7 +118,8 @@ public class TiktokProductImportService {
                     processProduct(connection, summary, run);
                 }
             });
-            status = run.counters().productsFailed() + run.skusConflicted + run.skusUnmatched > 0 ? "completed_with_errors" : "completed";
+            status = run.counters().productsFailed() + run.skusConflicted + run.skusUnmatched > 0 || !run.items.isEmpty()
+                    ? "completed_with_errors" : "completed";
         } catch (SkuLimitReached stop) {
             status = "stopped_sku_limit";
             error = "Plan SKU limit reached (" + run.skuLimit + "); import stopped. Upgrade the plan or remove SKUs, then run the import again.";
@@ -239,11 +240,13 @@ public class TiktokProductImportService {
                     store.updateLinkMeta(plan.link().id(), dto.getPlatformItemId(), v.getSellerSku() != null ? v.getSellerSku() : plan.link().sellerSku(),
                             v.getCurrency(), dto.getPlatformStatus(), productUrl(dto.getPlatformItemId()));
                     reportPrice(dto, v, priceChanges.apply(plan.link(), v.getPrice(), v.getCurrency()), run);
+                    initStock(plan.link().skuId(), dto, v, run);
                     changes++;
                 }
                 case LINK_EXISTING -> {
                     store.insertLink(plan.sku().id(), connectionId, dto.getPlatformItemId(), v.getExternalSkuId(), v.getSellerSku(), v.getCurrency(),
                             dto.getPlatformStatus(), productUrl(dto.getPlatformItemId()), v.getPrice());
+                    initStock(plan.sku().id(), dto, v, run);
                     run.skusLinked++;
                     changes++;
                 }
@@ -256,6 +259,7 @@ public class TiktokProductImportService {
                     long skuId = store.createSku(productId, v.getSellerSku(), v.getVariantName(), v.getPrice());
                     store.insertLink(skuId, connectionId, dto.getPlatformItemId(), v.getExternalSkuId(), v.getSellerSku(), v.getCurrency(),
                             dto.getPlatformStatus(), productUrl(dto.getPlatformItemId()), v.getPrice());
+                    initStock(skuId, dto, v, run);
                     run.skusCreated++;
                     changes++;
                 }
@@ -269,6 +273,26 @@ public class TiktokProductImportService {
             run.productsSkipped++;
         }
         return run;
+    }
+
+    private void initStock(long skuId, MarketplaceProductDto dto, VariantDto variant, Run run) {
+        if (variant.getStock() == null || variant.getStock().isEmpty()) {
+            run.addItem(dto.getPlatformItemId(), variant.getExternalSkuId(), "STOCK_MISSING", "TikTok did not provide SKU stock");
+            return;
+        }
+        long total = 0;
+        for (MarketplaceProductDto.StockDto stock : variant.getStock()) {
+            if (stock.getQuantity() == null || stock.getQuantity() < 0) {
+                run.addItem(dto.getPlatformItemId(), variant.getExternalSkuId(), "STOCK_MISSING", "TikTok provided incomplete SKU stock");
+                return;
+            }
+            total += stock.getQuantity();
+            if (total > Integer.MAX_VALUE) {
+                run.addItem(dto.getPlatformItemId(), variant.getExternalSkuId(), "STOCK_MISSING", "TikTok SKU stock exceeds supported range");
+                return;
+            }
+        }
+        store.initInventoryIfAbsent(skuId, (int) total);
     }
 
     private Plan plan(long connectionId, VariantDto v, Map<String, Integer> sellerSkuCounts) {

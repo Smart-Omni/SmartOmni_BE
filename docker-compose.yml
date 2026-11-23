@@ -191,6 +191,7 @@ services:
       <<: *database-environment
       SPRING_DATA_REDIS_HOST: redis
       SMARTOMNI_JOBS_TOKEN: ${INTERNAL_JOB_TOKEN:?Set INTERNAL_JOB_TOKEN in .env}
+      SMARTOMNI_SERVICES_INTEGRATION_URL: http://integration-service:8086
     networks:
       - smartomni-net
 
@@ -244,6 +245,7 @@ services:
       TIKTOK_AUTHORIZATION_URL: ${TIKTOK_AUTHORIZATION_URL:-}
       TIKTOK_TOKEN_BASE_URL: ${TIKTOK_TOKEN_BASE_URL:-https://auth.tiktok-shops.com}
       TIKTOK_OPEN_API_BASE_URL: ${TIKTOK_OPEN_API_BASE_URL:-https://open-api.tiktokglobalshop.com}
+      TIKTOK_INVENTORY_WEBHOOK_URL: ${TIKTOK_INVENTORY_WEBHOOK_URL:-}
       TIKTOK_ALLOWED_REDIRECT_URIS: ${TIKTOK_ALLOWED_REDIRECT_URIS:-smartomni://oauth/tiktok}
     networks:
       - smartomni-net

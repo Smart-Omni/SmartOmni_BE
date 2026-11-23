@@ -276,6 +276,18 @@ class TiktokConnectionServiceTest {
     }
 
     @Test
+    void connectedCallbackAttemptsInventoryWebhookSubscription() {
+        stateIs(StateOutcome.OK);
+        when(store.link(eq(1L), eq(77L), any())).thenReturn(savedConnection(ConnectionStatus.CONNECTED));
+        var subscriptions = mock(TiktokInventorySubscriptionService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "inventorySubscription", subscriptions);
+
+        service.complete(callback("the-code", "state", null));
+
+        verify(subscriptions).ensureSubscribed(77L);
+    }
+
+    @Test
     void repeatedCallbackIsRejectedAndDoesNotRelinkOrCallTheTokenEndpointAgain() {
         stateIs(StateOutcome.OK);
         when(store.link(eq(1L), eq(77L), any())).thenReturn(savedConnection(ConnectionStatus.CONNECTED));

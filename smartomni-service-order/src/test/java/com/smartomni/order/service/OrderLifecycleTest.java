@@ -1,6 +1,5 @@
 package com.smartomni.order.service;
 
-import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.common.dto.WebhookOrderPayload;
 import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.order.client.InventoryServiceClient;
@@ -208,8 +207,8 @@ class OrderLifecycleTest {
         assertEquals(Order.OrderStatus.TO_SHIP, historyCaptor.getValue().getStatus());
         assertEquals(OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK, historyCaptor.getValue().getSource());
 
-        // Verify inventory deducted
-        verify(inventoryServiceClient).deductStock(eq(101L), eq(2));
+        // TikTok inventory is applied from the absolute stock webhook.
+        verify(inventoryServiceClient, never()).deductStock(anyLong(), anyInt());
     }
 
     @Test
@@ -219,20 +218,9 @@ class OrderLifecycleTest {
         sampleOrder.setStatus(Order.OrderStatus.TO_SHIP);
         sampleOrder.setCourierScannedAt(null);
 
-        OrderItem item1 = new OrderItem();
-        item1.setOrderId(ORDER_ID);
-        item1.setSkuId(101L);
-        item1.setQuantity(3);
-
-        OrderItem item2 = new OrderItem();
-        item2.setOrderId(ORDER_ID);
-        item2.setSkuId(102L);
-        item2.setQuantity(1);
-
         when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
                 .thenReturn(Optional.of(sampleOrder));
         when(orderRepository.save(any(Order.class))).thenReturn(sampleOrder);
-        when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(item1, item2));
 
         Order updated = orderService.handleOrderStatusChange(TENANT_ID, "TIKTOK_SHOP", PLATFORM_ORDER_ID, "CANCELLED");
 
@@ -244,9 +232,7 @@ class OrderLifecycleTest {
         assertEquals(Order.OrderStatus.CANCELLED, historyCaptor.getValue().getStatus());
         assertEquals(OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK, historyCaptor.getValue().getSource());
 
-        // Verify hoàn tồn kho cho từng SKU
-        verify(inventoryServiceClient).restock(eq(101L), eq(3));
-        verify(inventoryServiceClient).restock(eq(102L), eq(1));
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
     }
 
     @Test
@@ -384,13 +370,6 @@ class OrderLifecycleTest {
                 .thenReturn(Optional.of(sampleOrder));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        OrderItem item1 = new OrderItem();
-        item1.setOrderId(ORDER_ID);
-        item1.setSkuId(101L);
-        item1.setQuantity(2);
-
-        when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(item1));
-        when(inventoryServiceClient.restock(eq(101L), eq(2))).thenReturn(ApiResponse.success(null));
 
         com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
                 .tenantId(TENANT_ID)
@@ -409,8 +388,8 @@ class OrderLifecycleTest {
         // Verify ghi nhận lịch sử đổi trạng thái
         verify(orderStatusHistoryRepository).save(any(OrderStatusHistory.class));
 
-        // Verify hoàn tồn kho
-        verify(inventoryServiceClient, times(1)).restock(101L, 2);
+        assertEquals("PLATFORM_SYNC", updated.getRestockStatus());
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
     }
 
     @Test
@@ -449,12 +428,6 @@ class OrderLifecycleTest {
                 .thenReturn(Optional.of(sampleOrder));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        OrderItem item1 = new OrderItem();
-        item1.setSkuId(101L);
-        item1.setQuantity(2);
-
-        when(orderItemRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(item1));
-        when(inventoryServiceClient.restock(eq(101L), eq(2))).thenReturn(ApiResponse.success(null));
 
         com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
                 .tenantId(TENANT_ID)
@@ -470,8 +443,8 @@ class OrderLifecycleTest {
 
         assertNotNull(updated);
         assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
-        assertEquals("RESTOCKED", updated.getRestockStatus());
-        verify(inventoryServiceClient, times(1)).restock(101L, 2);
+        assertEquals("PLATFORM_SYNC", updated.getRestockStatus());
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
     }
 
     @Test
@@ -563,6 +536,7 @@ class OrderLifecycleTest {
     @Test
     @DisplayName("handleOrderReturn: RECEIVE_APPROVE gọi lặp lại không cộng kho lần 2 (idempotent)")
     void handleOrderReturn_duplicateReceiveApprove_isIdempotentAndNeverRestocksTwice() {
+        sampleOrder.setPlatform(Order.Platform.SHOPEE);
         sampleOrder.setStatus(Order.OrderStatus.RETURNED);
         sampleOrder.setRestockStatus("RESTOCKED");
 
@@ -591,6 +565,7 @@ class OrderLifecycleTest {
     @Test
     @DisplayName("handleOrderReturn: trả hàng 1 phần chỉ cộng kho đúng các SKU trong return items")
     void handleOrderReturn_partialItemReturn_restocksOnlyReturnedItems() {
+        sampleOrder.setPlatform(Order.Platform.SHOPEE);
         sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
         sampleOrder.setRestockStatus(null);
 
