@@ -358,6 +358,16 @@ public class OrderService {
         }
 
         Order order = orderOpt.get();
+        if (Boolean.TRUE.equals(request.getPartialReturn())) {
+            // A partial return must not move the whole order to ON_HOLD/RETURNED: only the return record changes.
+            log.info("Trả hàng một phần cho orderId={}, returnId={}: giữ nguyên trạng thái đơn {}",
+                    platformOrderId, request.getReturnId(), order.getStatus());
+            ReturnRefund.RefundStatus refundStatus = partialRefundStatus(request);
+            upsertReturnRecord(tenantId, order, request, refundStatus,
+                    refundStatus == ReturnRefund.RefundStatus.COMPLETED ? ReturnRefund.InspectionResultType.MATCHED
+                            : ReturnRefund.InspectionResultType.PENDING, false);
+            return orderRepository.save(order);
+        }
         ProcessReturnRequest.ReturnAction returnAction = request.getReturnAction();
         String returnStatus = request.getReturnStatus();
         boolean isRestockRequired = Boolean.TRUE.equals(request.getRestockRequired());
@@ -465,6 +475,17 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
+
+    private static ReturnRefund.RefundStatus partialRefundStatus(ProcessReturnRequest request) {
+        ProcessReturnRequest.ReturnAction action = request.getReturnAction();
+        if (action == ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE || action == ProcessReturnRequest.ReturnAction.REFUND_ONLY) {
+            return ReturnRefund.RefundStatus.COMPLETED;
+        }
+        if (action == ProcessReturnRequest.ReturnAction.RECEIVE_REJECT || action == ProcessReturnRequest.ReturnAction.RECEIVE_REJECTED) {
+            return ReturnRefund.RefundStatus.REJECTED;
+        }
+        return ReturnRefund.RefundStatus.REQUESTED;
+    }
 
     private boolean isBeforeCourierHandover(Order.OrderStatus previousStatus, Order order) {
         if (order.getCourierScannedAt() != null) {

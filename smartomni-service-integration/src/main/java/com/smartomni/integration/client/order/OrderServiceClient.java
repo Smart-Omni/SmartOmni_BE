@@ -11,7 +11,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 /**
  * Feign Client gọi sang smartomni-service-order để cập nhật thông tin vận đơn, tracking và đổi trả (Giai đoạn 4).
  */
-@FeignClient(name = "smartomni-service-order", url = "${smartomni.services.order-url:http://localhost:8085}")
+@FeignClient(name = "smartomni-service-order", url = "${smartomni.services.order-url:http://localhost:8085}",
+        configuration = OrderServiceClientAuth.class)
 public interface OrderServiceClient {
 
     @PatchMapping("/api/v1/orders/tracking")

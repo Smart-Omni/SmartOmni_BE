@@ -284,6 +284,49 @@ class OrderLifecycleTest {
     }
 
     @Test
+    @DisplayName("Trả hàng một phần: ghi bản ghi trả hàng nhưng không đổi trạng thái cả đơn, không hoàn kho")
+    void handleOrderReturn_partialReturnKeepsOrderStatus() {
+        sampleOrder.setStatus(Order.OrderStatus.COMPLETED);
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        orderService.handleOrderReturn(com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID).platform("TIKTOK_SHOP").orderId(PLATFORM_ORDER_ID).returnId("RET-1")
+                .returnStatus("RETURN_OR_REFUND_REQUEST_SUCCESS")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE)
+                .restockRequired(true).partialReturn(true).refundAmount(new BigDecimal("100")).build());
+
+        assertEquals(Order.OrderStatus.COMPLETED, sampleOrder.getStatus());
+        verifyNoInteractions(orderStatusHistoryRepository);
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
+        ArgumentCaptor<com.smartomni.order.entity.ReturnRefund> refund =
+                ArgumentCaptor.forClass(com.smartomni.order.entity.ReturnRefund.class);
+        verify(returnRefundRepository).save(refund.capture());
+        assertEquals(com.smartomni.order.entity.ReturnRefund.RefundStatus.COMPLETED, refund.getValue().getStatus());
+        assertEquals(new BigDecimal("100"), refund.getValue().getRefundAmount());
+    }
+
+    @Test
+    @DisplayName("Trả hàng TikTok hoàn tất cả đơn: RETURNED, không gọi hoàn kho (tồn theo snapshot của sàn)")
+    void handleOrderReturn_tiktokFullReturnDoesNotRestock() {
+        sampleOrder.setStatus(Order.OrderStatus.COMPLETED);
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        orderService.handleOrderReturn(com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID).platform("TIKTOK_SHOP").orderId(PLATFORM_ORDER_ID).returnId("RET-1")
+                .returnStatus("RETURN_OR_REFUND_REQUEST_COMPLETE")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE)
+                .restockRequired(true).partialReturn(false).build());
+
+        assertEquals("PLATFORM_SYNC", sampleOrder.getRestockStatus());
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
+        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt(), any());
+    }
+
+    @Test
     @DisplayName("Đơn hàng chuyển sang CANCELLED trước khi giao bưu tá: tự động hoàn trả tồn kho và ghi lịch sử")
     void handleOrderStatusChange_cancelledBeforeCourier_restocksInventory() {
         // Đơn hàng đang ở TO_SHIP và chưa quét bưu tá (courierScannedAt == null)
