@@ -261,3 +261,29 @@ Thứ tự theo mức ưu tiên. Mỗi mục ghi nơi cần sửa. Mã B10 đế
 ## 9. Môi trường sau lượt chạy lại 23/11
 - Stack SmartOmni được dựng lại bằng `docker compose ... down` rồi `up -d` (giữ volume) vì mạng Docker bị hỏng sau khi máy khởi động lại. Integration Service mất khoảng 84 giây để sẵn sàng nên gateway trả 502 trong thời gian đó; cần khởi động lại `smartomni-gateway` sau khi service lên.
 - Shop test được ngắt rồi nối lại; có 4 đơn mới và các yêu cầu trả hoặc hủy trong simulator; 3 lô voucher × 20 mã do `loyalty-vouchers` tạo; tồn SKU `7510080002670926179` đã đặt lại 37.
+
+## 10. Trạng thái sửa (23/11/2026, theo `../plans/tiktok-simulator-alignment/`)
+
+Code của mọi mục dưới đây đã sửa và có unit test pass. Các branch chưa push và chưa có PR. Chưa chạy `mvn -B clean verify`, migration test và E2E với simulator, vì Docker không chạy trong lượt này. Cột "Kết quả E2E" sẽ được điền sau khi chạy.
+
+| Mục | Branch | Thay đổi chính | Kết quả E2E |
+|---|---|---|---|
+| Shopee thiếu stock | `fix/integration-shopee-missing-stock` | Stock không rõ giữ `null`; import báo `STOCK_MISSING` và không tạo tồn 0 | Chưa chạy (không có Shopee sandbox) |
+| B8, B9, P1 #10 | `fix/integration-tiktok-catalog-errors` | Giá gửi dạng số nguyên VND (`sale_price`, nếu không có thì `original_price`); có mã lỗi 400/409 cho giá và tồn; `TiktokApiExceptionHandler` ánh xạ lỗi sàn sang 503/409/502/422; cả hai đường đẩy tồn trả non-2xx khi lỗi; liên kết thiếu `connection_id` trả 409 | Chưa chạy |
+| `skuLimit` 100 so với 400 SKU | `fix/integration-tiktok-catalog-errors` | Auto-import (chạy sau OAuth và qua `POST /tiktok/catalog/auto-import`) tạo SKU mà không kiểm tra `max_skus`; nay dừng ở giới hạn và báo `STOPPED_SKU_LIMIT` | Chưa chạy |
+| B1, B11, B12, P1 #7–#9 | `fix/integration-tiktok-webhook` | Webhook không cần JWT; route theo enum `TiktokWebhookType`; idempotency theo `tts_notification_id`; type 1 lấy chi tiết đơn; bỏ qua event cũ (`orders.platform_updated_at`); đơn có SKU chưa ánh xạ đánh dấu `SKU_UNMAPPED`; polling theo `update_time` có checkpoint (`V26`); đăng ký 6 topic | Chưa chạy |
+| (mới) RLS khi tra shop và khi polling | `fix/integration-tiktok-webhook` | Tra `shop_id` của webhook và danh sách kết nối khi polling chạy không có tenant. Với role cũ (`order_polling_worker` / không role), RLS trả 0 dòng, nên webhook sẽ 404 và polling không chạy. Nay dùng `price_sync_worker` (policy V6) | Chưa chạy |
+| B2, B3, B4, P1 #9 (trả/hủy), #11 | `fix/integration-tiktok-aftersale` (stack trên webhook) | `refund_amount` dạng object; lấy chi tiết trả hàng qua search và có endpoint `/records`; seller hủy đơn qua `POST /return_refund/202309/cancellations`; webhook 11/12 đọc lại bản ghi hiện tại; trả một phần không đổi trạng thái đơn; polling trả/hủy; `OrderServiceClient` gửi JWT nội bộ | Chưa chạy |
+| B13, P1 #12 | `fix/integration-tiktok-vouchers` | Tạo voucher qua API trả 501; kéo mã theo `title_keyword`, đi hết các trang; phát một mã chưa dùng của lô; job theo dõi `redeemed_count`. Không cần migration: `tiktok_vouchers.idempotency_key` lưu `requestKey` đã nhận mã | Chưa chạy |
+| B10, B7, P1 #13, #14 | `fix/integration-tiktok-connection` (stack trên catalog-errors) | Quota chỉ đếm kết nối của sàn khác; thiếu `granted_scopes` nghĩa là không rõ (`null`), bỏ qua kiểm tra; lỗi 403 do thiếu scope trả `TIKTOK_SCOPE_MISSING` | Chưa chạy |
+| B5 | `feat/integration-tiktok-finance-from-orders` (stack trên catalog-errors) | Escrow lấy từ `price_detail`; settlements là ước tính từ đơn `COMPLETED` (`estimated=true`, `source=ESTIMATED_FROM_ORDERS`) | Chưa chạy |
+
+**Quyết định đã ghi:**
+- **Hoàn tồn TikTok (2.6).** SmartOmni không trừ kho cho đơn TikTok, nên cũng không hoàn kho khi trả hoặc hủy. Order service ghi `PLATFORM_SYNC`, còn tồn đi theo snapshot `INVENTORY_CHANGED_BY_SHOP`. Đã có test bảo đảm.
+- **Hủy đơn qua webhook 11.** Chỉ đọc lại và ghi log. Trạng thái đơn lấy từ `ORDER_STATUS_CHANGE`, vì simulator phát event này khi hủy xong. Nếu đẩy yêu cầu hủy qua luồng trả hàng, đơn sẽ bị đặt `ON_HOLD`.
+- **Event cũ trả/hủy.** Handler luôn đọc lại bản ghi hiện tại từ sàn, nên event cũ không áp được trạng thái của nó. Không cần thêm bảng lưu `update_time`.
+- **Outbox tồn.** Mọi response non-2xx đều được retry tối đa `MAX_RETRY` lần, sau đó chuyển `FAILED`, nên một event lỗi vĩnh viễn không chặn SKU mãi. Khi SKU không có liên kết trên sàn đó, push là no-op có ghi log.
+- **Dedupe webhook.** Event đã xử lý là bản trùng. Event có bản ghi nhưng chưa xử lý xong (lần trước trả 503) được xử lý lại. Bản ghi có chữ ký sai lưu `event_id = NULL`.
+- **Voucher.** Tên campaign phải nằm trong tiêu đề lô mã trên Seller Center, vì order service gửi `campaignName` làm `title_keyword`.
+
+**Nội dung cần đưa vào `docs/architecture.md`** (chưa sửa file đó vì đang có thay đổi chưa commit): luồng webhook TikTok (xác thực HMAC → idempotency theo `tts_notification_id` → route theo `TiktokWebhookType` → lấy chi tiết đơn → `order.incoming` → order service bỏ qua event cũ theo `platform_updated_at`); polling bù theo `update_time` có checkpoint `tiktok_sync_checkpoints` (ORDERS, RETURNS, CANCELLATIONS) và overlap; quyết định tồn kho TikTok ở trên; `OrderServiceClient` gửi JWT nội bộ khi chạy nền.

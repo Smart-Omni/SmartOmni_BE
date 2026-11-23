@@ -27,14 +27,14 @@ Chuẩn nghiệp vụ lấy từ `Smartomni-Tiktok-Simulator/docs/smartomni-requ
 |---|---|---|---|---|
 | 0 | [phase-0-stabilize-branch.md](phase-0-stabilize-branch.md) | `fix/inventory-import-initial-stock` | — | **Code đã merge** ([PR #37](https://github.com/Smart-Omni/SmartOmni_BE/pull/37)). Còn commit tài liệu và reset DB local |
 | R | [phase-r-stock-push-rls.md](phase-r-stock-push-rls.md) | `fix/inventory-stock-push-rls` | — | **Đã merge** ([PR #38](https://github.com/Smart-Omni/SmartOmni_BE/pull/38), `d286d5b`) |
-| S | [phase-s-shopee-missing-stock.md](phase-s-shopee-missing-stock.md) | `fix/integration-shopee-missing-stock` | — | Chưa làm |
-| 1 | [phase-1-webhook-orders.md](phase-1-webhook-orders.md) | `fix/integration-tiktok-webhook` | — | Chưa làm, có thể bắt đầu |
-| 2 | [phase-2-aftersale.md](phase-2-aftersale.md) | `fix/integration-tiktok-aftersale` | 1 | Chưa làm |
-| 3 | [phase-3-catalog-errors.md](phase-3-catalog-errors.md) | `fix/integration-tiktok-catalog-errors` | — | Chưa làm, có thể bắt đầu |
-| 4 | [phase-4-vouchers.md](phase-4-vouchers.md) | `fix/integration-tiktok-vouchers` | — | Chưa làm, có thể bắt đầu |
-| 5 | [phase-5-connection-scopes.md](phase-5-connection-scopes.md) | `fix/integration-tiktok-connection` | 3 | Chưa làm |
-| 6 | [phase-6-finance.md](phase-6-finance.md) | `feat/integration-tiktok-finance-from-orders` | 3 | Chưa làm |
-| 7 | [phase-7-docs.md](phase-7-docs.md) | commit cuối mỗi phase, hoặc PR docs riêng | 1–6 | Chưa làm |
+| S | [phase-s-shopee-missing-stock.md](phase-s-shopee-missing-stock.md) | `fix/integration-shopee-missing-stock` | — | Code xong, chưa push |
+| 1 | [phase-1-webhook-orders.md](phase-1-webhook-orders.md) | `fix/integration-tiktok-webhook` | — | Code xong, chưa push; migration test và E2E chưa chạy |
+| 2 | [phase-2-aftersale.md](phase-2-aftersale.md) | `fix/integration-tiktok-aftersale` | 1 | Code xong (stack trên phase 1), chưa push |
+| 3 | [phase-3-catalog-errors.md](phase-3-catalog-errors.md) | `fix/integration-tiktok-catalog-errors` | — | Code xong, chưa push |
+| 4 | [phase-4-vouchers.md](phase-4-vouchers.md) | `fix/integration-tiktok-vouchers` | — | Code xong, không cần `V27`, chưa push |
+| 5 | [phase-5-connection-scopes.md](phase-5-connection-scopes.md) | `fix/integration-tiktok-connection` | 3 | Code xong (stack trên phase 3), chưa push |
+| 6 | [phase-6-finance.md](phase-6-finance.md) | `feat/integration-tiktok-finance-from-orders` | 3 | Code xong (stack trên phase 3), chưa push |
+| 7 | [phase-7-docs.md](phase-7-docs.md) | `docs/integration-tiktok-simulator-alignment` | 1–6 | Tài liệu và báo cáo đã cập nhật; `architecture.md` chờ (đang có thay đổi chưa commit) |
 
 **Thứ tự:**
 - Phase 0 và R đã vào `develop`, nên không còn cần stacked PR. Mọi phase mới đều tạo từ `origin/develop` mới nhất.

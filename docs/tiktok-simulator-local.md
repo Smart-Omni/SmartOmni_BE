@@ -64,7 +64,22 @@ Xác nhận `GET http://localhost/api/v1/marketplace-connections/tiktok-shop` v�
 
 Nếu chưa có app bắt deep link, dùng browser devtools hoặc chức năng copy URL chuyển hướng của browser để lấy `code` và `state`, rồi gọi callback thủ công. Không đưa code/token vào log công khai. Xem log bằng `docker compose logs -f integration-service` và `docker compose logs -f api` trong từng repo.
 
-## 4. Lỗi thường gặp
+## 4. Webhook, polling và lưu ý khi dựng lại
+
+- **URL webhook.** Đặt trong `.env` của SmartOmni:
+
+  ```dotenv
+  TIKTOK_WEBHOOK_URL=http://integration-service:8086/api/v1/integrations/tiktok/webhooks
+  ```
+
+  Sau khi kết nối shop, SmartOmni đăng ký 6 topic với cùng địa chỉ này: `ORDER_STATUS_CHANGE`, `PACKAGE_UPDATE`, `RETURN_STATUS_CHANGE`, `CANCELLATION_STATUS_CHANGE`, `SELLER_DEAUTHORIZATION` và `INVENTORY_CHANGED_BY_SHOP`. Scheduler đăng ký lại mỗi 15 phút. `TIKTOK_INVENTORY_WEBHOOK_URL` vẫn được đọc khi `TIKTOK_WEBHOOK_URL` trống, nhưng đã cũ. Kiểm tra bằng `GET /event/202309/webhooks` ở simulator: phải thấy 6 topic.
+- **Webhook không cần JWT.** Endpoint được xác thực bằng chữ ký HMAC. Mỗi `tts_notification_id` chỉ được xử lý một lần. Khi gặp lỗi tạm thời, SmartOmni trả 503 để simulator gửi lại.
+- **Polling bù.** Đơn, trả hàng và hủy đơn được quét theo `update_time`, có checkpoint trong `tiktok_sync_checkpoints` và lùi 300 giây (`smartomni.order-polling.overlap-seconds`). Có thể gọi tay bằng `POST /internal/jobs/poll-orders` (cần token nội bộ).
+- **Khởi động lại gateway** (`docker restart smartomni-gateway`) sau khi tạo lại container service. Integration Service mất khoảng 84 giây để sẵn sàng, và trong lúc đó Nginx giữ upstream cũ.
+- **Simulator không còn `ON_HOLD`** (từ `7f721af`). SmartOmni vẫn giữ nhánh `ON_HOLD` vì sàn thật còn dùng trạng thái này.
+- **Reset DB local sau khi đổi tên migration.** DB đã chạy `V24__tiktok_inventory_snapshots` trước khi file được đổi thành `V25`, nên Flyway báo lệch. Chạy `docker compose -f docker-compose.yml -f docker-compose.tiktok-simulator.yml down -v`, rồi `up --build -d`, sau đó tạo lại tenant bằng `POST /api/v1/tenants/onboarding`. Lệnh `down -v` xóa toàn bộ dữ liệu local.
+
+## 5. Lỗi thường gặp
 
 | Hiện tượng | Kiểm tra |
 | --- | --- |
