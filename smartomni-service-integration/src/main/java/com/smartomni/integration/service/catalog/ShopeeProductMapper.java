@@ -35,7 +35,15 @@ public final class ShopeeProductMapper {
             v.setCurrency(item.currency() != null ? item.currency() : "VND");
             v.setPrice(item.currentPrice());
             v.setVariantName("Default");
-            v.setStock(stock(item.availableStock()));
+
+            int stockQty = item.availableStock();
+            if (models != null && !models.isEmpty() && models.get(0).availableStock() > 0) {
+                stockQty = models.get(0).availableStock();
+            }
+            MarketplaceProductDto.StockDto stockDto = new MarketplaceProductDto.StockDto();
+            stockDto.setQuantity(stockQty);
+            v.setStock(List.of(stockDto));
+
             variants.add(v);
         } else {
             // 2-Tier or multi-model variations
@@ -46,18 +54,15 @@ public final class ShopeeProductMapper {
                 v.setCurrency(m.currency() != null ? m.currency() : "VND");
                 v.setPrice(m.currentPrice());
                 v.setVariantName(m.modelName() != null && !m.modelName().isBlank() ? m.modelName() : "Model " + m.modelId());
-                v.setStock(stock(m.availableStock()));
+
+                MarketplaceProductDto.StockDto stockDto = new MarketplaceProductDto.StockDto();
+                stockDto.setQuantity(m.availableStock());
+                v.setStock(List.of(stockDto));
+
                 variants.add(v);
             }
         }
         dto.setVariants(variants);
         return dto;
-    }
-
-    private static List<MarketplaceProductDto.StockDto> stock(Integer quantity) {
-        if (quantity == null) return null;
-        MarketplaceProductDto.StockDto value = new MarketplaceProductDto.StockDto();
-        value.setQuantity(quantity);
-        return List.of(value);
     }
 }

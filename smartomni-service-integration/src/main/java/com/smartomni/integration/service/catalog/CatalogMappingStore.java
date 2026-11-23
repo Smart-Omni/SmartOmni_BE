@@ -70,6 +70,10 @@ public interface CatalogMappingStore {
 
     void setProductHidden(long productId, boolean hidden);
 
+    void saveProductImage(long productId, String imageUrl);
+
+    Optional<Long> findProductIdByPlatformItemId(long connectionId, String platformItemId);
+
     long createSku(long productId, String skuCode, String variantName, BigDecimal basePrice);
 
     long insertLink(long skuId, long connectionId, String externalProductId, String externalSkuId, String sellerSku,

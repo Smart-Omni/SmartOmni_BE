@@ -32,8 +32,7 @@ class OutboxPublisherSchedulerTest {
     @Test
     void marksSentOnlyAfterPushSucceeds() {
         InventoryOutboxEvent event = event(5);
-        when(repository.findTop100ByStatusAndPlatformOrderByCreatedAtAsc(
-                InventoryOutboxEvent.OutboxStatus.PENDING, InventoryOutboxEvent.Platform.TIKTOK_SHOP))
+        when(repository.findTop100ByStatusOrderByCreatedAtAsc(InventoryOutboxEvent.OutboxStatus.PENDING))
                 .thenReturn(List.of(event));
         runTransactionCallback();
 
@@ -49,8 +48,7 @@ class OutboxPublisherSchedulerTest {
     void failureKeepsPendingAndBlocksNewerValueForSameSku() {
         InventoryOutboxEvent older = event(5);
         InventoryOutboxEvent newer = event(0);
-        when(repository.findTop100ByStatusAndPlatformOrderByCreatedAtAsc(
-                InventoryOutboxEvent.OutboxStatus.PENDING, InventoryOutboxEvent.Platform.TIKTOK_SHOP))
+        when(repository.findTop100ByStatusOrderByCreatedAtAsc(InventoryOutboxEvent.OutboxStatus.PENDING))
                 .thenReturn(List.of(older, newer));
         doThrow(new IllegalStateException("TikTok unavailable")).when(client).push(older);
         runTransactionCallback();
@@ -63,6 +61,23 @@ class OutboxPublisherSchedulerTest {
         verify(client).push(older);
         verify(client, never()).push(newer);
         verify(repository).save(older);
+    }
+
+    @Test
+    void nonTiktokEventDoesNotUseTiktokClient() {
+        InventoryOutboxEvent event = event(3);
+        event.setPlatform(InventoryOutboxEvent.Platform.SHOPEE);
+        when(repository.findTop100ByStatusOrderByCreatedAtAsc(InventoryOutboxEvent.OutboxStatus.PENDING))
+                .thenReturn(List.of(event));
+        runTransactionCallback();
+
+        new OutboxPublisherScheduler(repository, transactions, client).publishPendingEvents();
+
+        verify(client, never()).push(any());
+        // No integration URL is configured in this unit test, so the generic push fails and is retried later.
+        assertEquals(InventoryOutboxEvent.OutboxStatus.PENDING, event.getStatus());
+        assertEquals(1, event.getRetryCount());
+        verify(repository).save(event);
     }
 
     private void runTransactionCallback() {

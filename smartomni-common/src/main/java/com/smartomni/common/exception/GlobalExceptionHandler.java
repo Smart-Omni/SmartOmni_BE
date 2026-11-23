@@ -2,6 +2,7 @@ package com.smartomni.common.exception;
 
 import com.smartomni.common.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.mapping.PropertyReferenceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -33,6 +34,12 @@ public class GlobalExceptionHandler {
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining("; "));
         return ResponseEntity.badRequest().body(ApiResponse.error(message, "VALIDATION_ERROR"));
+    }
+
+    @ExceptionHandler(PropertyReferenceException.class)
+    public ResponseEntity<ApiResponse<Object>> handlePropertyReferenceException(PropertyReferenceException ex) {
+        return ResponseEntity.badRequest()
+                .body(ApiResponse.error("Trường sắp xếp không hợp lệ: " + ex.getPropertyName(), "INVALID_SORT_PARAMETER"));
     }
 
     @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)

@@ -155,6 +155,27 @@ public class JdbcCatalogMappingStore implements CatalogMappingStore {
     }
 
     @Override
+    public void saveProductImage(long productId, String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank()) return;
+        String normalizedUrl = (imageUrl.contains("googleusercontent.com/d/") && !imageUrl.contains("="))
+                ? imageUrl + "=s200"
+                : imageUrl;
+        jdbc.update("INSERT INTO product_images (tenant_id, product_id, url, sort_order, created_at) "
+                        + "SELECT ?, ?, ?, 0, now() "
+                        + "WHERE NOT EXISTS (SELECT 1 FROM product_images WHERE tenant_id = ? AND product_id = ? AND url = ?)",
+                tenant(), productId, normalizedUrl, tenant(), productId, normalizedUrl);
+    }
+
+    @Override
+    public Optional<Long> findProductIdByPlatformItemId(long connectionId, String platformItemId) {
+        List<Long> rows = jdbc.query(
+                "SELECT s.product_id FROM product_marketplace_links l JOIN product_skus s ON s.id = l.sku_id "
+                        + "WHERE l.tenant_id = ? AND l.connection_id = ? AND l.platform_item_id = ? LIMIT 1",
+                (rs, i) -> rs.getLong(1), tenant(), connectionId, platformItemId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    @Override
     public long createSku(long productId, String skuCode, String variantName, BigDecimal basePrice) {
         return insertReturningId("INSERT INTO product_skus (tenant_id, product_id, sku_code, variant_name, base_price, created_at) "
                 + "VALUES (?, ?, ?, ?, ?, now())", tenant(), productId, skuCode, variantName, basePrice);
@@ -165,8 +186,8 @@ public class JdbcCatalogMappingStore implements CatalogMappingStore {
                            String currency, String externalStatus, String productUrl, BigDecimal price) {
         return insertReturningId("INSERT INTO product_marketplace_links (tenant_id, sku_id, connection_id, platform, platform_item_id, "
                         + "platform_product_url, platform_price, last_synced_at, external_product_id, external_sku_id, seller_sku, currency, "
-                        + "external_status, created_at) VALUES (?, ?, ?, 'tiktok_shop'::platform_type, ?, ?, ?, now(), ?, ?, ?, ?, ?, now())",
-                tenant(), skuId, connectionId, externalProductId, productUrl, price, externalProductId, externalSkuId, sellerSku, currency, externalStatus);
+                        + "external_status, created_at) VALUES (?, ?, ?, (SELECT platform FROM marketplace_connections WHERE id = ?), ?, ?, ?, now(), ?, ?, ?, ?, ?, now())",
+                tenant(), skuId, connectionId, connectionId, externalProductId, productUrl, price, externalProductId, externalSkuId, sellerSku, currency, externalStatus);
     }
 
     @Override

@@ -29,12 +29,12 @@ public class ShopeeCatalogClient {
 
     public record ShopeeItemDetail(long itemId, String itemName, String itemSku, String description,
                                    String itemStatus, boolean hasModel, String currency,
-                                   BigDecimal originalPrice, BigDecimal currentPrice, Integer availableStock,
+                                   BigDecimal originalPrice, BigDecimal currentPrice, int availableStock,
                                    String imageUrl) {
     }
 
     public record ShopeeModelDetail(long modelId, String modelName, String modelSku, String currency,
-                                    BigDecimal originalPrice, BigDecimal currentPrice, Integer availableStock) {
+                                    BigDecimal originalPrice, BigDecimal currentPrice, int availableStock) {
     }
 
     public record ShopeeWarehouseDetail(String warehouseId, String name, String address, String city, String region) {
@@ -96,8 +96,7 @@ public class ShopeeCatalogClient {
                     currentPrice = BigDecimal.valueOf(firstPrice.path("current_price").asDouble(0));
                 }
 
-                JsonNode stock = item.path("stock_info_v2").path("summary_info").path("total_available_stock");
-                Integer availableStock = stock.isIntegralNumber() && stock.canConvertToInt() && stock.intValue() >= 0 ? stock.intValue() : null;
+                int availableStock = item.path("stock_info_v2").path("summary_info").path("total_available_stock").asInt(0);
                 String imageUrl = null;
                 JsonNode imgArr = item.path("image").path("image_url_list");
                 if (imgArr.isArray() && !imgArr.isEmpty()) {
@@ -135,8 +134,7 @@ public class ShopeeCatalogClient {
                     currentPrice = BigDecimal.valueOf(firstPrice.path("current_price").asDouble(0));
                 }
 
-                JsonNode stock = m.path("stock_info_v2").path("summary_info").path("total_available_stock");
-                Integer availableStock = stock.isIntegralNumber() && stock.canConvertToInt() && stock.intValue() >= 0 ? stock.intValue() : null;
+                int availableStock = m.path("stock_info_v2").path("summary_info").path("total_available_stock").asInt(0);
                 models.add(new ShopeeModelDetail(modelId, modelName, modelSku, currency, originalPrice, currentPrice, availableStock));
             }
         }
