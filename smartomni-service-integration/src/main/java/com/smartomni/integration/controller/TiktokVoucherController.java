@@ -34,8 +34,9 @@ public class TiktokVoucherController {
     }
 
     @PostMapping("/sync")
-    public ResponseEntity<ApiResponse<List<TiktokVoucherDto>>> syncCoupons() {
+    public ResponseEntity<ApiResponse<List<TiktokVoucherDto>>> syncCoupons(
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String title) {
         return ResponseEntity.ok(ApiResponse.success("Coupons synced from TikTok Simulator",
-                voucherService.syncCouponsFromSimulator()));
+                voucherService.syncCouponsFromSimulator(title)));
     }
 }

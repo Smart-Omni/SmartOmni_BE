@@ -20,11 +20,9 @@ import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.UUID;
 
 /**
  * Service managing TikTok Shop voucher issuance and coupon sync with PostgreSQL RLS (WF-02 Part A).
@@ -39,59 +37,27 @@ public class TiktokVoucherService {
     private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate transactionTemplate;
 
+    /**
+     * TikTok has no coupon creation API: codes are created as a batch on Seller Center. Always 501
+     * {@code TIKTOK_VOUCHER_CREATE_UNSUPPORTED}; nothing is generated locally anymore.
+     */
     public TiktokVoucherDto createVoucher(CreateTiktokVoucherRequest request) {
-        validateRequest(request);
-        MarketplaceConnection connection = tenantConnections.requireConnected();
-
-        Instant startTime = request.getStartTime() != null ? request.getStartTime() : Instant.now();
-        Instant endTime = request.getEndTime() != null ? request.getEndTime() : startTime.plus(30, ChronoUnit.DAYS);
-        if (!endTime.isAfter(startTime)) {
-            throw new BusinessException("endTime must be after startTime", HttpStatus.BAD_REQUEST, "INVALID_VOUCHER_DATES");
-        }
-
-        String normalizedType = request.getDiscountType().trim().toUpperCase(Locale.ROOT);
-        String code = (request.getCode() != null && !request.getCode().isBlank())
-                ? request.getCode().trim().toUpperCase(Locale.ROOT)
-                : "SO" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(Locale.ROOT);
-        String externalVoucherId = "SO-VCH-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(Locale.ROOT);
-
-        TiktokVoucherDto voucher = TiktokVoucherDto.builder()
-                .tiktokVoucherId(externalVoucherId)
-                .voucherCode(code)
-                .title(request.getTitle().trim())
-                .discountType(normalizedType)
-                .discountValue(request.getDiscountValue())
-                .maxDiscountAmount(request.getMaxDiscountAmount())
-                .minOrderAmount(request.getMinOrderAmount())
-                .usageLimit(request.getUsageLimit())
-                .redeemedCount(0)
-                .startTime(startTime)
-                .endTime(endTime)
-                .status("ONGOING")
-                .build();
-
-        long tenantId = connection.getTenantId();
-        String role = currentRole();
-        String idempotencyKey = request.getIdempotencyKey();
-
-        return transactionTemplate.execute(status -> {
-            applyRls(tenantId, role);
-            long voucherDbId = upsertVoucherRow(tenantId, connection, voucher, idempotencyKey);
-            voucher.setId(voucherDbId);
-            voucher.setTenantId(tenantId);
-            voucher.setConnectionId(connection.getId());
-            voucher.setShopId(connection.getShopId());
-            voucher.setCreatedAt(Instant.now());
-            return voucher;
-        });
+        throw new BusinessException("TikTok vouchers cannot be created through the API. Create a batch of codes on "
+                + "TikTok Seller Center, then sync them with POST /api/v1/tiktok/vouchers/sync?title=<batch title>.",
+                HttpStatus.NOT_IMPLEMENTED, "TIKTOK_VOUCHER_CREATE_UNSUPPORTED");
     }
 
     /**
      * Syncs read-only coupons from TikTok Simulator ({@code POST /promotion/202406/coupons/search}) into DB.
      */
     public List<TiktokVoucherDto> syncCouponsFromSimulator() {
+        return syncCouponsFromSimulator(null);
+    }
+
+    /** Pulls every coupon (all pages), or only those whose title contains {@code batchTitle}. */
+    public List<TiktokVoucherDto> syncCouponsFromSimulator(String batchTitle) {
         MarketplaceConnection connection = tenantConnections.requireConnected();
-        List<TiktokVoucherDto> coupons = voucherClient.searchCoupons(connection.getId());
+        List<TiktokVoucherDto> coupons = voucherClient.searchCoupons(connection.getId(), batchTitle, null);
 
         long tenantId = connection.getTenantId();
         String role = currentRole();
@@ -210,32 +176,6 @@ public class TiktokVoucherService {
     private static String currentRole() {
         String role = TenantContext.getCurrentRole();
         return (role == null || role.isBlank()) ? "tenant_admin" : role.toLowerCase(Locale.ROOT);
-    }
-
-    private static void validateRequest(CreateTiktokVoucherRequest request) {
-        if (request == null) {
-            throw new BusinessException("Voucher request body is required", HttpStatus.BAD_REQUEST, "INVALID_VOUCHER_REQUEST");
-        }
-        if (request.getTitle() == null || request.getTitle().isBlank()) {
-            throw new BusinessException("Voucher title is required", HttpStatus.BAD_REQUEST, "INVALID_VOUCHER_TITLE");
-        }
-        if (request.getDiscountType() == null || request.getDiscountType().isBlank()) {
-            throw new BusinessException("discountType is required (PERCENT_OFF or AMOUNT_OFF)",
-                    HttpStatus.BAD_REQUEST, "INVALID_DISCOUNT_TYPE");
-        }
-        String type = request.getDiscountType().trim().toUpperCase(Locale.ROOT);
-        if (!"PERCENT_OFF".equals(type) && !"AMOUNT_OFF".equals(type)) {
-            throw new BusinessException("discountType must be PERCENT_OFF or AMOUNT_OFF",
-                    HttpStatus.BAD_REQUEST, "INVALID_DISCOUNT_TYPE");
-        }
-        if (request.getDiscountValue() == null || request.getDiscountValue().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException("discountValue must be greater than 0",
-                    HttpStatus.BAD_REQUEST, "INVALID_DISCOUNT_VALUE");
-        }
-        if ("PERCENT_OFF".equals(type) && request.getDiscountValue().compareTo(new BigDecimal("100")) > 0) {
-            throw new BusinessException("discountValue for PERCENT_OFF must be between 1 and 100",
-                    HttpStatus.BAD_REQUEST, "INVALID_DISCOUNT_VALUE");
-        }
     }
 
     private static Instant toInstant(Timestamp ts) {
