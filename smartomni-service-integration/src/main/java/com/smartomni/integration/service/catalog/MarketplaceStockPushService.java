@@ -1,5 +1,6 @@
 package com.smartomni.integration.service.catalog;
 
+import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.integration.client.shopee.ShopeeCatalogClient;
 import com.smartomni.integration.client.tiktok.TiktokCatalogClient;
 import com.smartomni.integration.entity.MarketplaceConnection;
@@ -28,10 +29,13 @@ public class MarketplaceStockPushService {
         log.info("[StockPush] Starting stock push: tenantId={}, platform={}, skuId={}, quantity={}",
                 tenantId, platformStr, skuId, quantity);
 
-        try {
-            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
-            jdbc.execute("SELECT set_config('app.user_role', 'admin', false)");
-        } catch (Exception ignored) {}
+        // RLS context comes from the caller's TenantContext scope: RlsJpaDialect applies it with
+        // transaction-local set_config when this @Transactional method starts. Never set it here at
+        // session scope, where it would stay on the pooled connection for the next request.
+        Long scopedTenantId = TenantContext.getTenantId();
+        if (tenantId == null || !tenantId.equals(scopedTenantId)) {
+            throw new IllegalStateException("Stock push requires a tenant scope for tenantId=" + tenantId);
+        }
 
         String sql = """
             SELECT l.id, l.connection_id, l.platform, l.platform_item_id, l.external_sku_id, l.seller_sku
