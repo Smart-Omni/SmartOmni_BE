@@ -167,7 +167,22 @@ public class TiktokCatalogService {
         MarketplaceConnection connection = tenantConnections.requireConnected();
         log.info("Updating TikTok price: tenantId={}, connectionId={}, productId={}, skuId={}, origPrice={}, salePrice={}",
                 connection.getTenantId(), connection.getId(), productId, skuId, originalPrice, salePrice);
-        catalogClient.updatePrice(connection.getId(), productId, skuId, originalPrice, salePrice);
+        catalogClient.updatePrice(connection.getId(), productId, skuId, originalPrice, salePrice,
+                linkCurrency(connection, skuId));
+    }
+
+    /** Currency stored on the SKU link, or {@code null} (the client then sends VND) when the SKU is not linked. */
+    private String linkCurrency(MarketplaceConnection connection, String skuId) {
+        if (mappingStore == null || transactionTemplate == null || skuId == null || skuId.isBlank()) {
+            return null;
+        }
+        try (var scope = TenantContext.getTenantId() == null
+                ? TenantContext.openScope(connection.getTenantId(), null, null)
+                : null) {
+            return transactionTemplate.execute(status -> mappingStore.findLinkByExternalSku(connection.getId(), skuId)
+                    .map(CatalogMappingStore.LinkRef::currency)
+                    .orElse(null));
+        }
     }
 }
 

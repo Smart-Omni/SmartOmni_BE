@@ -1,6 +1,8 @@
 package com.smartomni.integration.controller;
 
 import com.smartomni.common.dto.ApiResponse;
+import com.smartomni.common.exception.BusinessException;
+import com.smartomni.integration.client.tiktok.TiktokCatalogClient;
 import com.smartomni.integration.service.catalog.ImportReport;
 import com.smartomni.integration.service.catalog.TiktokCatalogService;
 import com.smartomni.integration.service.catalog.TiktokPriceSyncService;
@@ -11,6 +13,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -75,6 +78,9 @@ public class TiktokCatalogController {
         log.info("Request to update TikTok stock: shopId={}, productId={}, skuId={}, qty={}",
                 request.getShopId(), request.getProductId(), request.getSkuId(), request.getQuantity());
 
+        if (request.getQuantity() == null) {
+            throw new BusinessException("quantity is required", HttpStatus.BAD_REQUEST, "TIKTOK_STOCK_INVALID");
+        }
         if (catalogService != null) {
             catalogService.updateStock(request.getShopId(), request.getProductId(), request.getSkuId(),
                     request.getQuantity());
@@ -96,19 +102,19 @@ public class TiktokCatalogController {
                 request.getShopId(), request.getProductId(), request.getSkuId(),
                 request.getOriginalPrice(), request.getSalePrice());
 
+        // Same rule as the body sent to TikTok: sale price first, then original price, as an integer VND amount.
+        // Validated before the push so an invalid price is a 400 TIKTOK_PRICE_INVALID, never a platform call.
+        String finalPrice = TiktokCatalogClient.priceAmount(request.getOriginalPrice(), request.getSalePrice());
+
         if (catalogService != null) {
             catalogService.updatePrice(request.getShopId(), request.getProductId(), request.getSkuId(),
                     request.getOriginalPrice(), request.getSalePrice());
         }
 
-        BigDecimal finalPrice = request.getOriginalPrice() != null
-                ? request.getOriginalPrice()
-                : (request.getSalePrice() != null ? request.getSalePrice() : BigDecimal.ZERO);
-
         return ApiResponse.success("Price updated successfully",
                 Map.of("productId", request.getProductId() != null ? request.getProductId() : "",
                         "skuId", request.getSkuId() != null ? request.getSkuId() : "",
-                        "price", finalPrice));
+                        "price", new BigDecimal(finalPrice)));
     }
 
     /**
