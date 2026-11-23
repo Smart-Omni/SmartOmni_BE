@@ -1,31 +1,42 @@
 package com.smartomni.integration.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartomni.common.exception.BusinessException;
 import com.smartomni.common.security.WebhookHmacValidator;
-import com.smartomni.integration.config.TiktokProperties;
+import com.smartomni.integration.client.tiktok.TiktokApiException;
 import com.smartomni.integration.config.RabbitMQConfig;
+import com.smartomni.integration.config.TiktokProperties;
 import com.smartomni.integration.entity.MarketplaceConnection;
-import com.smartomni.integration.entity.WebhookEventLog;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
-import com.smartomni.integration.repository.WebhookEventLogRepository;
 import com.smartomni.integration.service.AesEncryptionService;
+import com.smartomni.integration.service.tiktok.TiktokFulfillmentService;
+import com.smartomni.integration.service.tiktok.TiktokOrderIngestionService;
+import com.smartomni.integration.service.tiktok.TiktokReturnService;
+import com.smartomni.integration.service.tiktok.TiktokWebhookEventRecorder;
+import com.smartomni.integration.service.tiktok.TiktokWebhookEventRecorder.Claim;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -33,266 +44,244 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("TiktokWebhookController Unit Tests")
 class TiktokWebhookControllerTest {
 
     private static final String WEBHOOK_PATH = "/api/v1/integrations/tiktok/webhooks";
     private static final String APP_SECRET = "test-tiktok-app-secret-12345";
     private static final String SHOP_CIPHER = "TEST_CIPHER_SHOP_999";
+    private static final long TENANT_ID = 100L;
 
-    @Mock
-    private MarketplaceConnectionRepository connectionRepository;
-
-    @Mock
-    private WebhookEventLogRepository webhookEventLogRepository;
-
-    @Mock
-    private AesEncryptionService encryptionService;
-
-    @Mock
-    private RabbitTemplate rabbitTemplate;
+    @Mock private MarketplaceConnectionRepository connectionRepository;
+    @Mock private TiktokWebhookEventRecorder eventRecorder;
+    @Mock private AesEncryptionService encryptionService;
+    @Mock private RabbitTemplate rabbitTemplate;
+    @Mock private TiktokOrderIngestionService orderIngestionService;
+    @Mock private TiktokReturnService returnService;
+    @Mock private TiktokFulfillmentService fulfillmentService;
 
     private WebhookHmacValidator webhookHmacValidator;
-    private TiktokProperties properties;
-    private ObjectMapper objectMapper;
+    private MarketplaceConnection connection;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         webhookHmacValidator = new WebhookHmacValidator();
-        properties = new TiktokProperties();
+        TiktokProperties properties = new TiktokProperties();
         properties.setAppSecret(APP_SECRET);
-        objectMapper = new ObjectMapper();
 
-        TiktokWebhookController controller = new TiktokWebhookController(
-                connectionRepository,
-                webhookEventLogRepository,
-                webhookHmacValidator,
-                properties,
-                encryptionService,
-                rabbitTemplate,
-                objectMapper
-        );
-
+        TiktokWebhookController controller = new TiktokWebhookController(connectionRepository, eventRecorder,
+                webhookHmacValidator, properties, encryptionService, rabbitTemplate, new ObjectMapper(), orderIngestionService);
+        controller.setReturnService(returnService);
+        controller.setFulfillmentService(fulfillmentService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        connection = new MarketplaceConnection();
+        connection.setId(10L);
+        connection.setTenantId(TENANT_ID);
+        connection.setShopCipher(SHOP_CIPHER);
+        connection.setPlatform(MarketplaceConnection.Platform.TIKTOK_SHOP);
+        connection.setStatus(MarketplaceConnection.ConnectionStatus.CONNECTED);
+        when(connectionRepository.findFirstByShopCipher(SHOP_CIPHER)).thenReturn(Optional.of(connection));
+        when(eventRecorder.claim(anyLong(), anyString(), anyString(), anyString())).thenReturn(Claim.NEW);
+    }
+
+    private static String body(int type, String notificationId, String data) {
+        String id = notificationId == null ? "" : "\"tts_notification_id\":\"" + notificationId + "\",";
+        return "{\"type\":" + type + "," + id + "\"shop_id\":\"" + SHOP_CIPHER + "\",\"timestamp\":"
+                + Instant.now().getEpochSecond() + ",\"data\":" + data + "}";
+    }
+
+    private ResultActions send(String body) throws Exception {
+        long timestamp = Instant.now().getEpochSecond();
+        String signature = webhookHmacValidator.calculateHmacSha256(APP_SECRET + WEBHOOK_PATH + timestamp + body, APP_SECRET);
+        return mockMvc.perform(post(WEBHOOK_PATH).contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", signature).header("Timestamp", String.valueOf(timestamp)).content(body));
     }
 
     @Test
-    @DisplayName("200 OK: Webhook hợp lệ với HMAC-SHA256 signature và timestamp trong tolerance")
-    void testReceiveWebhook_Success_200Ok() throws Exception {
-        Long tenantId = 100L;
-        MarketplaceConnection connection = new MarketplaceConnection();
-        connection.setId(10L);
-        connection.setTenantId(tenantId);
-        connection.setShopCipher(SHOP_CIPHER);
-        connection.setPlatform(MarketplaceConnection.Platform.TIKTOK_SHOP);
+    @DisplayName("Type 1: lấy chi tiết đơn qua ingestion service, không còn đẩy raw JSON vào order.incoming")
+    void orderStatusChangeFetchesOrderDetail() throws Exception {
+        String body = body(1, "notif-001", "{\"order_id\":\"ORD-999\",\"order_status\":\"AWAITING_SHIPMENT\"}");
 
-        when(connectionRepository.findFirstByShopCipher(SHOP_CIPHER)).thenReturn(Optional.of(connection));
+        send(body).andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0));
 
-        long timestamp = Instant.now().getEpochSecond();
-        String rawBody = String.format("""
-            {"type":1,"tts_notification_id":"notif-001","shop_id":"%s","timestamp":%d,"data":{"order_id":"ORD-999"}}
-            """, SHOP_CIPHER, timestamp);
+        verify(eventRecorder).claim(TENANT_ID, "notif-001", "ORDER_STATUS_CHANGE", body);
+        verify(orderIngestionService).processOrderEvent(eq(TENANT_ID), eq(connection), any(JsonNode.class));
+        verify(rabbitTemplate, never()).convertAndSend(eq(TiktokWebhookController.ORDER_EXCHANGE),
+                eq(TiktokWebhookController.ORDER_ROUTING_KEY), any(Object.class));
+        verify(eventRecorder).markProcessed(TENANT_ID, "notif-001", "ORDER_STATUS_CHANGE");
+    }
 
-        String contentToSign = APP_SECRET + WEBHOOK_PATH + timestamp + rawBody;
-        String validSignature = webhookHmacValidator.calculateHmacSha256(contentToSign, APP_SECRET);
+    @Test
+    @DisplayName("Type 1: lỗi tạm thời từ TikTok trả 503 và không đánh dấu đã xử lý (để sàn gửi lại)")
+    void orderStatusChangeTransientFailureIs503() throws Exception {
+        doThrow(new TiktokApiException("timeout", 0, null, null, true))
+                .when(orderIngestionService).processOrderEvent(eq(TENANT_ID), eq(connection), any());
 
-        mockMvc.perform(post(WEBHOOK_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .header("Authorization", validSignature)
-                        .header("Timestamp", String.valueOf(timestamp))
-                        .content(rawBody))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.message").value("success"));
+        send(body(1, "notif-002", "{\"order_id\":\"ORD-1\"}")).andExpect(status().isServiceUnavailable());
 
-        // Verify audit log được ghi lại với signatureValid = true và queued = true
-        ArgumentCaptor<WebhookEventLog> logCaptor = ArgumentCaptor.forClass(WebhookEventLog.class);
-        verify(webhookEventLogRepository).save(logCaptor.capture());
-        WebhookEventLog savedLog = logCaptor.getValue();
-        assertNotNull(savedLog);
-        assertEquals(tenantId, savedLog.getTenantId());
-        assertEquals("notif-001", savedLog.getEventId());
-        assertEquals("ORDER_STATUS_CHANGE", savedLog.getEventType());
-        assertTrue(savedLog.getSignatureValid());
-        assertTrue(savedLog.isQueued());
+        verify(eventRecorder, never()).markProcessed(anyLong(), anyString(), anyString());
+    }
 
-        // Verify RabbitMQ đã được gửi payload
-        verify(rabbitTemplate).convertAndSend(eq("smartomni.order.exchange"), eq("order.incoming"), eq(rawBody));
+    @Test
+    @DisplayName("Type 1: không đẩy được vào hàng đợi cũng trả 503")
+    void orderStatusChangeQueueFailureIs503() throws Exception {
+        doThrow(new BusinessException("queue down", HttpStatus.INTERNAL_SERVER_ERROR, "QUEUE_PUBLISH_FAILED"))
+                .when(orderIngestionService).processOrderEvent(eq(TENANT_ID), eq(connection), any());
+
+        send(body(1, "notif-003", "{\"order_id\":\"ORD-1\"}")).andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    @DisplayName("Cùng tts_notification_id chỉ xử lý một lần")
+    void duplicateNotificationIsProcessedOnce() throws Exception {
+        String body = body(1, "notif-dup", "{\"order_id\":\"ORD-1\"}");
+        when(eventRecorder.claim(TENANT_ID, "notif-dup", "ORDER_STATUS_CHANGE", body))
+                .thenReturn(Claim.NEW, Claim.DUPLICATE);
+
+        send(body).andExpect(status().isOk());
+        send(body).andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0));
+
+        verify(orderIngestionService, times(1)).processOrderEvent(eq(TENANT_ID), eq(connection), any());
+    }
+
+    @Test
+    @DisplayName("Lần gửi lại của event chưa xử lý xong (RETRY) vẫn được xử lý")
+    void retryOfUnprocessedNotificationIsHandledAgain() throws Exception {
+        when(eventRecorder.claim(anyLong(), eq("notif-retry"), anyString(), anyString())).thenReturn(Claim.RETRY);
+
+        send(body(1, "notif-retry", "{\"order_id\":\"ORD-1\"}")).andExpect(status().isOk());
+
+        verify(orderIngestionService).processOrderEvent(eq(TENANT_ID), eq(connection), any());
+    }
+
+    @Test
+    @DisplayName("Thiếu tts_notification_id trả 400")
+    void missingNotificationIdIs400() throws Exception {
+        send(body(1, null, "{\"order_id\":\"ORD-1\"}")).andExpect(status().isBadRequest());
+
+        verify(eventRecorder, never()).claim(anyLong(), any(), any(), any());
+        verifyNoInteractions(orderIngestionService);
+    }
+
+    @Test
+    @DisplayName("Type 6 SELLER_DEAUTHORIZATION thu hồi kết nối")
+    void sellerDeauthorizationRevokesConnection() throws Exception {
+        send(body(6, "notif-deauth", "{\"shop_id\":\"" + SHOP_CIPHER + "\",\"deauthorized_time\":1800000000}"))
+                .andExpect(status().isOk());
+
+        assertEquals(MarketplaceConnection.ConnectionStatus.REVOKED, connection.getStatus());
+        verify(eventRecorder).markProcessed(TENANT_ID, "notif-deauth", "SELLER_DEAUTHORIZATION");
+        verifyNoInteractions(orderIngestionService);
+    }
+
+    @Test
+    @DisplayName("Type cũ không có trong bảng nhưng payload ghi DEAUTHORIZATION vẫn thu hồi kết nối")
+    void legacyDeauthorizationTextIsStillRecognized() throws Exception {
+        send(body(16, "notif-legacy", "{\"event\":\"DEAUTHORIZATION\"}")).andExpect(status().isOk());
+
+        assertEquals(MarketplaceConnection.ConnectionStatus.REVOKED, connection.getStatus());
+    }
+
+    @Test
+    @DisplayName("Type 11 và 12 được nhận, ghi log và trả 200 (xử lý ở phase 2)")
+    void cancellationAndReturnStatusChangesAreAcknowledged() throws Exception {
+        send(body(11, "notif-11", "{\"cancel_id\":\"C1\"}")).andExpect(status().isOk());
+        send(body(12, "notif-12", "{\"return_id\":\"R1\"}")).andExpect(status().isOk());
+
+        verify(eventRecorder).claim(eq(TENANT_ID), eq("notif-11"), eq("CANCELLATION_STATUS_CHANGE"), anyString());
+        verify(eventRecorder).claim(eq(TENANT_ID), eq("notif-12"), eq("RETURN_STATUS_CHANGE"), anyString());
+        verify(eventRecorder).markProcessed(TENANT_ID, "notif-11", "CANCELLATION_STATUS_CHANGE");
+        verify(eventRecorder).markProcessed(TENANT_ID, "notif-12", "RETURN_STATUS_CHANGE");
+        verifyNoInteractions(orderIngestionService, returnService);
+        assertEquals(MarketplaceConnection.ConnectionStatus.CONNECTED, connection.getStatus());
+    }
+
+    @Test
+    @DisplayName("Type 4 REVERSE_STATUS_UPDATE tới return service; type 2 (đổi địa chỉ) không")
+    void reverseStatusGoesToReturnServiceAndAddressUpdateDoesNot() throws Exception {
+        send(body(4, "notif-4", "{\"return_id\":\"R1\"}")).andExpect(status().isOk());
+        send(body(2, "notif-2", "{\"order_id\":\"O1\"}")).andExpect(status().isOk());
+
+        verify(returnService, times(1)).handleReturnWebhook(eq(TENANT_ID), any());
+    }
+
+    @Test
+    @DisplayName("Type 3 PACKAGE_UPDATE tới fulfillment service")
+    void packageUpdateGoesToFulfillment() throws Exception {
+        send(body(3, "notif-3", "{\"package_id\":\"P1\"}")).andExpect(status().isOk());
+
+        verify(fulfillmentService).handlePackageStatusChange(eq(TENANT_ID), any(com.smartomni.integration.dto.tiktok.TiktokWebhookPayload.class));
     }
 
     @Test
     void inventorySnapshotGoesToInventoryQueueOnly() throws Exception {
-        MarketplaceConnection connection = new MarketplaceConnection();
-        connection.setId(10L);
-        connection.setTenantId(100L);
-        connection.setShopCipher(SHOP_CIPHER);
-        when(connectionRepository.findFirstByShopCipher(SHOP_CIPHER)).thenReturn(Optional.of(connection));
-        long timestamp = Instant.now().getEpochSecond();
-        String body = "{\"type\":71,\"tts_notification_id\":\"inventory-1\",\"shop_id\":\""
-                + SHOP_CIPHER + "\",\"timestamp\":" + timestamp
-                + ",\"data\":{\"sku_id\":\"sku-1\",\"quantity_snapshot_after_change\":{\"available_quantity\":0}}}";
-        String signature = webhookHmacValidator.calculateHmacSha256(APP_SECRET + WEBHOOK_PATH + timestamp + body, APP_SECRET);
+        String body = body(71, "inventory-1", "{\"sku_id\":\"sku-1\",\"quantity_snapshot_after_change\":{\"available_quantity\":0}}");
 
-        mockMvc.perform(post(WEBHOOK_PATH).contentType(MediaType.APPLICATION_JSON)
-                        .header("Authorization", signature).header("Timestamp", String.valueOf(timestamp)).content(body))
-                .andExpect(status().isOk());
+        send(body).andExpect(status().isOk());
 
         verify(rabbitTemplate).convertAndSend(TiktokWebhookController.ORDER_EXCHANGE, RabbitMQConfig.INVENTORY_ROUTING_KEY,
-                java.util.Map.of("tenantId", 100L, "connectionId", 10L, "payload", body));
-        verify(rabbitTemplate, never()).convertAndSend(TiktokWebhookController.ORDER_EXCHANGE, TiktokWebhookController.ORDER_ROUTING_KEY, body);
+                Map.of("tenantId", TENANT_ID, "connectionId", 10L, "payload", body));
+        verifyNoInteractions(orderIngestionService);
     }
 
     @Test
-    @DisplayName("401 Unauthorized: Chữ ký HMAC không hợp lệ hoặc bị can thiệp payload")
-    void testReceiveWebhook_InvalidSignature_401Unauthorized() throws Exception {
-        Long tenantId = 100L;
-        MarketplaceConnection connection = new MarketplaceConnection();
-        connection.setId(10L);
-        connection.setTenantId(tenantId);
-        connection.setShopCipher(SHOP_CIPHER);
+    @DisplayName("401: chữ ký sai; ghi audit không giữ event_id")
+    void invalidSignatureIs401() throws Exception {
+        String body = body(1, "notif-bad", "{\"order_id\":\"ORD-999\"}");
 
-        when(connectionRepository.findFirstByShopCipher(SHOP_CIPHER)).thenReturn(Optional.of(connection));
-
-        long timestamp = Instant.now().getEpochSecond();
-        String rawBody = String.format("""
-            {"type":1,"tts_notification_id":"notif-002","shop_id":"%s","timestamp":%d,"data":{"order_id":"ORD-999"}}
-            """, SHOP_CIPHER, timestamp);
-
-        String invalidSignature = "invalid_hmac_signature_hex_123456";
-
-        mockMvc.perform(post(WEBHOOK_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .header("Authorization", invalidSignature)
-                        .header("Timestamp", String.valueOf(timestamp))
-                        .content(rawBody))
+        mockMvc.perform(post(WEBHOOK_PATH).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "invalid_hmac_signature_hex_123456")
+                        .header("Timestamp", String.valueOf(Instant.now().getEpochSecond()))
+                        .content(body))
                 .andExpect(status().isUnauthorized());
 
-        // Verify audit log được lưu với signatureValid = false và queued = false
-        ArgumentCaptor<WebhookEventLog> logCaptor = ArgumentCaptor.forClass(WebhookEventLog.class);
-        verify(webhookEventLogRepository).save(logCaptor.capture());
-        WebhookEventLog savedLog = logCaptor.getValue();
-        assertNotNull(savedLog);
-        assertFalse(savedLog.getSignatureValid());
-        assertFalse(savedLog.isQueued());
-
-        // Verify RabbitMQ KHÔNG được gửi
-        verify(rabbitTemplate, never()).convertAndSend(any(), any(), any(Object.class));
+        verify(eventRecorder).recordRejected(TENANT_ID, "ORDER_STATUS_CHANGE", body);
+        verify(eventRecorder, never()).claim(anyLong(), any(), any(), any());
+        verifyNoInteractions(orderIngestionService, rabbitTemplate);
     }
 
     @Test
-    @DisplayName("401 Unauthorized: Bị từ chối khi thiếu header Authorization / X-Tts-Signature")
-    void testReceiveWebhook_MissingSignatureHeader_401Unauthorized() throws Exception {
-        long timestamp = Instant.now().getEpochSecond();
-        String rawBody = String.format("""
-            {"type":1,"tts_notification_id":"notif-003","shop_id":"%s","timestamp":%d}
-            """, SHOP_CIPHER, timestamp);
-
-        mockMvc.perform(post(WEBHOOK_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .header("Timestamp", String.valueOf(timestamp))
-                        .content(rawBody))
+    @DisplayName("401: thiếu header chữ ký")
+    void missingSignatureHeaderIs401() throws Exception {
+        mockMvc.perform(post(WEBHOOK_PATH).contentType(MediaType.APPLICATION_JSON)
+                        .header("Timestamp", String.valueOf(Instant.now().getEpochSecond()))
+                        .content(body(1, "notif-003", "{}")))
                 .andExpect(status().isUnauthorized());
 
         verify(connectionRepository, never()).findFirstByShopCipher(any());
-        verify(rabbitTemplate, never()).convertAndSend(any(), any(), any(Object.class));
     }
 
     @Test
-    @DisplayName("200 OK: Webhook DEAUTHORIZATION marks connection REVOKED and logs audit")
-    void testReceiveWebhook_Deauthorization_MarksRevoked() throws Exception {
-        Long tenantId = 100L;
-        MarketplaceConnection connection = new MarketplaceConnection();
-        connection.setId(10L);
-        connection.setTenantId(tenantId);
-        connection.setShopCipher(SHOP_CIPHER);
-        connection.setPlatform(MarketplaceConnection.Platform.TIKTOK_SHOP);
-        connection.setStatus(MarketplaceConnection.ConnectionStatus.CONNECTED);
-
-        when(connectionRepository.findFirstByShopCipher(SHOP_CIPHER)).thenReturn(Optional.of(connection));
-
-        long timestamp = Instant.now().getEpochSecond();
-        String rawBody = String.format("""
-            {"type":16,"tts_notification_id":"notif-deauth-001","shop_id":"%s","timestamp":%d,"data":{"event":"DEAUTHORIZATION"}}
-            """, SHOP_CIPHER, timestamp);
-
-        String contentToSign = APP_SECRET + WEBHOOK_PATH + timestamp + rawBody;
-        String validSignature = webhookHmacValidator.calculateHmacSha256(contentToSign, APP_SECRET);
-
-        mockMvc.perform(post(WEBHOOK_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .header("Authorization", validSignature)
-                        .header("Timestamp", String.valueOf(timestamp))
-                        .content(rawBody))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.message").value("success"));
-
-        // Verify connection status is REVOKED
-        assertEquals(MarketplaceConnection.ConnectionStatus.REVOKED, connection.getStatus());
-
-        // Verify audit log has eventType DEAUTHORIZATION
-        ArgumentCaptor<WebhookEventLog> logCaptor = ArgumentCaptor.forClass(WebhookEventLog.class);
-        verify(webhookEventLogRepository).save(logCaptor.capture());
-        WebhookEventLog savedLog = logCaptor.getValue();
-        assertNotNull(savedLog);
-        assertEquals("DEAUTHORIZATION", savedLog.getEventType());
-        assertTrue(savedLog.getSignatureValid());
-        assertFalse(savedLog.isQueued());
-
-        // Verify RabbitMQ was NOT sent for deauth
-        verify(rabbitTemplate, never()).convertAndSend(eq("smartomni.order.exchange"), eq("order.incoming"), any(Object.class));
-    }
-
-    @Test
-    @DisplayName("401 Unauthorized: Từ chối khi Timestamp lệch quá 5 phút (Replay attack)")
-    void testReceiveWebhook_TimestampSkewOver5Minutes_401Unauthorized() throws Exception {
-        Long tenantId = 100L;
-        MarketplaceConnection connection = new MarketplaceConnection();
-        connection.setId(10L);
-        connection.setTenantId(tenantId);
-        connection.setShopCipher(SHOP_CIPHER);
-
-        when(connectionRepository.findFirstByShopCipher(SHOP_CIPHER)).thenReturn(Optional.of(connection));
-
-        // Giả lập timestamp cách đây 10 phút (> 300 giây)
+    @DisplayName("401: timestamp lệch quá 5 phút")
+    void timestampSkewOver5MinutesIs401() throws Exception {
         long oldTimestamp = Instant.now().getEpochSecond() - 600;
-        String rawBody = String.format("""
-            {"type":1,"tts_notification_id":"notif-004","shop_id":"%s","timestamp":%d,"data":{"order_id":"ORD-999"}}
-            """, SHOP_CIPHER, oldTimestamp);
+        String body = body(1, "notif-004", "{\"order_id\":\"ORD-999\"}");
+        String signature = webhookHmacValidator.calculateHmacSha256(APP_SECRET + WEBHOOK_PATH + oldTimestamp + body, APP_SECRET);
 
-        String contentToSign = APP_SECRET + WEBHOOK_PATH + oldTimestamp + rawBody;
-        String signature = webhookHmacValidator.calculateHmacSha256(contentToSign, APP_SECRET);
-
-        mockMvc.perform(post(WEBHOOK_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .header("X-Tts-Signature", signature)
-                        .header("X-Tts-Timestamp", String.valueOf(oldTimestamp))
-                        .content(rawBody))
+        mockMvc.perform(post(WEBHOOK_PATH).contentType(MediaType.APPLICATION_JSON)
+                        .header("X-Tts-Signature", signature).header("X-Tts-Timestamp", String.valueOf(oldTimestamp))
+                        .content(body))
                 .andExpect(status().isUnauthorized());
 
-        verify(rabbitTemplate, never()).convertAndSend(any(), any(), any(Object.class));
+        verifyNoInteractions(orderIngestionService);
     }
 
     @Test
-    @DisplayName("404 Not Found: Từ chối khi shop_id không tồn tại trong hệ thống")
-    void testReceiveWebhook_UnknownShop_404NotFound() throws Exception {
+    @DisplayName("404: shop_id không tồn tại")
+    void unknownShopIs404() throws Exception {
         when(connectionRepository.findFirstByShopCipher("UNKNOWN_SHOP")).thenReturn(Optional.empty());
         when(connectionRepository.findFirstByShopId("UNKNOWN_SHOP")).thenReturn(Optional.empty());
         when(connectionRepository.findFirstBySellerOpenId("UNKNOWN_SHOP")).thenReturn(Optional.empty());
 
-        long timestamp = Instant.now().getEpochSecond();
-        String rawBody = String.format("""
-            {"type":1,"tts_notification_id":"notif-005","shop_id":"UNKNOWN_SHOP","timestamp":%d}
-            """, timestamp);
-
-        mockMvc.perform(post(WEBHOOK_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(WEBHOOK_PATH).contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "any_signature")
-                        .header("Timestamp", String.valueOf(timestamp))
-                        .content(rawBody))
+                        .header("Timestamp", String.valueOf(Instant.now().getEpochSecond()))
+                        .content("{\"type\":1,\"tts_notification_id\":\"n\",\"shop_id\":\"UNKNOWN_SHOP\",\"timestamp\":1}"))
                 .andExpect(status().isNotFound());
 
-        verify(rabbitTemplate, never()).convertAndSend(any(), any(), any(Object.class));
+        verifyNoInteractions(orderIngestionService);
     }
 }
