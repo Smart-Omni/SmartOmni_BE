@@ -282,16 +282,18 @@ Code của mọi mục dưới đây đã sửa. `mvn -B clean verify` pass trê
 - `CatalogMappingService` tra `product_marketplace_links` mà không mở transaction, nên RLS không có tenant và mọi dòng đơn từ webhook hoặc polling đều bị coi là `SKU_UNMAPPED`. Sửa trên `fix/integration-tiktok-webhook` (`2270331`).
 - `integration-service` trong Compose gọi order service ở `localhost:8085`, nên mọi `processReturn`/`updateTracking` đều bị từ chối kết nối. Code cũ nuốt lỗi này. Sửa trên `fix/integration-tiktok-aftersale` (`50a1da3`).
 
-**Còn mở (cần quyết định):** trả hàng **toàn bộ** một đơn đã `COMPLETED`. Ở các trạng thái trung gian (`RETURN_OR_REFUND_REQUEST_PENDING`, `AWAITING_BUYER_SHIP`), order service chuyển `COMPLETED → ON_HOLD`, nhưng state machine của spec A5 chặn bước này nên trả 409. Vì vậy bản ghi trả hàng không được lưu, webhook bị trả 503 cho tới khi simulator bỏ, và checkpoint `RETURNS` của polling không tiến lên. Chỉ bước `COMPLETED → RETURNED` khi trả hàng hoàn tất là qua được. Có hai cách:
-- (a) cho phép `COMPLETED → ON_HOLD` khi có yêu cầu trả hàng;
-- (b) khi đơn đã `COMPLETED`, chỉ ghi bản ghi trả hàng mà không đổi trạng thái đơn (như trả một phần).
+**Đã giải quyết (24/11): trả hàng toàn bộ một đơn đã `COMPLETED`.** Lần chạy E2E đầu cho thấy order service chuyển `COMPLETED → ON_HOLD`, bị state machine A5 chặn (409). Đã sửa theo đúng `Smartomni-Tiktok-Simulator/docs/smartomni-requirements/phase-07.md` mục 07b, trên `fix/integration-tiktok-aftersale` (`4245fe8`, `42f301d`, migration `V27`):
+- 07b.2: trả hàng TikTok không bao giờ đổi trạng thái đơn. Mỗi yêu cầu lưu `marketplace_status` (nguyên văn `return_status`) và `marketplace_updated_at`; event cũ hơn bị bỏ qua.
+- 07b.3: kiểm hàng của nhân viên với đơn TikTok chỉ được ghi lại, không đổi trạng thái đơn, không hoàn kho.
+- 07b.4: khi yêu cầu đạt `RETURN_OR_REFUND_REQUEST_SUCCESS`/`COMPLETE`, hoàn kho từng dòng một lần, bằng receipt `tiktok-return:{order}:{order_line_item_id}`, cho mọi loại yêu cầu như tài liệu ghi. Simulator không tự cộng lại tồn.
+- E2E (trả toàn bộ `RETURN_AND_REFUND`, đơn `COMPLETED`): 5 webhook `PENDING → AWAITING_BUYER_SHIP → BUYER_SHIPPED_ITEM → SUCCESS → COMPLETE` đều 200. Đơn giữ `completed` suốt quá trình. Tồn SmartOmni 20 → 21 ở `SUCCESS`, không cộng lại ở `COMPLETE`; có đúng 1 receipt; outbox đẩy 21 lên simulator.
 
 **Quan sát khác:** đơn lấy về qua polling vẫn có `source=webhook`, vì consumer đặt nguồn theo hàng đợi chứ không theo đường vào. Đây là lỗi có từ trước.
 
 **Quyết định đã ghi:**
-- **Hoàn tồn TikTok (2.6).** SmartOmni không trừ kho cho đơn TikTok, nên cũng không hoàn kho khi trả hoặc hủy. Order service ghi `PLATFORM_SYNC`, còn tồn đi theo snapshot `INVENTORY_CHANGED_BY_SHOP`. Đã có test bảo đảm.
+- **Hoàn tồn TikTok (2.6), đã sửa lại theo 07b.4.** Trả hàng: SmartOmni hoàn kho từng dòng khi yêu cầu đạt `SUCCESS`/`COMPLETE`, vì simulator không cộng lại tồn và không phát snapshot. Hủy đơn: không hoàn kho riêng, vì simulator trả phần giữ chỗ và phát `INVENTORY_CHANGED_BY_SHOP`, mà SmartOmni chưa từng trừ kho cho đơn TikTok. Quyết định cũ ("không hoàn kho cho TikTok") đã bị thay.
 - **Hủy đơn qua webhook 11.** Chỉ đọc lại và ghi log. Trạng thái đơn lấy từ `ORDER_STATUS_CHANGE`, vì simulator phát event này khi hủy xong. Nếu đẩy yêu cầu hủy qua luồng trả hàng, đơn sẽ bị đặt `ON_HOLD`.
-- **Event cũ trả/hủy.** Handler luôn đọc lại bản ghi hiện tại từ sàn, nên event cũ không áp được trạng thái của nó. Không cần thêm bảng lưu `update_time`.
+- **Event cũ trả/hủy.** Integration luôn đọc lại bản ghi hiện tại từ sàn. Order service còn so `update_time` với `marketplace_updated_at` đã lưu và bỏ qua bản cũ hơn (07b.2).
 - **Outbox tồn.** Mọi response non-2xx đều được retry tối đa `MAX_RETRY` lần, sau đó chuyển `FAILED`, nên một event lỗi vĩnh viễn không chặn SKU mãi. Khi SKU không có liên kết trên sàn đó, push là no-op có ghi log.
 - **Dedupe webhook.** Event đã xử lý là bản trùng. Event có bản ghi nhưng chưa xử lý xong (lần trước trả 503) được xử lý lại. Bản ghi có chữ ký sai lưu `event_id = NULL`.
 - **Voucher.** Tên campaign phải nằm trong tiêu đề lô mã trên Seller Center, vì order service gửi `campaignName` làm `title_keyword`.

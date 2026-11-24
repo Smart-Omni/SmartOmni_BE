@@ -29,7 +29,7 @@ Chuẩn nghiệp vụ lấy từ `Smartomni-Tiktok-Simulator/docs/smartomni-requ
 | R | [phase-r-stock-push-rls.md](phase-r-stock-push-rls.md) | `fix/inventory-stock-push-rls` | — | **Đã merge** ([PR #38](https://github.com/Smart-Omni/SmartOmni_BE/pull/38), `d286d5b`) |
 | S | [phase-s-shopee-missing-stock.md](phase-s-shopee-missing-stock.md) | `fix/integration-shopee-missing-stock` | — | Code xong, chưa push |
 | 1 | [phase-1-webhook-orders.md](phase-1-webhook-orders.md) | `fix/integration-tiktok-webhook` | — | Code xong, chưa push; migration test và E2E chưa chạy |
-| 2 | [phase-2-aftersale.md](phase-2-aftersale.md) | `fix/integration-tiktok-aftersale` | 1 | Code xong (stack trên phase 1), chưa push |
+| 2 | [phase-2-aftersale.md](phase-2-aftersale.md) | `fix/integration-tiktok-aftersale` | 1 | Code xong (stack trên phase 1), thêm `V27` theo simulator 07b, chưa push |
 | 3 | [phase-3-catalog-errors.md](phase-3-catalog-errors.md) | `fix/integration-tiktok-catalog-errors` | — | Code xong, chưa push |
 | 4 | [phase-4-vouchers.md](phase-4-vouchers.md) | `fix/integration-tiktok-vouchers` | — | Code xong, không cần `V27`, chưa push |
 | 5 | [phase-5-connection-scopes.md](phase-5-connection-scopes.md) | `fix/integration-tiktok-connection` | 3 | Code xong (stack trên phase 3), chưa push |
@@ -69,7 +69,7 @@ Thư mục plan này và các báo cáo trong `docs/reports/` vẫn **chưa comm
 
 Migration mới nhất trên `develop` là `V25`; `V24` là billing của `develop`.
 - Phase 1 dùng `V26`.
-- Phase 4 dùng `V27` nếu cần.
+- Phase 2 dùng `V27` (`returns_refunds.marketplace_status`, `marketplace_updated_at`, theo simulator 07b.2). Phase 4 không cần migration.
 - Không phase nào khác thêm migration.
 - Trước khi tạo branch và trước khi merge, kiểm tra lại số migration trên `develop`. Nếu đã bị chiếm, đổi lên số kế tiếp.
 
