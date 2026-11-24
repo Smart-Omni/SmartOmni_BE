@@ -20,6 +20,10 @@ import java.util.Optional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+// Lookups must run in a transaction: the RLS transaction manager applies the tenant from TenantContext only when a
+// transaction starts, so a bare JdbcTemplate query sees no product_marketplace_links rows (every order line was
+// reported as SKU_UNMAPPED from webhooks and polling).
+@org.springframework.transaction.annotation.Transactional(readOnly = true)
 public class CatalogMappingService {
 
     private static final String FIND_SKU_QUERY =

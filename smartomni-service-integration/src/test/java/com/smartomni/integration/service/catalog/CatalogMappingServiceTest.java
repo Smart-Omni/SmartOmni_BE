@@ -47,6 +47,14 @@ class CatalogMappingServiceTest {
     }
 
     @Test
+    void lookupsRunInAReadOnlyTransactionSoRlsSeesTheTenant() {
+        org.springframework.transaction.annotation.Transactional tx =
+                CatalogMappingService.class.getAnnotation(org.springframework.transaction.annotation.Transactional.class);
+        assertNotNull(tx, "without a transaction RLS context is never applied and every lookup finds nothing");
+        assertTrue(tx.readOnly());
+    }
+
+    @Test
     @DisplayName("resolveInternalSkuId thành công khi SKU đã được map (external_sku_id)")
     void resolveInternalSkuId_success_whenExternalSkuMapped() {
         String tenantId = "1";

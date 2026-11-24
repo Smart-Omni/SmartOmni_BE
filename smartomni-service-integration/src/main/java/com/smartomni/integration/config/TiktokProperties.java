@@ -50,8 +50,16 @@ public class TiktokProperties {
 
     /** Shop OpenAPI host (official OAS server). */
     private String openApiBaseUrl = "https://open-api.tiktokglobalshop.com";
-    /** Public callback address used for the inventory webhook subscription. */
+    /** Public callback address registered for every TikTok webhook topic ({@code TIKTOK_WEBHOOK_URL}). */
+    private String webhookUrl = "";
+    /** Deprecated name of {@link #webhookUrl}, used only when it is empty ({@code TIKTOK_INVENTORY_WEBHOOK_URL}). */
     private String inventoryWebhookUrl = "";
+
+    /** {@code webhookUrl}, falling back to the older {@code inventoryWebhookUrl}. */
+    public String resolveWebhookUrl() {
+        return webhookUrl != null && !webhookUrl.isBlank() ? webhookUrl.trim()
+                : inventoryWebhookUrl != null ? inventoryWebhookUrl.trim() : "";
+    }
 
     private Duration stateTtl = Duration.ofMinutes(10);
     private Duration accessTokenRefreshSkew = Duration.ofMinutes(5);

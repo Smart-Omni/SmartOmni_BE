@@ -9,6 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -25,6 +26,9 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
 public class ServiceSecurityAutoConfiguration {
+
+    /** TikTok Shop webhook receiver (integration service). Authenticated by HMAC signature in the controller. */
+    public static final String TIKTOK_WEBHOOK_PATH = "/api/v1/integrations/tiktok/webhooks";
 
     @Bean
     @ConditionalOnMissingBean(TokenBlacklistValidator.class)
@@ -61,6 +65,8 @@ public class ServiceSecurityAutoConfiguration {
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(PublicEndpointPaths.PUBLIC_AUTH_ONBOARDING_ERROR).permitAll()
                         .requestMatchers("/actuator/health", "/webhook/**", "/internal/jobs/**").permitAll()
+                        // TikTok webhooks carry an HMAC signature (verified by the controller), never a JWT.
+                        .requestMatchers(HttpMethod.POST, TIKTOK_WEBHOOK_PATH).permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated())
                 .build();

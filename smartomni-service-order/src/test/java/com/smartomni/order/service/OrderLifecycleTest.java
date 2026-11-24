@@ -212,6 +212,78 @@ class OrderLifecycleTest {
     }
 
     @Test
+    @DisplayName("Event cũ hơn (platform update_time nhỏ hơn) không ghi đè trạng thái mới")
+    void processIncomingOrder_staleEventDoesNotRevertStatus() {
+        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+        sampleOrder.setPlatformUpdatedAt(java.time.Instant.ofEpochSecond(1_800_000_200L));
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+
+        orderService.processIncomingOrder(WebhookOrderPayload.builder()
+                .tenantId(TENANT_ID).platform("TIKTOK_SHOP").platformOrderId(PLATFORM_ORDER_ID)
+                .orderStatus("AWAITING_SHIPMENT").platformUpdateTime(1_800_000_100L).build(), Order.OrderSource.WEBHOOK);
+
+        assertEquals(Order.OrderStatus.SHIPPED, sampleOrder.getStatus());
+        assertEquals(java.time.Instant.ofEpochSecond(1_800_000_200L), sampleOrder.getPlatformUpdatedAt());
+        verify(orderRepository, never()).save(any(Order.class));
+        verifyNoInteractions(orderStatusHistoryRepository);
+    }
+
+    @Test
+    @DisplayName("Event mới hơn cập nhật trạng thái và platform_updated_at")
+    void processIncomingOrder_newerEventUpdatesStatusAndPlatformTime() {
+        sampleOrder.setPlatformUpdatedAt(java.time.Instant.ofEpochSecond(1_800_000_100L));
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        orderService.processIncomingOrder(WebhookOrderPayload.builder()
+                .tenantId(TENANT_ID).platform("TIKTOK_SHOP").platformOrderId(PLATFORM_ORDER_ID)
+                .orderStatus("IN_TRANSIT").platformUpdateTime(1_800_000_200L).build(), Order.OrderSource.WEBHOOK);
+
+        assertEquals(Order.OrderStatus.SHIPPED, sampleOrder.getStatus());
+        assertEquals(java.time.Instant.ofEpochSecond(1_800_000_200L), sampleOrder.getPlatformUpdatedAt());
+    }
+
+    @Test
+    @DisplayName("Payload không có platformUpdateTime (Shopee) vẫn cập nhật trạng thái")
+    void processIncomingOrder_withoutPlatformTimeStillUpdates() {
+        sampleOrder.setPlatform(Order.Platform.SHOPEE);
+        sampleOrder.setPlatformUpdatedAt(java.time.Instant.ofEpochSecond(1_800_000_200L));
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        orderService.processIncomingOrder(WebhookOrderPayload.builder()
+                .tenantId(TENANT_ID).platform("SHOPEE").platformOrderId(PLATFORM_ORDER_ID)
+                .orderStatus("IN_TRANSIT").build(), Order.OrderSource.WEBHOOK);
+
+        assertEquals(Order.OrderStatus.SHIPPED, sampleOrder.getStatus());
+        assertEquals(java.time.Instant.ofEpochSecond(1_800_000_200L), sampleOrder.getPlatformUpdatedAt());
+    }
+
+    @Test
+    @DisplayName("Đơn mới lưu platform_updated_at và reconciliation_reason SKU_UNMAPPED, không trừ kho")
+    void processIncomingOrder_newOrderKeepsPlatformTimeAndReconciliationReason() {
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.empty());
+        when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        orderService.processIncomingOrder(WebhookOrderPayload.builder()
+                .tenantId(TENANT_ID).platform("TIKTOK_SHOP").platformOrderId(PLATFORM_ORDER_ID)
+                .orderStatus("AWAITING_SHIPMENT").platformUpdateTime(1_800_000_100L)
+                .reconciliationReason("SKU_UNMAPPED")
+                .items(List.of(WebhookOrderPayload.OrderItemPayload.builder().quantity(1).build()))
+                .build(), Order.OrderSource.WEBHOOK);
+
+        ArgumentCaptor<Order> saved = ArgumentCaptor.forClass(Order.class);
+        verify(orderRepository).save(saved.capture());
+        assertEquals(java.time.Instant.ofEpochSecond(1_800_000_100L), saved.getValue().getPlatformUpdatedAt());
+        assertEquals("SKU_UNMAPPED", saved.getValue().getReconciliationReason());
+        verify(inventoryServiceClient, never()).deductStock(anyLong(), anyInt());
+    }
+
+    @Test
     @DisplayName("Đơn hàng chuyển sang CANCELLED trước khi giao bưu tá: tự động hoàn trả tồn kho và ghi lịch sử")
     void handleOrderStatusChange_cancelledBeforeCourier_restocksInventory() {
         // Đơn hàng đang ở TO_SHIP và chưa quét bưu tá (courierScannedAt == null)

@@ -3,7 +3,7 @@ package com.smartomni.integration.scheduler;
 import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
-import com.smartomni.integration.service.tiktok.TiktokInventorySubscriptionService;
+import com.smartomni.integration.service.tiktok.TiktokWebhookSubscriptionService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -20,7 +20,7 @@ class TiktokInventorySubscriptionSchedulerTest {
     @Test
     void retriesEachConnectedTikTokShopWithItsOwnTenant() {
         var connections = mock(MarketplaceConnectionRepository.class);
-        var subscriptions = mock(TiktokInventorySubscriptionService.class);
+        var subscriptions = mock(TiktokWebhookSubscriptionService.class);
         var transactions = mock(TransactionTemplate.class);
         var first = connection(1L, 11L, MarketplaceConnection.Platform.TIKTOK_SHOP);
         var second = connection(2L, 22L, MarketplaceConnection.Platform.TIKTOK_SHOP);

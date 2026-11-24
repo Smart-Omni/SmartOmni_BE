@@ -41,13 +41,88 @@ class TiktokOrderIngestionServiceTest {
     @Mock
     private RabbitTemplate rabbitTemplate;
 
+    @Mock
+    private com.smartomni.integration.client.tiktok.TiktokOrderClient orderClient;
+
     private ObjectMapper objectMapper;
     private TiktokOrderIngestionService ingestionService;
 
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        ingestionService = new TiktokOrderIngestionService(catalogMappingService, rabbitTemplate, objectMapper);
+        ingestionService = new TiktokOrderIngestionService(catalogMappingService, rabbitTemplate, objectMapper, orderClient);
+    }
+
+    @Test
+    @DisplayName("SKU chưa ánh xạ: vẫn tạo đơn, đặt SKU_UNMAPPED, không gán SKU khác; có platformUpdateTime")
+    void ingestOrder_unmappedSkuIsFlaggedAndCarriesPlatformUpdateTime() {
+        TiktokOrderDetailResponse order = TiktokOrderDetailResponse.builder()
+                .orderId(ORDER_ID).orderStatus("AWAITING_SHIPMENT").createTime(CREATE_TIME).updateTime(1_800_000_123L)
+                .lineItems(List.of(
+                        TiktokOrderDetailResponse.LineItem.builder().id("L1").skuId("EXT-1").sellerSku("MAPPED").quantity(1).build(),
+                        TiktokOrderDetailResponse.LineItem.builder().id("L2").skuId("EXT-2").sellerSku("UNKNOWN").quantity(1).build()))
+                .build();
+        when(catalogMappingService.findInternalSkuId(TENANT_ID, "tiktok_shop", "MAPPED")).thenReturn(Optional.of(11L));
+        when(catalogMappingService.findInternalSkuId(TENANT_ID, "tiktok_shop", "UNKNOWN")).thenReturn(Optional.empty());
+        when(catalogMappingService.findInternalSkuId(TENANT_ID, "tiktok_shop", "EXT-2")).thenReturn(Optional.empty());
+
+        WebhookOrderPayload result = ingestionService.ingestOrder(TENANT_ID, order);
+
+        assertEquals("SKU_UNMAPPED", result.getReconciliationReason());
+        assertEquals(1_800_000_123L, result.getPlatformUpdateTime());
+        assertEquals(11L, result.getItems().get(0).getSkuId());
+        assertNull(result.getItems().get(1).getSkuId());
+        verify(rabbitTemplate).convertAndSend("smartomni.order.exchange", "order.incoming", result);
+    }
+
+    @Test
+    @DisplayName("Đơn đủ SKU không có reconciliationReason")
+    void ingestOrder_fullyMappedHasNoReconciliationReason() {
+        TiktokOrderDetailResponse order = TiktokOrderDetailResponse.builder()
+                .orderId(ORDER_ID).orderStatus("AWAITING_SHIPMENT").createTime(CREATE_TIME)
+                .lineItems(List.of(TiktokOrderDetailResponse.LineItem.builder().id("L1").sellerSku("MAPPED").quantity(1).build()))
+                .build();
+        when(catalogMappingService.findInternalSkuId(TENANT_ID, "tiktok_shop", "MAPPED")).thenReturn(Optional.of(11L));
+
+        WebhookOrderPayload result = ingestionService.ingestOrder(TENANT_ID, order);
+
+        assertNull(result.getReconciliationReason());
+        assertNull(result.getPlatformUpdateTime());
+    }
+
+    @Test
+    @DisplayName("ORDER_STATUS_CHANGE: lấy chi tiết đơn qua Get Order Detail rồi ingest")
+    void processOrderEvent_fetchesOrderDetail() throws Exception {
+        com.smartomni.integration.entity.MarketplaceConnection connection = new com.smartomni.integration.entity.MarketplaceConnection();
+        connection.setId(10L);
+        TiktokOrderDetailResponse detail = TiktokOrderDetailResponse.builder()
+                .orderId("5800000000000001").orderStatus("AWAITING_SHIPMENT").createTime(CREATE_TIME).updateTime(1_800_000_000L)
+                .lineItems(List.of()).build();
+        when(orderClient.getOrderDetails(10L, List.of("5800000000000001"))).thenReturn(List.of(detail));
+
+        WebhookOrderPayload result = ingestionService.processOrderEvent(TENANT_ID, connection,
+                objectMapper.readTree("{\"order_id\":\"5800000000000001\",\"order_status\":\"AWAITING_SHIPMENT\"}"));
+
+        assertEquals("5800000000000001", result.getPlatformOrderId());
+        assertEquals(1_800_000_000L, result.getPlatformUpdateTime());
+        verify(rabbitTemplate).convertAndSend("smartomni.order.exchange", "order.incoming", result);
+    }
+
+    @Test
+    @DisplayName("ORDER_STATUS_CHANGE thiếu order_id là lỗi 400; đơn chưa có trên sàn là 503")
+    void processOrderEvent_rejectsMissingIdAndReportsMissingOrderAsTransient() throws Exception {
+        com.smartomni.integration.entity.MarketplaceConnection connection = new com.smartomni.integration.entity.MarketplaceConnection();
+        connection.setId(10L);
+
+        BusinessException missing = assertThrows(BusinessException.class,
+                () -> ingestionService.processOrderEvent(TENANT_ID, connection, objectMapper.readTree("{}")));
+        assertEquals("INVALID_PAYLOAD", missing.getErrorCode());
+
+        when(orderClient.getOrderDetails(10L, List.of("X"))).thenReturn(List.of());
+        BusinessException notReady = assertThrows(BusinessException.class,
+                () -> ingestionService.processOrderEvent(TENANT_ID, connection, objectMapper.readTree("{\"order_id\":\"X\"}")));
+        assertEquals(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, notReady.getHttpStatus());
+        verifyNoInteractions(rabbitTemplate);
     }
 
     @Test

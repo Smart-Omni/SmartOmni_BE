@@ -9,6 +9,7 @@ import com.smartomni.integration.dto.tiktok.TiktokOrderDetailResponse;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
 import com.smartomni.integration.service.tiktok.TiktokOrderIngestionService;
+import com.smartomni.integration.service.tiktok.TiktokSyncCheckpointStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -41,20 +42,24 @@ class OrderPollingSchedulerTest {
     @Mock
     private TiktokOrderIngestionService ingestionService;
 
+    @Mock
+    private TiktokSyncCheckpointStore checkpoints;
+
     private TransactionTemplate transactionTemplate;
     private OrderPollingScheduler scheduler;
 
     @BeforeEach
     void setUp() {
         PlatformTransactionManager ptm = mock(PlatformTransactionManager.class);
-        when(ptm.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        lenient().when(ptm.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         transactionTemplate = new TransactionTemplate(ptm);
 
         scheduler = new OrderPollingScheduler(
                 connectionRepository,
                 tiktokOrderClient,
                 ingestionService,
-                transactionTemplate
+                transactionTemplate,
+                checkpoints
         );
         TenantContext.clear();
     }
@@ -163,6 +168,77 @@ class OrderPollingSchedulerTest {
         assertEquals(1, synced);
         verify(ingestionService, never()).ingestOrder(eq(501L), any());
         verify(ingestionService, times(1)).ingestOrder(eq(502L), eq(successOrder));
+    }
+
+    @Test
+    @DisplayName("Lọc theo cửa sổ update_time từ checkpoint tới hiện tại và tiến checkpoint khi xong cả cửa sổ")
+    void pollUsesUpdateTimeWindowFromCheckpointAndAdvancesIt() {
+        MarketplaceConnection conn = createConnection(3L, 300L, MarketplaceConnection.Platform.TIKTOK_SHOP, "CIPHER-300");
+        long checkpoint = java.time.Instant.now().getEpochSecond() - 600;
+        when(checkpoints.find(3L, TiktokSyncCheckpointStore.ORDERS)).thenReturn(java.util.Optional.of(checkpoint));
+        TiktokOrderDetailResponse order = TiktokOrderDetailResponse.builder().orderId("O-1").build();
+        when(tiktokOrderClient.searchOrders(eq("CIPHER-300"), any(OrderSearchRequest.class)))
+                .thenReturn(OrderSearchResponse.builder().orders(List.of(order)).build());
+
+        long before = java.time.Instant.now().getEpochSecond();
+        assertEquals(1, scheduler.pollOrdersForConnection(conn, 30));
+        long after = java.time.Instant.now().getEpochSecond();
+
+        ArgumentCaptor<OrderSearchRequest> request = ArgumentCaptor.forClass(OrderSearchRequest.class);
+        verify(tiktokOrderClient).searchOrders(eq("CIPHER-300"), request.capture());
+        assertEquals(checkpoint - OrderPollingScheduler.DEFAULT_OVERLAP_SECONDS, request.getValue().getUpdateTimeFrom());
+        long to = request.getValue().getUpdateTimeTo();
+        assertTrue(to >= before && to <= after);
+        assertNull(request.getValue().getCreateTimeFrom());
+        assertNull(request.getValue().getCreateTimeTo());
+        verify(checkpoints).advance(300L, 3L, TiktokSyncCheckpointStore.ORDERS, to);
+    }
+
+    @Test
+    @DisplayName("Lần chạy đầu (chưa có checkpoint) dùng now - lookback")
+    void firstRunStartsAtNowMinusLookback() {
+        MarketplaceConnection conn = createConnection(4L, 400L, MarketplaceConnection.Platform.TIKTOK_SHOP, "CIPHER-400");
+        when(tiktokOrderClient.searchOrders(eq("CIPHER-400"), any(OrderSearchRequest.class)))
+                .thenReturn(OrderSearchResponse.builder().orders(List.of()).build());
+
+        scheduler.pollOrdersForConnection(conn, 30);
+
+        ArgumentCaptor<OrderSearchRequest> request = ArgumentCaptor.forClass(OrderSearchRequest.class);
+        verify(tiktokOrderClient).searchOrders(eq("CIPHER-400"), request.capture());
+        assertEquals(30 * 60L, request.getValue().getUpdateTimeTo() - request.getValue().getUpdateTimeFrom());
+        verify(checkpoints).advance(eq(400L), eq(4L), eq(TiktokSyncCheckpointStore.ORDERS), eq(request.getValue().getUpdateTimeTo()));
+    }
+
+    @Test
+    @DisplayName("Checkpoint không tiến khi một đơn ingest lỗi giữa chừng")
+    void checkpointStaysWhenAnOrderFails() {
+        MarketplaceConnection conn = createConnection(5L, 500L, MarketplaceConnection.Platform.TIKTOK_SHOP, "CIPHER-500");
+        TiktokOrderDetailResponse ok = TiktokOrderDetailResponse.builder().orderId("OK").build();
+        TiktokOrderDetailResponse bad = TiktokOrderDetailResponse.builder().orderId("BAD").build();
+        when(tiktokOrderClient.searchOrders(eq("CIPHER-500"), any(OrderSearchRequest.class)))
+                .thenReturn(OrderSearchResponse.builder().orders(List.of(bad, ok)).build());
+        when(ingestionService.ingestOrder(500L, bad)).thenThrow(new RuntimeException("queue down"));
+
+        assertEquals(1, scheduler.pollOrdersForConnection(conn, 30));
+
+        verify(ingestionService).ingestOrder(500L, ok);
+        verify(checkpoints, never()).advance(anyLong(), anyLong(), anyString(), anyLong());
+    }
+
+    @Test
+    @DisplayName("Checkpoint không tiến khi một trang lỗi giữa chừng")
+    void checkpointStaysWhenALaterPageFails() {
+        MarketplaceConnection conn = createConnection(6L, 600L, MarketplaceConnection.Platform.TIKTOK_SHOP, "CIPHER-600");
+        when(tiktokOrderClient.searchOrders(eq("CIPHER-600"), argThat(req -> req != null && req.getPageToken() == null)))
+                .thenReturn(OrderSearchResponse.builder()
+                        .orders(List.of(TiktokOrderDetailResponse.builder().orderId("P1").build()))
+                        .nextPageToken("T2").build());
+        when(tiktokOrderClient.searchOrders(eq("CIPHER-600"), argThat(req -> req != null && "T2".equals(req.getPageToken()))))
+                .thenThrow(new TiktokApiException("timeout", 0, null, null, true));
+
+        assertThrows(TiktokApiException.class, () -> scheduler.pollOrdersForConnection(conn, 30));
+
+        verify(checkpoints, never()).advance(anyLong(), anyLong(), anyString(), anyLong());
     }
 
     @Test

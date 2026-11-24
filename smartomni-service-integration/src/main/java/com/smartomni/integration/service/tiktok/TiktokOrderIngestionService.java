@@ -1,10 +1,14 @@
 package com.smartomni.integration.service.tiktok;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartomni.common.dto.WebhookOrderPayload;
 import com.smartomni.common.exception.BusinessException;
+import com.smartomni.integration.client.tiktok.TiktokApiException;
+import com.smartomni.integration.client.tiktok.TiktokOrderClient;
 import com.smartomni.integration.dto.tiktok.TiktokOrderDetailResponse;
 import com.smartomni.integration.dto.tiktok.TiktokWebhookPayload;
+import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.catalog.CatalogMappingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,9 +38,38 @@ public class TiktokOrderIngestionService {
     public static final String ORDER_ROUTING_KEY = "order.incoming";
     public static final String PLATFORM_TIKTOK_SHOP = "TIKTOK_SHOP";
 
+    public static final String RECONCILIATION_SKU_UNMAPPED = "SKU_UNMAPPED";
+
     private final CatalogMappingService catalogMappingService;
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
+    private final TiktokOrderClient orderClient;
+
+    /**
+     * Handles an {@code ORDER_STATUS_CHANGE} webhook. The event only carries the order id and status, so the full
+     * order is read with Get Order Detail ({@code GET /order/202507/orders}) and then normalized like a polled order.
+     * Must run inside the tenant's scope.
+     *
+     * @throws BusinessException 400 {@code INVALID_PAYLOAD} when {@code data.order_id} is missing
+     * @throws TiktokApiException when TikTok fails; transient failures should be answered with 503 so TikTok retries
+     * @throws BusinessException 503 {@code TIKTOK_ORDER_NOT_READY} when TikTok does not return the order yet
+     */
+    public WebhookOrderPayload processOrderEvent(Long tenantId, MarketplaceConnection connection, JsonNode data) {
+        String orderId = data == null ? null : data.path("order_id").asText(null);
+        if (orderId == null || orderId.isBlank()) {
+            throw new BusinessException("ORDER_STATUS_CHANGE webhook has no data.order_id", HttpStatus.BAD_REQUEST, "INVALID_PAYLOAD");
+        }
+        List<TiktokOrderDetailResponse> details = orderClient.getOrderDetails(connection.getId(), List.of(orderId.trim()));
+        TiktokOrderDetailResponse detail = details.stream()
+                .filter(o -> orderId.trim().equals(o.getOrderId()))
+                .findFirst()
+                .orElse(details.size() == 1 ? details.get(0) : null);
+        if (detail == null) {
+            throw new BusinessException("TikTok did not return order " + orderId + " yet",
+                    HttpStatus.SERVICE_UNAVAILABLE, "TIKTOK_ORDER_NOT_READY");
+        }
+        return ingestOrder(tenantId, detail);
+    }
 
     /**
      * Tiếp nhận webhook payload sự kiện ORDER_STATUS_CHANGE từ TikTok Shop.
@@ -76,6 +109,7 @@ public class TiktokOrderIngestionService {
 
         // 1. Ánh xạ từng line item sang internal sku_id qua CatalogMappingService
         List<WebhookOrderPayload.OrderItemPayload> items = new ArrayList<>();
+        boolean unmappedSku = false;
         if (order.getLineItems() != null) {
             for (TiktokOrderDetailResponse.LineItem lineItem : order.getLineItems()) {
                 Long internalSkuId = null;
@@ -96,8 +130,9 @@ public class TiktokOrderIngestionService {
                             tenantId, order.getOrderId(), sellerSku, externalSkuId, ex.getMessage());
                 }
 
-                // Xử lý gracefully khi SKU chưa được ánh xạ (ghi log warn)
+                // SKU chưa ánh xạ: vẫn tạo đơn nhưng đánh dấu cần đối soát; không gán SKU khác và không trừ kho.
                 if (internalSkuId == null) {
+                    unmappedSku = true;
                     log.warn("SKU chưa được ánh xạ trong SmartOmni (chưa liên kết product_marketplace_links): tenantId={}, orderId={}, lineItemId={}, sellerSku={}, externalSkuId={}",
                             tenantId, order.getOrderId(), lineItem.getId(), sellerSku, externalSkuId);
                 }
@@ -177,6 +212,8 @@ public class TiktokOrderIngestionService {
                 .totalAmount(totalAmount)
                 .createTime(createTime)
                 .createdAt(createdAt)
+                .platformUpdateTime(epochSeconds(order.getUpdateTime()))
+                .reconciliationReason(unmappedSku ? RECONCILIATION_SKU_UNMAPPED : null)
                 .items(items)
                 .build();
 
@@ -218,6 +255,14 @@ public class TiktokOrderIngestionService {
         } catch (NumberFormatException e) {
             throw new BusinessException("tenantId must be a valid number: " + tenantId, HttpStatus.BAD_REQUEST, "INVALID_TENANT_ID");
         }
+    }
+
+    /** TikTok times are epoch seconds; tolerate millis. Null when absent. */
+    private static Long epochSeconds(Long value) {
+        if (value == null || value <= 0) {
+            return null;
+        }
+        return value > 100_000_000_000L ? value / 1000 : value;
     }
 
     private String buildShippingAddress(TiktokOrderDetailResponse.RecipientAddress addr) {
