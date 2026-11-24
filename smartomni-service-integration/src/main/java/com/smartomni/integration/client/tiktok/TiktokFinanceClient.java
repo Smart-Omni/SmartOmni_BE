@@ -2,19 +2,30 @@ package com.smartomni.integration.client.tiktok;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartomni.common.exception.BusinessException;
 import com.smartomni.integration.service.tiktok.TiktokShopApiExecutor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
- * Client for TikTok Shop Payment, Escrow, and Financial Ledger APIs (UC-TK-05).
+ * Money of a TikTok order, built from order data because neither the simulator nor its contracts expose a finance
+ * API (no {@code /finance/202309/statements}, no {@code statement_transactions}). The escrow view is read from
+ * {@code GET /order/202407/orders/{order_id}/price_detail} (scope {@code sim.order.read}); settlements are estimated
+ * by {@code TiktokFinanceEstimateService} from COMPLETED orders.
  */
 @Slf4j
 @Component
 public class TiktokFinanceClient {
+
+    public static final String SOURCE_PRICE_DETAIL = "ORDER_PRICE_DETAIL";
+    public static final String SOURCE_ESTIMATED = "ESTIMATED_FROM_ORDERS";
+    static final String PRICE_DETAIL_PATH = "/order/202407/orders/%s/price_detail";
 
     private final TiktokShopApiExecutor executor;
     private final ObjectMapper mapper;
@@ -24,6 +35,29 @@ public class TiktokFinanceClient {
         this.mapper = mapper;
     }
 
+    /** Price breakdown of the whole order or of one line item (amounts are VND). */
+    public record PriceBreakdown(
+            String id,
+            BigDecimal skuListPrice,
+            BigDecimal skuSalePrice,
+            BigDecimal subtotalDeductionSeller,
+            BigDecimal subtotalDeductionPlatform,
+            BigDecimal subtotal,
+            BigDecimal shippingListPrice,
+            BigDecimal shippingFeeDeductionSeller,
+            BigDecimal shippingFeeDeductionPlatform,
+            BigDecimal shippingSalePrice,
+            BigDecimal taxAmount,
+            BigDecimal payment,
+            BigDecimal total
+    ) {}
+
+    /**
+     * Escrow view of an order. Fields that only a finance statement could provide (escrow/settlement amount,
+     * commission, service and transaction fees, refunds) are {@code null}: unknown, not zero.
+     * {@code buyerTotalAmount} is {@code payment} (what the buyer pays), {@code orderOriginalPrice} is
+     * {@code sku_list_price}, {@code shippingFee} is {@code shipping_sale_price}.
+     */
     public record TiktokEscrowDetail(
             String orderId,
             BigDecimal escrowAmount,
@@ -37,7 +71,10 @@ public class TiktokFinanceClient {
             BigDecimal shippingFee,
             BigDecimal refundAmount,
             String currency,
-            String paymentMethod
+            String paymentMethod,
+            PriceBreakdown order,
+            List<PriceBreakdown> lineItems,
+            String source
     ) {}
 
     public record TiktokSettlementSummary(
@@ -49,103 +86,99 @@ public class TiktokFinanceClient {
             Long paidTime
     ) {}
 
-    public record TiktokSettlementListResult(
-            List<TiktokSettlementSummary> settlements,
-            String nextPageToken,
-            int total
+    /** Sums of the {@code payment} block of the orders counted in an estimate. */
+    public record SettlementTotals(
+            int orderCount,
+            BigDecimal subTotal,
+            BigDecimal sellerDiscount,
+            BigDecimal platformDiscount,
+            BigDecimal shippingFee,
+            BigDecimal tax,
+            BigDecimal totalAmount,
+            String currency
     ) {}
 
     /**
-     * Retrieves financial escrow breakdown for an order (GET /finance/202309/orders/{order_id}/statement_transactions).
+     * Settlements result. With {@code estimated=true} and {@code source=ESTIMATED_FROM_ORDERS} each row is one
+     * COMPLETED order ({@code statementId} = order id, {@code settlementAmount} = {@code payment.total_amount}) and
+     * {@code totals} holds the sums: this is NOT a platform statement.
      */
-    public TiktokEscrowDetail getEscrowDetail(Long connectionId, String orderId) {
-        String path = "/finance/202309/orders/" + orderId + "/statement_transactions";
-        JsonNode data = executor.call(connectionId, "GET", path, Map.of(), null);
-
-        JsonNode income = data.path("statement_transaction");
-        if (income.isMissingNode() || income.isNull()) {
-            income = data;
+    public record TiktokSettlementListResult(
+            List<TiktokSettlementSummary> settlements,
+            String nextPageToken,
+            int total,
+            boolean estimated,
+            String source,
+            SettlementTotals totals
+    ) {
+        public TiktokSettlementListResult(List<TiktokSettlementSummary> settlements, String nextPageToken, int total) {
+            this(settlements, nextPageToken, total, false, null, null);
         }
-
-        BigDecimal rawEscrow = BigDecimal.valueOf(income.path("net_settlement_amount").asDouble(
-                income.path("escrow_amount").asDouble(0.0)));
-        // Safe display guarantee: clamped >= 0 VND for merchant settlement display
-        BigDecimal escrowAmount = rawEscrow.max(BigDecimal.ZERO);
-
-        BigDecimal buyerTotal = BigDecimal.valueOf(income.path("buyer_paid_amount").asDouble(
-                income.path("buyer_total_amount").asDouble(0.0)));
-        BigDecimal originalPrice = BigDecimal.valueOf(income.path("order_original_price").asDouble(0.0));
-        BigDecimal platformDiscount = BigDecimal.valueOf(income.path("platform_discount").asDouble(0.0));
-        BigDecimal sellerDiscount = BigDecimal.valueOf(income.path("seller_discount").asDouble(0.0));
-        BigDecimal commission = BigDecimal.valueOf(income.path("commission_fee").asDouble(
-                income.path("platform_commission").asDouble(0.0)));
-        BigDecimal service = BigDecimal.valueOf(income.path("service_fee").asDouble(0.0));
-        BigDecimal transaction = BigDecimal.valueOf(income.path("transaction_fee").asDouble(
-                income.path("seller_transaction_fee").asDouble(0.0)));
-        BigDecimal shippingFee = BigDecimal.valueOf(income.path("shipping_fee").asDouble(0.0));
-        BigDecimal refundAmount = BigDecimal.valueOf(income.path("refund_amount").asDouble(0.0));
-        String currency = income.path("currency").asText("VND");
-        String paymentMethod = income.path("payment_method").asText("TikTokPay");
-
-        return new TiktokEscrowDetail(
-                orderId,
-                escrowAmount,
-                buyerTotal,
-                originalPrice,
-                platformDiscount,
-                sellerDiscount,
-                commission,
-                service,
-                transaction,
-                shippingFee,
-                refundAmount,
-                currency,
-                paymentMethod
-        );
     }
 
     /**
-     * Retrieves paginated financial statements / settlements (GET /finance/202309/statements).
+     * Escrow view of one order from Get Price Detail ({@code GET /order/202407/orders/{order_id}/price_detail}).
+     *
+     * @throws BusinessException 400 {@code TIKTOK_ORDER_ID_INVALID} for a malformed id
+     * @throws TiktokApiException when TikTok fails; an unknown order is TikTok's 404
      */
-    public TiktokSettlementListResult getSettlements(Long connectionId, Long fromDate, Long toDate,
-                                                    Integer pageSize, String pageToken) {
-        Map<String, String> query = new LinkedHashMap<>();
-        if (fromDate != null) {
-            query.put("create_time_from", String.valueOf(fromDate));
+    public TiktokEscrowDetail getEscrowDetail(Long connectionId, String orderId) {
+        if (orderId == null || !orderId.trim().matches("[A-Za-z0-9_-]{1,64}")) {
+            throw new BusinessException("Invalid TikTok order id", HttpStatus.BAD_REQUEST, "TIKTOK_ORDER_ID_INVALID");
         }
-        if (toDate != null) {
-            query.put("create_time_to", String.valueOf(toDate));
+        String id = orderId.trim();
+        JsonNode data = executor.call(connectionId, "GET", String.format(PRICE_DETAIL_PATH, id), Map.of(), null);
+
+        PriceBreakdown order = breakdown(id, data);
+        List<PriceBreakdown> lines = new ArrayList<>();
+        for (JsonNode line : data.path("line_items")) {
+            lines.add(breakdown(line.path("id").asText(null), line));
         }
-        query.put("page_size", String.valueOf(pageSize != null && pageSize > 0 ? Math.min(pageSize, 50) : 20));
-        if (pageToken != null && !pageToken.isBlank()) {
-            query.put("page_token", pageToken);
+        return new TiktokEscrowDetail(
+                id,
+                null,
+                order.payment(),
+                order.skuListPrice(),
+                order.subtotalDeductionPlatform(),
+                order.subtotalDeductionSeller(),
+                null,
+                null,
+                null,
+                order.shippingSalePrice(),
+                null,
+                data.path("currency").asText("VND"),
+                null,
+                order,
+                lines,
+                SOURCE_PRICE_DETAIL);
+    }
+
+    private static PriceBreakdown breakdown(String id, JsonNode node) {
+        return new PriceBreakdown(id,
+                amount(node, "sku_list_price"),
+                amount(node, "sku_sale_price"),
+                amount(node, "subtotal_deduction_seller"),
+                amount(node, "subtotal_deduction_platform"),
+                amount(node, "subtotal"),
+                amount(node, "shipping_list_price"),
+                amount(node, "shipping_fee_deduction_seller"),
+                amount(node, "shipping_fee_deduction_platform"),
+                amount(node, "shipping_sale_price"),
+                amount(node, "tax_amount"),
+                amount(node, "payment"),
+                amount(node, "total"));
+    }
+
+    /** TikTok amounts are strings; null when absent or not numeric. */
+    static BigDecimal amount(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
         }
-
-        JsonNode data = executor.call(connectionId, "GET", "/finance/202309/statements", query, null);
-
-        List<TiktokSettlementSummary> list = new ArrayList<>();
-        JsonNode arr = data.path("statements");
-        if (arr.isMissingNode() || arr.isNull() || !arr.isArray()) {
-            arr = data.path("statement_list");
+        try {
+            return new BigDecimal(value.asText().trim());
+        } catch (NumberFormatException e) {
+            return null;
         }
-
-        if (arr.isArray()) {
-            for (JsonNode s : arr) {
-                list.add(new TiktokSettlementSummary(
-                        s.path("statement_id").asText(""),
-                        s.hasNonNull("statement_time") ? s.path("statement_time").asLong() : null,
-                        BigDecimal.valueOf(s.path("settlement_amount").asDouble(0.0)),
-                        s.path("currency").asText("VND"),
-                        s.path("status").asText("PAID"),
-                        s.hasNonNull("paid_time") ? s.path("paid_time").asLong() : null
-                ));
-            }
-        }
-
-        String nextPageToken = data.path("next_page_token").asText(null);
-        int total = data.path("total_count").asInt(list.size());
-
-        return new TiktokSettlementListResult(list, nextPageToken, total);
     }
 }
-
