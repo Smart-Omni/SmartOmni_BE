@@ -8,6 +8,7 @@ import com.smartomni.integration.client.order.OrderServiceClient;
 import com.smartomni.integration.client.tiktok.TiktokReturnClient;
 import com.smartomni.integration.dto.tiktok.ReturnSearchRequest;
 import com.smartomni.integration.dto.tiktok.ReturnSearchResponse;
+import com.smartomni.integration.dto.tiktok.TiktokRefundAmount;
 import com.smartomni.integration.dto.tiktok.TiktokWebhookPayload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,8 @@ public class TiktokReturnService {
     private final OrderServiceClient orderServiceClient;
     private final ObjectMapper objectMapper;
     private final ReturnEvidenceService returnEvidenceService;
+    /** Resolves a returned line's TikTok SKU to the SmartOmni SKU that the order service restocks. */
+    private final com.smartomni.integration.service.catalog.CatalogMappingService catalogMappingService;
 
 
     /**
@@ -179,13 +182,10 @@ public class TiktokReturnService {
                 ? returnEvidenceService.normalizeEvidenceUrls(rawEvidenceUrls)
                 : rawEvidenceUrls;
 
-        // 6. Bóc tách số tiền hoàn refund_amount
-        BigDecimal refundAmount = BigDecimal.ZERO;
-        if (data.hasNonNull("refund_amount")) {
-            try {
-                refundAmount = new BigDecimal(data.get("refund_amount").asText());
-            } catch (Exception ignored) {}
-        }
+        // 6. Số tiền hoàn: refund_amount là object {refund_total, ...} (chuỗi); giá trị đơn lẻ vẫn được chấp nhận.
+        BigDecimal refundAmount = java.util.Optional.ofNullable(
+                TiktokRefundAmount.totalOf(TiktokRefundAmount.fromNode(data.get("refund_amount"))))
+                .orElse(BigDecimal.ZERO);
 
         // 7. Xác định returnAction & restockRequired:
         // Cần nhập lại kho khi trả hàng vật lý về kho (RECEIVE_APPROVE) và restockRequired = true
@@ -220,6 +220,76 @@ public class TiktokReturnService {
         }
 
         return request;
+    }
+
+    /** Return records of one request (GET /return_refund/202309/returns/{id}/records). */
+    public List<com.smartomni.integration.dto.tiktok.TiktokReturnRecord> getReturnRecords(Long connectionId, String returnId) {
+        if (connectionId == null || connectionId <= 0) {
+            throw new BusinessException("connectionId must be positive", HttpStatus.BAD_REQUEST, "INVALID_CONNECTION_ID");
+        }
+        return returnClient.getReturnRecords(connectionId, returnId);
+    }
+
+    /**
+     * Forwards the CURRENT state of a return (as read from TikTok, not from the event) to the order service. Line
+     * items carry the refunded amount per unit; {@code partial} keeps the status of the whole order unchanged.
+     */
+    public ProcessReturnRequest forwardCurrentReturn(Long tenantId, Long connectionId,
+                                                     com.smartomni.integration.dto.tiktok.TiktokReturnResponse ret,
+                                                     boolean partial) {
+        JsonNode none = objectMapper.createObjectNode();
+        ProcessReturnRequest.ReturnAction returnAction = determineReturnAction(ret.getReturnType(), ret.getReturnStatus(), none);
+        boolean restockRequired = isRestockRequired(ret.getReturnType(), ret.getReturnStatus(), returnAction, none);
+        List<ProcessReturnRequest.ReturnItemDto> items = new ArrayList<>();
+        if (ret.getReturnLineItems() != null) {
+            for (var line : ret.getReturnLineItems()) {
+                items.add(ProcessReturnRequest.ReturnItemDto.builder()
+                        .skuId(internalSkuId(tenantId, line.getSkuId(), line.getSellerSku()))
+                        .externalItemId(line.getOrderLineItemId())
+                        .externalModelId(line.getSkuId())
+                        .name(line.getProductName())
+                        .quantity(line.getQuantity() != null ? line.getQuantity() : 1)
+                        .refundAmount(TiktokRefundAmount.totalOf(line.getRefundAmount()))
+                        .build());
+            }
+        }
+        ProcessReturnRequest request = ProcessReturnRequest.builder()
+                .tenantId(tenantId)
+                .connectionId(connectionId)
+                .platform(PLATFORM_TIKTOK_SHOP)
+                .orderId(ret.getOrderId())
+                .platformOrderId(ret.getOrderId())
+                .returnId(ret.getReturnId())
+                .returnType(ret.getReturnType())
+                .returnStatus(ret.getReturnStatus())
+                .returnReason(ret.getReturnReasonText() != null ? ret.getReturnReasonText() : ret.getReturnReason())
+                .returnAction(returnAction)
+                .refundAmount(java.util.Optional.ofNullable(TiktokRefundAmount.totalOf(ret.getRefundAmount())).orElse(BigDecimal.ZERO))
+                .restockRequired(restockRequired)
+                .partialReturn(partial)
+                .platformUpdateTime(ret.getUpdateTime())
+                .items(items)
+                .build();
+        orderServiceClient.processReturn(request);
+        return request;
+    }
+
+    /** SmartOmni SKU for a TikTok line (by sku_id, then seller_sku); null when unmapped (not restocked). */
+    private Long internalSkuId(Long tenantId, String externalSkuId, String sellerSku) {
+        if (catalogMappingService == null) {
+            return null;
+        }
+        for (String key : new String[] { externalSkuId, sellerSku }) {
+            if (key != null && !key.isBlank()) {
+                var found = catalogMappingService.findInternalSkuId(tenantId, "tiktok_shop", key);
+                if (found.isPresent()) {
+                    return found.get();
+                }
+            }
+        }
+        log.warn("TikTok return line has no SmartOmni SKU mapping: tenant={}, sku_id={}, seller_sku={}",
+                tenantId, externalSkuId, sellerSku);
+        return null;
     }
 
     private ProcessReturnRequest.ReturnAction determineReturnAction(String returnType, String returnStatus, JsonNode data) {

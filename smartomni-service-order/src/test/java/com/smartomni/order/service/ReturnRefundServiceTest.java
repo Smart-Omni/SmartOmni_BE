@@ -71,6 +71,35 @@ class ReturnRefundServiceTest {
     }
 
     @Test
+    @DisplayName("TikTok (07b.3/07b.4): inspection is recorded only; no order status change and no restock")
+    void performInspection_tiktokOrderRecordsResultOnly() {
+        TenantContext.setTenantId(1L);
+        ReturnRefund refund = new ReturnRefund();
+        refund.setId(8L);
+        refund.setTenantId(1L);
+        refund.setOrderId(10L);
+        refund.setStatus(ReturnRefund.RefundStatus.APPROVED);
+        refund.setMarketplaceStatus("BUYER_SHIPPED_ITEM");
+        Order order = new Order();
+        order.setId(10L);
+        order.setTenantId(1L);
+        order.setPlatform(Order.Platform.TIKTOK_SHOP);
+        order.setStatus(Order.OrderStatus.COMPLETED);
+        when(refunds.findByIdAndTenantId(8L, 1L)).thenReturn(Optional.of(refund));
+        when(orders.findByIdAndTenantId(10L, 1L)).thenReturn(Optional.of(order));
+
+        ReturnDetailDto result = service.performInspection(8L, ReturnInspectionRequest.builder()
+                .result(ReturnInspectionRequest.InspectionResult.MATCHED).build());
+
+        assertEquals("MATCHED", result.getInspectionResult());
+        assertEquals("APPROVED", result.getStatus());
+        assertEquals("BUYER_SHIPPED_ITEM", result.getMarketplaceStatus());
+        assertEquals(Order.OrderStatus.COMPLETED, order.getStatus());
+        verify(orders, never()).save(any());
+        verifyNoInteractions(inventoryServiceClient, statusHistories);
+    }
+
+    @Test
     @DisplayName("Inspection MATCHED: updates return to COMPLETED, restocks with idempotency key, sets order RETURNED")
     void performInspection_matched_restocksInventoryAndMarksCompleted() {
         TenantContext.setTenantId(1L);

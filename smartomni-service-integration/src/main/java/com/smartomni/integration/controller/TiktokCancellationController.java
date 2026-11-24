@@ -28,8 +28,12 @@ import java.util.Map;
 @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF')")
 public class TiktokCancellationController {
 
+    /** TikTok lets a seller cancel only these order statuses. */
+    static final java.util.Set<String> SELLER_CANCELLABLE = java.util.Set.of("UNPAID", "AWAITING_SHIPMENT");
+
     private final TiktokTenantConnections tenantConnections;
     private final TiktokCancellationClient cancellationClient;
+    private final com.smartomni.integration.client.tiktok.TiktokOrderClient orderClient;
 
     /**
      * Lists buyer-initiated order cancellation requests from TikTok Simulator for the current shop (D6).
@@ -55,21 +59,42 @@ public class TiktokCancellationController {
     }
 
     /**
-     * Seller actively requests to cancel an order on TikTok Shop.
+     * Seller cancels an order on TikTok Shop (POST /return_refund/202309/cancellations). Allowed only while the order
+     * is UNPAID or AWAITING_SHIPMENT; otherwise 409 {@code TIKTOK_CANCEL_NOT_ALLOWED} without calling TikTok.
      */
     @PostMapping("/cancel")
     public ResponseEntity<ApiResponse<Map<String, Object>>> cancelOrder(
             @RequestBody TiktokCancelOrderRequest request) {
 
+        if (request == null || request.getOrderId() == null || request.getOrderId().isBlank()) {
+            throw new com.smartomni.common.exception.BusinessException("orderId is required",
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "INVALID_ORDER_ID");
+        }
         MarketplaceConnection connection = tenantConnections.requireConnected();
+        String orderId = request.getOrderId().trim();
         log.info("Actively canceling TikTok order: connectionId={}, orderId={}, reason={}",
-                connection.getId(), request.getOrderId(), request.getCancelReason());
+                connection.getId(), orderId, request.getCancelReason());
 
-        boolean success = cancellationClient.cancelOrder(connection.getId(),
-                request.getOrderId(), request.getCancelReason());
+        var order = orderClient.getOrderDetail(connection.getId(), orderId);
+        if (order == null) {
+            throw new com.smartomni.common.exception.BusinessException("TikTok order not found: " + orderId,
+                    org.springframework.http.HttpStatus.NOT_FOUND, "TIKTOK_ORDER_NOT_FOUND");
+        }
+        if (!SELLER_CANCELLABLE.contains(order.getOrderStatus())) {
+            throw new com.smartomni.common.exception.BusinessException(
+                    "A seller can cancel only UNPAID or AWAITING_SHIPMENT orders; order is " + order.getOrderStatus(),
+                    org.springframework.http.HttpStatus.CONFLICT, "TIKTOK_CANCEL_NOT_ALLOWED");
+        }
 
-        return ResponseEntity.ok(ApiResponse.success("Order cancellation submitted",
-                Map.of("orderId", request.getOrderId() != null ? request.getOrderId() : "", "canceled", success)));
+        var result = cancellationClient.cancelOrder(connection.getId(), orderId, request.getCancelReason(),
+                request.getOrderLineItemIds());
+
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("orderId", orderId);
+        data.put("canceled", true);
+        data.put("cancelId", result.cancelId() != null ? result.cancelId() : "");
+        data.put("cancelStatus", result.cancelStatus() != null ? result.cancelStatus() : "");
+        return ResponseEntity.ok(ApiResponse.success("Order cancellation submitted", data));
     }
 
     /**
@@ -121,6 +146,8 @@ public class TiktokCancellationController {
         private String shopId;
         private String orderId;
         private String cancelReason;
+        /** Optional: cancel only these order line items. */
+        private java.util.List<String> orderLineItemIds;
     }
 }
 

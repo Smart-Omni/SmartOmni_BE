@@ -64,6 +64,17 @@ public class ProcessReturnRequest {
     @JsonProperty("restock_required")
     private Boolean restockRequired;
 
+    /** Marketplace update_time of this return state (epoch seconds); older events are ignored. Optional. */
+    @JsonProperty("platform_update_time")
+    private Long platformUpdateTime;
+
+    /**
+     * True when the return covers only some units of the order. The order service then records the return but
+     * leaves the status of the whole order unchanged. Null/false keeps the previous behaviour.
+     */
+    @JsonProperty("partial_return")
+    private Boolean partialReturn;
+
     @Builder.Default
     @JsonProperty("items")
     private List<ReturnItemDto> items = new ArrayList<>();

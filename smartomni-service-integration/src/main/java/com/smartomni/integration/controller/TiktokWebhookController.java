@@ -14,7 +14,6 @@ import com.smartomni.integration.repository.MarketplaceConnectionRepository;
 import com.smartomni.integration.service.AesEncryptionService;
 import com.smartomni.integration.service.tiktok.TiktokFulfillmentService;
 import com.smartomni.integration.service.tiktok.TiktokOrderIngestionService;
-import com.smartomni.integration.service.tiktok.TiktokReturnService;
 import com.smartomni.integration.service.tiktok.TiktokWebhookEventRecorder;
 import com.smartomni.integration.service.tiktok.TiktokWebhookEventRecorder.Claim;
 import jakarta.servlet.http.HttpServletRequest;
@@ -72,21 +71,21 @@ public class TiktokWebhookController {
     private TiktokFulfillmentService fulfillmentService;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private TiktokReturnService returnService;
-
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.smartomni.integration.service.tiktok.TiktokConnectionService connectionService;
 
     public void setConnectionService(com.smartomni.integration.service.tiktok.TiktokConnectionService connectionService) {
         this.connectionService = connectionService;
     }
 
-    public void setReturnService(TiktokReturnService returnService) {
-        this.returnService = returnService;
-    }
-
     public void setFulfillmentService(TiktokFulfillmentService fulfillmentService) {
         this.fulfillmentService = fulfillmentService;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.smartomni.integration.service.tiktok.TiktokAftersaleWebhookService aftersaleService;
+
+    public void setAftersaleService(com.smartomni.integration.service.tiktok.TiktokAftersaleWebhookService aftersaleService) {
+        this.aftersaleService = aftersaleService;
     }
 
     @PostMapping("/webhooks")
@@ -211,20 +210,18 @@ public class TiktokWebhookController {
                     }
                 }
                 return ResponseEntity.ok(SUCCESS);
-            case REVERSE_STATUS_UPDATE:
-                if (returnService != null) {
-                    try {
-                        returnService.handleReturnWebhook(tenantId, payload);
-                    } catch (Exception ex) {
-                        log.error("Lỗi khi xử lý REVERSE_STATUS_UPDATE webhook: {}", ex.getMessage(), ex);
-                    }
-                }
-                return ResponseEntity.ok(SUCCESS);
-            case CANCELLATION_STATUS_CHANGE:
             case RETURN_STATUS_CHANGE:
-                // Đã nhận và ghi log; xử lý trạng thái trả/hủy thuộc phase 2.
-                log.info("TikTok Webhook {} đã nhận (tenant={}), chưa xử lý ở phase này", type, tenantId);
-                return ResponseEntity.ok(SUCCESS);
+            case REVERSE_STATUS_UPDATE:
+                // TikTok gửi cả hai topic cho cùng một yêu cầu trả hàng; đọc lại bản ghi hiện tại nên xử lý lặp vô hại.
+                if (aftersaleService == null) {
+                    return ResponseEntity.ok(SUCCESS);
+                }
+                return runEvent(type, tenantId, () -> aftersaleService.handleReturnEvent(tenantId, connection, payload.getData()));
+            case CANCELLATION_STATUS_CHANGE:
+                if (aftersaleService == null) {
+                    return ResponseEntity.ok(SUCCESS);
+                }
+                return runEvent(type, tenantId, () -> aftersaleService.handleCancellationEvent(tenantId, connection, payload.getData()));
             default:
                 log.info("TikTok Webhook {} chỉ ghi log (tenant={})", type, tenantId);
                 return ResponseEntity.ok(SUCCESS);
@@ -236,27 +233,37 @@ public class TiktokWebhookController {
      * Lỗi tạm thời (mạng, 5xx, hàng đợi) trả 503 để TikTok gửi lại.
      */
     private ResponseEntity<?> handleOrderStatusChange(Long tenantId, MarketplaceConnection connection, TiktokWebhookPayload payload) {
+        return runEvent(TiktokWebhookType.ORDER_STATUS_CHANGE, tenantId,
+                () -> orderIngestionService.processOrderEvent(tenantId, connection, payload.getData()));
+    }
+
+    /**
+     * Runs an event handler in the tenant's scope and maps failures: transient TikTok, queue or downstream failures
+     * answer 503 so TikTok retries; a TikTok rejection (e.g. unknown id) is acknowledged since retrying cannot
+     * help; invalid payloads answer 400.
+     */
+    private ResponseEntity<?> runEvent(TiktokWebhookType type, Long tenantId, Runnable handler) {
         try (var scope = TenantContext.openScope(tenantId, "order_polling_worker", null)) {
-            orderIngestionService.processOrderEvent(tenantId, connection, payload.getData());
+            handler.run();
             return ResponseEntity.ok(SUCCESS);
         } catch (TiktokApiException ex) {
             if (ex.isTransientFailure()) {
-                log.warn("TikTok tạm thời lỗi khi lấy chi tiết đơn (tenant={}): {}", tenantId, ex.summary());
+                log.warn("TikTok tạm thời lỗi khi xử lý {} (tenant={}): {}", type, tenantId, ex.summary());
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("TikTok temporarily unavailable");
             }
-            // TikTok từ chối (ví dụ đơn không tồn tại): gửi lại cũng không khác, nên xác nhận đã nhận.
-            log.error("TikTok từ chối lấy chi tiết đơn (tenant={}): {} {}", tenantId, ex.getMessage(), ex.summary());
+            // TikTok từ chối (ví dụ id không tồn tại): gửi lại cũng không khác, nên xác nhận đã nhận.
+            log.error("TikTok từ chối khi xử lý {} (tenant={}): {} {}", type, tenantId, ex.getMessage(), ex.summary());
             return ResponseEntity.ok(SUCCESS);
         } catch (BusinessException ex) {
             if (ex.getHttpStatus().is4xxClientError()) {
-                log.warn("ORDER_STATUS_CHANGE không hợp lệ (tenant={}): {}", tenantId, ex.getMessage());
+                log.warn("{} không hợp lệ (tenant={}): {}", type, tenantId, ex.getMessage());
                 return ResponseEntity.badRequest().body(ex.getMessage());
             }
-            log.error("Không xử lý được ORDER_STATUS_CHANGE (tenant={}): {}", tenantId, ex.getMessage());
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("Order event could not be processed");
+            log.error("Không xử lý được {} (tenant={}): {}", type, tenantId, ex.getMessage());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("Event could not be processed");
         } catch (Exception ex) {
-            log.error("Lỗi khi xử lý ORDER_STATUS_CHANGE (tenant={}): {}", tenantId, ex.getMessage(), ex);
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("Order event could not be processed");
+            log.error("Lỗi khi xử lý {} (tenant={}): {}", type, tenantId, ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("Event could not be processed");
         }
     }
 

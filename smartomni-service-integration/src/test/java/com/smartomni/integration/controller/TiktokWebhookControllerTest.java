@@ -12,7 +12,7 @@ import com.smartomni.integration.repository.MarketplaceConnectionRepository;
 import com.smartomni.integration.service.AesEncryptionService;
 import com.smartomni.integration.service.tiktok.TiktokFulfillmentService;
 import com.smartomni.integration.service.tiktok.TiktokOrderIngestionService;
-import com.smartomni.integration.service.tiktok.TiktokReturnService;
+
 import com.smartomni.integration.service.tiktok.TiktokWebhookEventRecorder;
 import com.smartomni.integration.service.tiktok.TiktokWebhookEventRecorder.Claim;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,7 +58,7 @@ class TiktokWebhookControllerTest {
     @Mock private AesEncryptionService encryptionService;
     @Mock private RabbitTemplate rabbitTemplate;
     @Mock private TiktokOrderIngestionService orderIngestionService;
-    @Mock private TiktokReturnService returnService;
+    @Mock private com.smartomni.integration.service.tiktok.TiktokAftersaleWebhookService aftersaleService;
     @Mock private TiktokFulfillmentService fulfillmentService;
 
     private WebhookHmacValidator webhookHmacValidator;
@@ -73,7 +73,7 @@ class TiktokWebhookControllerTest {
 
         TiktokWebhookController controller = new TiktokWebhookController(connectionRepository, eventRecorder,
                 webhookHmacValidator, properties, encryptionService, rabbitTemplate, new ObjectMapper(), orderIngestionService);
-        controller.setReturnService(returnService);
+        controller.setAftersaleService(aftersaleService);
         controller.setFulfillmentService(fulfillmentService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
@@ -200,26 +200,37 @@ class TiktokWebhookControllerTest {
     }
 
     @Test
-    @DisplayName("Type 11 và 12 được nhận, ghi log và trả 200 (xử lý ở phase 2)")
-    void cancellationAndReturnStatusChangesAreAcknowledged() throws Exception {
+    @DisplayName("Type 11 tới handler hủy đơn, type 12 tới handler trả hàng")
+    void cancellationAndReturnStatusChangesGoToTheAftersaleHandler() throws Exception {
         send(body(11, "notif-11", "{\"cancel_id\":\"C1\"}")).andExpect(status().isOk());
         send(body(12, "notif-12", "{\"return_id\":\"R1\"}")).andExpect(status().isOk());
 
-        verify(eventRecorder).claim(eq(TENANT_ID), eq("notif-11"), eq("CANCELLATION_STATUS_CHANGE"), anyString());
-        verify(eventRecorder).claim(eq(TENANT_ID), eq("notif-12"), eq("RETURN_STATUS_CHANGE"), anyString());
+        verify(aftersaleService).handleCancellationEvent(eq(TENANT_ID), eq(connection), any(JsonNode.class));
+        verify(aftersaleService).handleReturnEvent(eq(TENANT_ID), eq(connection), any(JsonNode.class));
         verify(eventRecorder).markProcessed(TENANT_ID, "notif-11", "CANCELLATION_STATUS_CHANGE");
         verify(eventRecorder).markProcessed(TENANT_ID, "notif-12", "RETURN_STATUS_CHANGE");
-        verifyNoInteractions(orderIngestionService, returnService);
+        verifyNoInteractions(orderIngestionService);
         assertEquals(MarketplaceConnection.ConnectionStatus.CONNECTED, connection.getStatus());
     }
 
     @Test
-    @DisplayName("Type 4 REVERSE_STATUS_UPDATE tới return service; type 2 (đổi địa chỉ) không")
-    void reverseStatusGoesToReturnServiceAndAddressUpdateDoesNot() throws Exception {
+    @DisplayName("Type 12: bản ghi chưa có trên sàn hoặc order service lỗi trả 503 để sàn gửi lại")
+    void returnEventFailureIs503() throws Exception {
+        doThrow(new BusinessException("not yet", HttpStatus.SERVICE_UNAVAILABLE, "TIKTOK_RETURN_NOT_READY"))
+                .when(aftersaleService).handleReturnEvent(eq(TENANT_ID), eq(connection), any());
+
+        send(body(12, "notif-12b", "{\"return_id\":\"R1\"}")).andExpect(status().isServiceUnavailable());
+
+        verify(eventRecorder, never()).markProcessed(anyLong(), eq("notif-12b"), anyString());
+    }
+
+    @Test
+    @DisplayName("Type 4 REVERSE_STATUS_UPDATE dùng chung handler trả hàng; type 2 (đổi địa chỉ) không")
+    void reverseStatusGoesToReturnHandlerAndAddressUpdateDoesNot() throws Exception {
         send(body(4, "notif-4", "{\"return_id\":\"R1\"}")).andExpect(status().isOk());
         send(body(2, "notif-2", "{\"order_id\":\"O1\"}")).andExpect(status().isOk());
 
-        verify(returnService, times(1)).handleReturnWebhook(eq(TENANT_ID), any());
+        verify(aftersaleService, times(1)).handleReturnEvent(eq(TENANT_ID), eq(connection), any(JsonNode.class));
     }
 
     @Test

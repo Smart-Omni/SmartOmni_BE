@@ -27,13 +27,15 @@ class TiktokCancellationControllerTest {
     private TiktokTenantConnections tenantConnections;
     private TiktokCancellationClient cancellationClient;
     private TiktokCancellationController controller;
+    private com.smartomni.integration.client.tiktok.TiktokOrderClient orderClient;
     private MarketplaceConnection connection;
 
     @BeforeEach
     void setUp() {
         tenantConnections = mock(TiktokTenantConnections.class);
         cancellationClient = mock(TiktokCancellationClient.class);
-        controller = new TiktokCancellationController(tenantConnections, cancellationClient);
+        orderClient = mock(com.smartomni.integration.client.tiktok.TiktokOrderClient.class);
+        controller = new TiktokCancellationController(tenantConnections, cancellationClient, orderClient);
 
         connection = new MarketplaceConnection();
         connection.setId(77L);
@@ -72,7 +74,11 @@ class TiktokCancellationControllerTest {
     @Test
     @DisplayName("cancelOrder submits active order cancellation and returns success map")
     void cancelOrder_Success() {
-        when(cancellationClient.cancelOrder(77L, "ORD-TK-001", "OUT_OF_STOCK")).thenReturn(true);
+        when(orderClient.getOrderDetail(77L, "ORD-TK-001")).thenReturn(
+                com.smartomni.integration.dto.tiktok.TiktokOrderDetailResponse.builder()
+                        .orderId("ORD-TK-001").orderStatus("UNPAID").build());
+        when(cancellationClient.cancelOrder(77L, "ORD-TK-001", "OUT_OF_STOCK", null))
+                .thenReturn(new TiktokCancellationClient.SellerCancelResult("CNL-1", "CANCELLATION_REQUEST_COMPLETE"));
 
         TiktokCancelOrderRequest request = TiktokCancelOrderRequest.builder()
                 .shopId("SHOP-001")
@@ -87,6 +93,21 @@ class TiktokCancellationControllerTest {
         assertEquals("Order cancellation submitted", res.getBody().getMessage());
         assertTrue((Boolean) res.getBody().getData().get("canceled"));
         assertEquals("ORD-TK-001", res.getBody().getData().get("orderId"));
+        assertEquals("CNL-1", res.getBody().getData().get("cancelId"));
+    }
+
+    @Test
+    @DisplayName("cancelOrder refuses an order TikTok no longer lets the seller cancel")
+    void cancelOrder_NotCancellableStatus() {
+        when(orderClient.getOrderDetail(77L, "ORD-TK-002")).thenReturn(
+                com.smartomni.integration.dto.tiktok.TiktokOrderDetailResponse.builder()
+                        .orderId("ORD-TK-002").orderStatus("IN_TRANSIT").build());
+
+        var ex = assertThrows(com.smartomni.common.exception.BusinessException.class, () -> controller.cancelOrder(
+                TiktokCancelOrderRequest.builder().orderId("ORD-TK-002").cancelReason("OUT_OF_STOCK").build()));
+
+        assertEquals("TIKTOK_CANCEL_NOT_ALLOWED", ex.getErrorCode());
+        verify(cancellationClient, never()).cancelOrder(any(), any(), any(), any());
     }
 
     @Test

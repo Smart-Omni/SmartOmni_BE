@@ -52,6 +52,13 @@ public class ReturnDetailDto {
     @JsonProperty("status")
     private String status;
 
+    /** Marketplace return_status, verbatim (TikTok), when the return comes from a marketplace. */
+    @JsonProperty("marketplace_status")
+    private String marketplaceStatus;
+
+    @JsonProperty("marketplace_updated_at")
+    private java.time.Instant marketplaceUpdatedAt;
+
     @JsonProperty("inspection_result")
     private String inspectionResult;
 

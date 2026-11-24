@@ -7,12 +7,14 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.smartomni.integration.dto.tiktok.CancellationSearchRequest;
 import com.smartomni.integration.dto.tiktok.CancellationSearchResponse;
+import com.smartomni.integration.dto.tiktok.TiktokCancellationResponse;
 import com.smartomni.integration.service.tiktok.TiktokShopApiExecutor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -57,6 +59,16 @@ public class TiktokCancellationClient {
             if (request.getCreateTimeTo() != null) {
                 body.put("create_time_lt", request.getCreateTimeTo());
             }
+            if (request.getUpdateTimeFrom() != null) {
+                body.put("update_time_ge", request.getUpdateTimeFrom());
+            }
+            if (request.getUpdateTimeTo() != null) {
+                body.put("update_time_lt", request.getUpdateTimeTo());
+            }
+            if (request.getCancelIds() != null && !request.getCancelIds().isEmpty()) {
+                ArrayNode ids = body.putArray("cancel_ids");
+                request.getCancelIds().forEach(ids::add);
+            }
         }
 
         JsonNode data = executor.call(connectionId, "POST", SEARCH_CANCELLATIONS_PATH, query, body.toString());
@@ -69,16 +81,36 @@ public class TiktokCancellationClient {
         }
     }
 
-    /**
-     * Seller actively cancels an order on TikTok Shop (POST /order/202309/orders/{order_id}/cancel).
-     */
-    public boolean cancelOrder(Long connectionId, String orderId, String cancelReason) {
-        String path = "/order/202309/orders/" + orderId + "/cancel";
-        ObjectNode body = mapper.createObjectNode();
-        body.put("cancel_reason", cancelReason != null ? cancelReason : "OUT_OF_STOCK");
+    public static final String SELLER_CANCEL_PATH = "/return_refund/202309/cancellations";
 
-        JsonNode data = executor.call(connectionId, "POST", path, Map.of(), body.toString());
-        return data != null;
+    /** Result of a seller cancellation: TikTok's {@code cancel_id} and {@code cancel_status}. */
+    public record SellerCancelResult(String cancelId, String cancelStatus) { }
+
+    /**
+     * Seller cancels an order (POST /return_refund/202309/cancellations, body
+     * {@code {order_id, cancel_reason, order_line_item_ids?}}). TikTok allows it only for UNPAID or AWAITING_SHIPMENT.
+     */
+    public SellerCancelResult cancelOrder(Long connectionId, String orderId, String cancelReason, List<String> orderLineItemIds) {
+        ObjectNode body = mapper.createObjectNode();
+        body.put("order_id", orderId);
+        body.put("cancel_reason", cancelReason != null && !cancelReason.isBlank() ? cancelReason : "OUT_OF_STOCK");
+        if (orderLineItemIds != null && !orderLineItemIds.isEmpty()) {
+            ArrayNode ids = body.putArray("order_line_item_ids");
+            orderLineItemIds.forEach(ids::add);
+        }
+        JsonNode data = executor.call(connectionId, "POST", SELLER_CANCEL_PATH, Map.of(), body.toString());
+        return new SellerCancelResult(data == null ? null : data.path("cancel_id").asText(null),
+                data == null ? null : data.path("cancel_status").asText(null));
+    }
+
+    /** One cancellation by id (Search Cancellations filtered by {@code cancel_ids}); null when not returned. */
+    public TiktokCancellationResponse getCancellation(Long connectionId, String cancelId) {
+        CancellationSearchResponse page = searchCancellations(connectionId, CancellationSearchRequest.builder()
+                .cancelIds(List.of(cancelId)).pageSize(10).build());
+        if (page == null || page.getCancellations() == null) {
+            return null;
+        }
+        return page.getCancellations().stream().filter(c -> cancelId.equals(c.getCancelId())).findFirst().orElse(null);
     }
 
     /**

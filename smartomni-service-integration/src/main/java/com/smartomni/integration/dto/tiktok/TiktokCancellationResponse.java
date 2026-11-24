@@ -42,8 +42,19 @@ public class TiktokCancellationResponse {
     @JsonProperty("buyer_user_id")
     private String buyerUserId;
 
+    /** Object with string amounts; use {@link TiktokRefundAmount#total()} for {@code refund_total}. */
     @JsonProperty("refund_amount")
-    private BigDecimal refundAmount;
+    private TiktokRefundAmount refundAmount;
+
+    /** Who created the request (BUYER, SELLER, OPERATOR, SYSTEM). */
+    @JsonProperty("role")
+    private String role;
+
+    @JsonProperty("arbitration_status")
+    private String arbitrationStatus;
+
+    @JsonProperty("cancel_line_items")
+    private java.util.List<CancelLineItem> cancelLineItems;
 
     @JsonProperty("refund_currency")
     private String refundCurrency;
@@ -53,4 +64,29 @@ public class TiktokCancellationResponse {
 
     @JsonProperty("update_time")
     private Long updateTime;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class CancelLineItem {
+        @JsonProperty("cancel_line_item_id")
+        private String cancelLineItemId;
+
+        @JsonProperty("order_line_item_id")
+        private String orderLineItemId;
+
+        @JsonProperty("sku_id")
+        private String skuId;
+
+        @JsonProperty("seller_sku")
+        private String sellerSku;
+
+        @JsonProperty("product_name")
+        private String productName;
+
+        @JsonProperty("refund_amount")
+        private TiktokRefundAmount refundAmount;
+    }
 }
