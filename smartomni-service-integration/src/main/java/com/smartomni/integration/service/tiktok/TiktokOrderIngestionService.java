@@ -223,6 +223,10 @@ public class TiktokOrderIngestionService {
                 .platformUpdateTime(epochSeconds(order.getUpdateTime()))
                 .reconciliationReason(unmappedSku ? RECONCILIATION_SKU_UNMAPPED : null)
                 .source(source)
+                .platformRtsTime(epochSeconds(order.getRtsTime()))
+                .platformCollectionTime(epochSeconds(order.getCollectionTime()))
+                .platformDeliveryTime(epochSeconds(order.getDeliveryTime()))
+                .platformCancelTime(epochSeconds(order.getCancelTime()))
                 .items(items)
                 .build();
 

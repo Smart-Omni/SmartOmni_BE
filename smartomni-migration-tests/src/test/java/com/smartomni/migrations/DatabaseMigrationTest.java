@@ -171,7 +171,7 @@ class DatabaseMigrationTest {
             for (var future : futures) {
                 applied += future.get(60, java.util.concurrent.TimeUnit.SECONDS);
             }
-            assertEquals(27, applied);
+            assertEquals(28, applied);
         } finally {
             start.countDown();
             executor.shutdownNow();
@@ -186,10 +186,11 @@ class DatabaseMigrationTest {
                     "SELECT count(*) FROM pg_type WHERE typnamespace='public'::regnamespace AND typtype='e'"));
             assertTrue(count(admin,
                     "SELECT count(*) FROM pg_constraint WHERE connamespace='public'::regnamespace AND contype='f'") > 50);
-            assertEquals(27, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(28, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
             assertEquals(1, count(admin, "SELECT count(*) FROM information_schema.columns WHERE table_name='users' AND column_name='token_version' AND is_nullable='NO'"));
             assertEquals(1, count(admin, "SELECT count(*) FROM pg_class WHERE relname='tiktok_sync_checkpoints' AND relrowsecurity AND relforcerowsecurity"));
             assertEquals(2, count(admin, "SELECT count(*) FROM information_schema.columns WHERE table_name='orders' AND column_name IN ('platform_updated_at','reconciliation_reason')"));
+            assertEquals(4, count(admin, "SELECT count(*) FROM information_schema.columns WHERE table_name='orders' AND is_nullable='YES' AND data_type='timestamp with time zone' AND column_name IN ('platform_rts_at','platform_collected_at','platform_delivered_at','platform_cancelled_at')"));
             assertEquals(2, count(admin, "SELECT count(*) FROM information_schema.columns WHERE table_name='returns_refunds' AND column_name IN ('marketplace_status','marketplace_updated_at')"));
             execute(admin, Files.readString(Path.of("..", "scripts", "db", "verify-schema.sql")));
         }
@@ -558,7 +559,7 @@ class DatabaseMigrationTest {
             assertEquals(usersBefore, count(admin, "SELECT count(*) FROM users"));
             assertEquals(historyBefore, count(admin, "SELECT count(*) FROM order_status_history"));
             assertEquals(invitationsBefore, count(admin, "SELECT count(*) FROM staff_invitations"));
-            assertEquals(27, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(28, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
             assertEquals("staff", string(admin, "SELECT role::text FROM users WHERE email='manager@a.test'"));
             assertEquals("staff", string(admin, "SELECT role::text FROM users WHERE email='manager@b.test'"));
             assertEquals(3, count(admin, "SELECT count(*) FROM users WHERE role='staff'"));
@@ -640,7 +641,7 @@ class DatabaseMigrationTest {
         assertThrows(FlywayException.class, invalid::migrate);
         try (Connection admin = connect(url, "postgres")) {
             assertEquals(0, count(admin, "SELECT count(*) FROM pg_tables WHERE tablename='should_rollback'"));
-            assertEquals(27, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(28, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
         }
     }
 

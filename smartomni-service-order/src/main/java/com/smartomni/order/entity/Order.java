@@ -40,6 +40,19 @@ public class Order extends BaseTenantEntity {
     @Column(name = "sla_deadline")
     private Instant slaDeadline;
 
+    /** Marketplace milestones (TikTok rts/collection/delivery/cancel time); display only, never drive the status. */
+    @Column(name = "platform_rts_at")
+    private Instant platformRtsAt;
+
+    @Column(name = "platform_collected_at")
+    private Instant platformCollectedAt;
+
+    @Column(name = "platform_delivered_at")
+    private Instant platformDeliveredAt;
+
+    @Column(name = "platform_cancelled_at")
+    private Instant platformCancelledAt;
+
     @Column(name = "shipping_method")
     private String shippingMethod;
 

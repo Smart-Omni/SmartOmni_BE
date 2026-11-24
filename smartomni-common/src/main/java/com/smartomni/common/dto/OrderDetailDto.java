@@ -24,6 +24,11 @@ public class OrderDetailDto {
     private String shippingMethod;
     private String trackingNumber;
     private Instant courierScannedAt;
+    /** Marketplace milestones (TikTok rts/collection/delivery/cancel time); null until reported. Display only. */
+    private Instant platformRtsAt;
+    private Instant platformCollectedAt;
+    private Instant platformDeliveredAt;
+    private Instant platformCancelledAt;
     private String customerName;
     private String customerPhone;
     private String shippingAddress;

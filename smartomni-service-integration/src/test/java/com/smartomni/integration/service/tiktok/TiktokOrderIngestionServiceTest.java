@@ -88,6 +88,26 @@ class TiktokOrderIngestionServiceTest {
 
         assertNull(result.getReconciliationReason());
         assertNull(result.getPlatformUpdateTime());
+        assertNull(result.getPlatformRtsTime());
+        assertNull(result.getPlatformDeliveryTime());
+    }
+
+    @Test
+    @DisplayName("Mốc thời gian giao hàng của order detail được chuyển sang payload (plan 4.3)")
+    void ingestOrder_copiesDeliveryMilestones() {
+        TiktokOrderDetailResponse order = TiktokOrderDetailResponse.builder()
+                .orderId(ORDER_ID).orderStatus("DELIVERED").createTime(CREATE_TIME).updateTime(1_800_000_400L)
+                .rtsTime(1_800_000_100L).collectionTime(1_800_000_200L).deliveryTime(1_800_000_300_000L)
+                .lineItems(List.of())
+                .build();
+
+        WebhookOrderPayload result = ingestionService.ingestOrder(TENANT_ID, order);
+
+        assertEquals("DELIVERED", result.getOrderStatus());
+        assertEquals(1_800_000_100L, result.getPlatformRtsTime());
+        assertEquals(1_800_000_200L, result.getPlatformCollectionTime());
+        assertEquals(1_800_000_300L, result.getPlatformDeliveryTime(), "millis are normalized to seconds");
+        assertNull(result.getPlatformCancelTime());
     }
 
     @Test

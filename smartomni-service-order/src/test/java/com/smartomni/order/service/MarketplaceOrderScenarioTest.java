@@ -253,6 +253,39 @@ class MarketplaceOrderScenarioTest {
             assertEquals(OrderService.RECONCILIATION_STATUS_CONFLICT, order("T3").getReconciliationReason());
         }
 
+        private void tiktokWithMilestones(String id, String status, long time, Long rts, Long collected, Long delivered) {
+            service.processIncomingOrder(WebhookOrderPayload.builder()
+                    .tenantId(TENANT).platform("TIKTOK_SHOP").platformOrderId(id)
+                    .orderStatus(status).platformUpdateTime(time)
+                    .platformRtsTime(rts).platformCollectionTime(collected).platformDeliveryTime(delivered)
+                    .totalAmount(new BigDecimal("100000")).build(), Order.OrderSource.WEBHOOK);
+        }
+
+        @Test
+        void milestonesAreKeptAndNeverDriveCompletion() {
+            // Plan 4.3: missing fields stay null and never clear a stored value; stale messages are ignored
+            // entirely; delivery_time does not become completedAt.
+            tiktokWithMilestones("T6", "AWAITING_SHIPMENT", 100, null, null, null);
+            assertNull(order("T6").getPlatformRtsAt());
+
+            tiktokWithMilestones("T6", "AWAITING_COLLECTION", 200, 200L, null, null);
+            tiktokWithMilestones("T6", "IN_TRANSIT", 300, 200L, 300L, null);
+            tiktokWithMilestones("T6", "DELIVERED", 400, null, null, 400L);   // fields omitted: kept
+            tiktokWithMilestones("T6", "IN_TRANSIT", 350, 1L, 1L, 1L);       // stale: ignored as a whole
+
+            Order o = order("T6");
+            assertEquals(Order.OrderStatus.DELIVERING, o.getStatus());
+            assertEquals(Instant.ofEpochSecond(200), o.getPlatformRtsAt());
+            assertEquals(Instant.ofEpochSecond(300), o.getPlatformCollectedAt());
+            assertEquals(Instant.ofEpochSecond(400), o.getPlatformDeliveredAt());
+            assertNull(o.getPlatformCancelledAt());
+            assertNull(o.getCompletedAt());
+
+            tiktokWithMilestones("T6", "COMPLETED", 900, null, null, null);
+            assertEquals(Instant.ofEpochSecond(900), order("T6").getCompletedAt());
+            assertEquals(Instant.ofEpochSecond(400), order("T6").getPlatformDeliveredAt());
+        }
+
         @Test
         void manualSyncOfDeliveredOrderIsDeliveringAndReplayIsIdempotent() {
             // Plan 4.4: TiktokOrderSyncService publishes the raw status with source POLLING to the same queue.

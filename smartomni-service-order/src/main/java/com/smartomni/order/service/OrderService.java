@@ -93,6 +93,7 @@ public class OrderService {
             if (payload.getReconciliationReason() != null) {
                 order.setReconciliationReason(payload.getReconciliationReason());
             }
+            applyMilestones(order, payload);
 
             if (payload.getOrderStatus() != null && !payload.getOrderStatus().isBlank()) {
                 Order.OrderStatus incomingStatus = policy.mapStatus(payload.getOrderStatus());
@@ -116,6 +117,7 @@ public class OrderService {
         order.setSource(source);
         order.setPlatformUpdatedAt(incomingUpdate);
         order.setReconciliationReason(payload.getReconciliationReason());
+        applyMilestones(order, payload);
 
         Order.OrderStatus initialStatus = payload.getOrderStatus() != null && !payload.getOrderStatus().isBlank()
                 ? policy.mapStatus(payload.getOrderStatus())
@@ -224,6 +226,29 @@ public class OrderService {
         }
 
         return order;
+    }
+
+    /**
+     * Stores the marketplace milestones of a non-stale message (plan 4.3). A missing field never clears a stored value;
+     * the milestones are display data only and never touch the status, completed_at, the wallet or loyalty.
+     */
+    private static void applyMilestones(Order order, WebhookOrderPayload payload) {
+        Instant rts = OrderStatusFlow.platformInstant(payload.getPlatformRtsTime());
+        Instant collected = OrderStatusFlow.platformInstant(payload.getPlatformCollectionTime());
+        Instant delivered = OrderStatusFlow.platformInstant(payload.getPlatformDeliveryTime());
+        Instant cancelled = OrderStatusFlow.platformInstant(payload.getPlatformCancelTime());
+        if (rts != null) {
+            order.setPlatformRtsAt(rts);
+        }
+        if (collected != null) {
+            order.setPlatformCollectedAt(collected);
+        }
+        if (delivered != null) {
+            order.setPlatformDeliveredAt(delivered);
+        }
+        if (cancelled != null) {
+            order.setPlatformCancelledAt(cancelled);
+        }
     }
 
     private void markCompletedIfNeeded(Order order, MarketplaceOrderPolicy policy) {
@@ -469,6 +494,10 @@ public class OrderService {
                 .shippingMethod(order.getShippingMethod())
                 .trackingNumber(order.getTrackingNumber())
                 .courierScannedAt(order.getCourierScannedAt())
+                .platformRtsAt(order.getPlatformRtsAt())
+                .platformCollectedAt(order.getPlatformCollectedAt())
+                .platformDeliveredAt(order.getPlatformDeliveredAt())
+                .platformCancelledAt(order.getPlatformCancelledAt())
                 .customerName(order.getCustomerName())
                 .customerPhone(order.getCustomerPhone())
                 .shippingAddress(order.getShippingAddress())
