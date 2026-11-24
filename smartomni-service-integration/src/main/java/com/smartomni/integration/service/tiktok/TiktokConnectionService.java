@@ -99,7 +99,7 @@ public class TiktokConnectionService {
 
     public Object connect(TiktokConnectRequest request) {
         Actor actor = requireTenant();
-        quotaValidator.assertCanConnect(actor.tenantId(), store.countActiveConnections(actor.tenantId()));
+        quotaValidator.assertCanConnect(actor.tenantId(), otherActiveConnections(actor.tenantId()));
         if (actor.userId() != null) {
             requireTenantAdmin();
         }
@@ -138,7 +138,7 @@ public class TiktokConnectionService {
                     HttpStatus.SERVICE_UNAVAILABLE, "TIKTOK_NOT_CONFIGURED");
         }
         String redirectUri = resolveRedirectUri(requestedRedirectUri);
-        quotaValidator.assertCanConnect(actor.tenantId(), store.countActiveConnections(actor.tenantId()));
+        quotaValidator.assertCanConnect(actor.tenantId(), otherActiveConnections(actor.tenantId()));
         String state = newState();
         Instant expiresAt = clock.instant().plus(properties.getStateTtl());
         try {
@@ -188,9 +188,9 @@ public class TiktokConnectionService {
 
         List<String> missing = missingScopes(grant.grantedScopes());
         ConnectionStatus status = missing.isEmpty() ? ConnectionStatus.CONNECTED : ConnectionStatus.MISSING_SCOPE;
-        quotaValidator.assertCanConnect(actor.tenantId(), store.countActiveConnections(actor.tenantId()));
+        quotaValidator.assertCanConnect(actor.tenantId(), otherActiveConnections(actor.tenantId()));
         LinkRequest link = new LinkRequest(shop.id(), shop.name(), shop.cipher(), shop.region(), shop.sellerType(),
-                grant.openId(), String.join(" ", grant.grantedScopes()),
+                grant.openId(), grant.grantedScopes() == null ? null : String.join(" ", grant.grantedScopes()),
                 cipher.encrypt(grant.accessToken()), cipher.encrypt(grant.refreshToken()),
                 grant.accessTokenExpiresAt(), grant.refreshTokenExpiresAt(), status, now);
         MarketplaceConnection saved;
@@ -293,7 +293,20 @@ public class TiktokConnectionService {
         return shop;
     }
 
+    /** Quota count for (re)authorizing TikTok: connections on other platforms only (see TiktokConnectionStore). */
+    private long otherActiveConnections(Long tenantId) {
+        return store.countActiveConnectionsExcluding(tenantId, com.smartomni.integration.entity.MarketplaceConnection.Platform.TIKTOK_SHOP);
+    }
+
+    /**
+     * Required scopes the grant lacks. {@code granted == null} means the token response did not say which scopes
+     * were granted (the simulator never does): the check is skipped instead of reporting every scope as missing;
+     * a missing scope then shows up as TikTok's 403, mapped to {@code TIKTOK_SCOPE_MISSING}.
+     */
     private List<String> missingScopes(List<String> granted) {
+        if (granted == null) {
+            return List.of();
+        }
         Set<String> have = new HashSet<>(granted);
         List<String> missing = new ArrayList<>();
         for (String required : properties.getRequiredScopes()) {

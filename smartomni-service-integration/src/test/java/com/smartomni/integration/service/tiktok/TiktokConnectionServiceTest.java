@@ -320,14 +320,60 @@ class TiktokConnectionServiceTest {
     }
 
     @Test
-    void whenScopesAreRequiredButTheResponseDoesNotListAnyItFailsClosed() {
+    void whenTheTokenResponseDoesNotSayWhichScopesWereGrantedTheCheckIsSkipped() {
+        // The simulator never returns granted_scopes: unknown is not "none". A real missing scope surfaces as
+        // TikTok's 403, mapped to TIKTOK_SCOPE_MISSING.
         properties.setRequiredScopes(List.of("orders.read"));
+        stateIs(StateOutcome.OK);
+        when(store.link(eq(1L), eq(77L), any())).thenReturn(savedConnection(ConnectionStatus.CONNECTED));
+        service.complete(callback("c", "s", null));
+        ArgumentCaptor<TiktokConnectionStore.LinkRequest> link = ArgumentCaptor.forClass(TiktokConnectionStore.LinkRequest.class);
+        verify(store).link(eq(1L), eq(77L), link.capture());
+        assertEquals(ConnectionStatus.CONNECTED, link.getValue().status());
+        assertNull(link.getValue().grantedScopes());
+        verifyNoInteractions(notifier);
+    }
+
+    @Test
+    void connectionDtoReportsUnknownScopesAsNull() {
+        MarketplaceConnection unknown = savedConnection(ConnectionStatus.CONNECTED);
+        unknown.setGrantedScopes(null);
+        assertNull(com.smartomni.integration.dto.tiktok.TiktokConnectionDto.from(unknown).grantedScopes());
+        unknown.setGrantedScopes("a b");
+        assertEquals(List.of("a", "b"), com.smartomni.integration.dto.tiktok.TiktokConnectionDto.from(unknown).grantedScopes());
+    }
+
+    @Test
+    void anExplicitlyEmptyGrantStillFailsClosed() {
+        properties.setRequiredScopes(List.of("orders.read"));
+        setTransport(new FakeTransport(s -> s.uri().getPath().startsWith("/api/v2/token")
+                ? FakeTransport.ok(String.format(TOKEN_JSON, ",\"granted_scopes\":[]")) : FakeTransport.ok(ONE_SHOP)));
         stateIs(StateOutcome.OK);
         when(store.link(eq(1L), eq(77L), any())).thenReturn(savedConnection(ConnectionStatus.MISSING_SCOPE));
         service.complete(callback("c", "s", null));
         ArgumentCaptor<TiktokConnectionStore.LinkRequest> link = ArgumentCaptor.forClass(TiktokConnectionStore.LinkRequest.class);
         verify(store).link(eq(1L), eq(77L), link.capture());
         assertEquals(ConnectionStatus.MISSING_SCOPE, link.getValue().status());
+    }
+
+    @Test
+    void freeTenantWhoseOnlyConnectionIsItsOwnRejectedTiktokShopCanReauthorize() {
+        TenantContext.setSubscriptionPlan("FREE");
+        // the REFRESH_REJECTED TikTok connection is excluded from the count; no other platform is connected
+        when(store.countActiveConnectionsExcluding(1L, MarketplaceConnection.Platform.TIKTOK_SHOP)).thenReturn(0L);
+
+        assertNotNull(service.start().authorizationUrl());
+
+        verify(store, never()).countActiveConnections(any());
+    }
+
+    @Test
+    void freeTenantWithAShopeeConnectionIsStillBlocked() {
+        TenantContext.setSubscriptionPlan("FREE");
+        when(store.countActiveConnectionsExcluding(1L, MarketplaceConnection.Platform.TIKTOK_SHOP)).thenReturn(1L);
+
+        assertThrows(com.smartomni.common.exception.FeatureNotAvailableException.class, () -> service.start());
+        verify(store, never()).prepareStart(any(), any(), anyString(), any());
     }
 
     @Test

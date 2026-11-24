@@ -82,7 +82,7 @@ class TiktokConnectControllerTest {
         TenantContext.setCurrentRole("TENANT_ADMIN");
         TenantContext.setSubscriptionPlan("FREE");
 
-        when(store.countActiveConnections(1L)).thenReturn(1L);
+        when(store.countActiveConnectionsExcluding(1L, MarketplaceConnection.Platform.TIKTOK_SHOP)).thenReturn(1L);
 
         TiktokConnectRequest request = new TiktokConnectRequest();
         request.setShopId("shop-tk-01");
@@ -104,7 +104,7 @@ class TiktokConnectControllerTest {
         TenantContext.setCurrentRole("TENANT_ADMIN");
         TenantContext.setSubscriptionPlan("FREE");
 
-        when(store.countActiveConnections(1L)).thenReturn(0L);
+        when(store.countActiveConnectionsExcluding(1L, MarketplaceConnection.Platform.TIKTOK_SHOP)).thenReturn(0L);
         MarketplaceConnection saved = new MarketplaceConnection();
         saved.setId(100L);
         saved.setTenantId(1L);
@@ -135,7 +135,7 @@ class TiktokConnectControllerTest {
         TenantContext.setCurrentRole("TENANT_ADMIN");
         TenantContext.setSubscriptionPlan("PRO");
 
-        when(store.countActiveConnections(2L)).thenReturn(3L);
+        when(store.countActiveConnectionsExcluding(2L, MarketplaceConnection.Platform.TIKTOK_SHOP)).thenReturn(3L);
         MarketplaceConnection saved = new MarketplaceConnection();
         saved.setId(200L);
         saved.setTenantId(2L);

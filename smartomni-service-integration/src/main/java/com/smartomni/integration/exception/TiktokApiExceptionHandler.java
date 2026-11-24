@@ -19,7 +19,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * <table>
  *   <tr><th>TikTok failure</th><th>Response</th></tr>
  *   <tr><td>network error, timeout or HTTP 5xx</td><td>503 {@code TIKTOK_UNAVAILABLE}</td></tr>
- *   <tr><td>HTTP 401 / 403</td><td>409 {@code TIKTOK_RECONNECT_REQUIRED}</td></tr>
+ *   <tr><td>HTTP 403 for a missing scope</td><td>409 {@code TIKTOK_SCOPE_MISSING}</td></tr>
+ *   <tr><td>other HTTP 401 / 403</td><td>409 {@code TIKTOK_RECONNECT_REQUIRED}</td></tr>
  *   <tr><td>HTTP 404</td><td>502 {@code TIKTOK_NOT_FOUND}</td></tr>
  *   <tr><td>any other rejection (4xx, envelope code other than 0)</td><td>422 {@code TIKTOK_REQUEST_REJECTED}</td></tr>
  * </table>
@@ -35,6 +36,7 @@ public class TiktokApiExceptionHandler {
     public static final String RECONNECT_REQUIRED = "TIKTOK_RECONNECT_REQUIRED";
     public static final String NOT_FOUND = "TIKTOK_NOT_FOUND";
     public static final String REQUEST_REJECTED = "TIKTOK_REQUEST_REJECTED";
+    public static final String SCOPE_MISSING = "TIKTOK_SCOPE_MISSING";
 
     @ExceptionHandler(TiktokApiException.class)
     public ResponseEntity<ApiResponse<Object>> handle(TiktokApiException ex) {
@@ -50,6 +52,11 @@ public class TiktokApiExceptionHandler {
                     "TikTok is temporarily unavailable. Please try again later.");
         }
         int status = ex.getHttpStatus();
+        if (status == 403 && isScopeFailure(ex)) {
+            return new Mapped(HttpStatus.CONFLICT, SCOPE_MISSING,
+                    "The TikTok authorization does not grant the permission this action needs. "
+                            + "Reconnect the TikTok shop and approve all requested permissions.");
+        }
         if (status == 401 || status == 403) {
             return new Mapped(HttpStatus.CONFLICT, RECONNECT_REQUIRED,
                     "TikTok refused the shop authorization. Reconnect the TikTok shop.");
@@ -59,6 +66,12 @@ public class TiktokApiExceptionHandler {
         }
         return new Mapped(HttpStatus.UNPROCESSABLE_ENTITY, REQUEST_REJECTED,
                 "TikTok rejected the request: " + ex.getMessage() + " (" + ex.summary() + ")");
+    }
+
+    /** TikTok's 403 for a scope the token lacks ("missing_scope": "the authorization does not grant ..."). */
+    static boolean isScopeFailure(TiktokApiException ex) {
+        String message = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase(java.util.Locale.ROOT);
+        return message.contains("scope") || message.contains("does not grant");
     }
 
     public record Mapped(HttpStatus status, String code, String message) {

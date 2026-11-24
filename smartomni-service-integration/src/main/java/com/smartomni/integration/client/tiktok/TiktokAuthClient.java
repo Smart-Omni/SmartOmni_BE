@@ -66,12 +66,15 @@ public class TiktokAuthClient {
         if (access.isEmpty() || refresh.isEmpty()) {
             throw new TiktokApiException("TikTok token response is missing tokens", response.status(), 0, null, false);
         }
-        List<String> scopes = new ArrayList<>();
         // UNVERIFIED: no scope field exists in the provisional token contract. Read defensively; agreed
-        // with the simulator as "granted_scopes": [..] in data.
-        for (JsonNode scope : data.path("granted_scopes")) {
-            if (scope.isTextual() && !scope.asText().isBlank()) {
-                scopes.add(scope.asText());
+        // with the simulator as "granted_scopes": [..] in data. Absent means "unknown" (null), not "none".
+        List<String> scopes = null;
+        if (data.path("granted_scopes").isArray()) {
+            scopes = new ArrayList<>();
+            for (JsonNode scope : data.path("granted_scopes")) {
+                if (scope.isTextual() && !scope.asText().isBlank()) {
+                    scopes.add(scope.asText());
+                }
             }
         }
         return new TokenGrant(access, refresh,

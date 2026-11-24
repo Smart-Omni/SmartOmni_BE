@@ -58,7 +58,7 @@ class TiktokAuthClientTest {
         assertTrue(transport.sent.get(0).uri().getRawQuery().contains("grant_type=refresh_token"));
         assertTrue(transport.sent.get(0).uri().getRawQuery().contains("refresh_token=RT1"));
         assertEquals(NOW.plusSeconds(3600), grant.accessTokenExpiresAt(), "a small value is read as a TTL");
-        assertTrue(grant.grantedScopes().isEmpty());
+        assertNull(grant.grantedScopes(), "no granted_scopes field means unknown, not none");
     }
 
     @Test

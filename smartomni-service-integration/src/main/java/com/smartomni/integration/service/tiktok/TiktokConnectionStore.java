@@ -136,6 +136,16 @@ public class TiktokConnectionStore {
         return connections.countByTenantIdAndStatusNot(tenantId, ConnectionStatus.DISCONNECTED);
     }
 
+    /**
+     * Active (not DISCONNECTED) connections of the tenant on every platform except {@code excluded}. Used for the plan
+     * quota when (re)authorizing a TikTok shop: the tenant's own TikTok connection, even REFRESH_REJECTED or
+     * MISSING_SCOPE, is the one being re-authorized and must not block itself.
+     */
+    @Transactional(readOnly = true)
+    public long countActiveConnectionsExcluding(Long tenantId, MarketplaceConnection.Platform excluded) {
+        return connections.countByTenantIdAndStatusNotAndPlatformNot(tenantId, ConnectionStatus.DISCONNECTED, excluded);
+    }
+
     @Transactional
     public MarketplaceConnection linkDirect(Long tenantId, String shopId, String shopName, Instant now) {
         MarketplaceConnection connection = connections

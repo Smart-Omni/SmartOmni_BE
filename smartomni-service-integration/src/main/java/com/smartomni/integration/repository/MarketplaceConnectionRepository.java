@@ -18,6 +18,9 @@ public interface MarketplaceConnectionRepository extends JpaRepository<Marketpla
 
     Optional<MarketplaceConnection> findByIdAndTenantId(Long id, Long tenantId);
     long countByTenantIdAndStatusNot(Long tenantId, MarketplaceConnection.ConnectionStatus status);
+
+    long countByTenantIdAndStatusNotAndPlatformNot(Long tenantId, MarketplaceConnection.ConnectionStatus status,
+                                                    MarketplaceConnection.Platform platform);
     List<MarketplaceConnection> findByStatus(MarketplaceConnection.ConnectionStatus status); // dung cho Polling Scheduler (UC-34) va Price Sync (UC-43)
 
     /** Tolerant of legacy duplicate rows (unlike {@link #findByTenantIdAndPlatform}). */
