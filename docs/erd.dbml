@@ -504,6 +504,10 @@ Table orders {
   shipping_method varchar
   tracking_number varchar
   courier_scanned_at timestamptz
+  platform_rts_at timestamptz [note: 'TikTok rts_time; chỉ hiển thị']
+  platform_collected_at timestamptz [note: 'TikTok collection_time; chỉ hiển thị']
+  platform_delivered_at timestamptz [note: 'TikTok delivery_time; không phải thời điểm hoàn tất']
+  platform_cancelled_at timestamptz [note: 'TikTok cancel_time; chỉ hiển thị']
   customer_name varchar
   customer_phone varchar
   shipping_address text
