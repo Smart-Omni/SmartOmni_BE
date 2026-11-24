@@ -19,7 +19,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -62,7 +61,6 @@ class OrderLifecycleTest {
     @Mock
     private ReturnRefundItemRepository returnRefundItemRepository;
 
-    @InjectMocks
     private OrderService orderService;
 
     private Order sampleOrder;
@@ -156,6 +154,15 @@ class OrderLifecycleTest {
 
     @BeforeEach
     void setUp() {
+        orderService = new OrderService(orderRepository, orderItemRepository, orderStatusHistoryRepository,
+                sellerWalletLedgerRepository, inventoryServiceClient,
+                new com.smartomni.order.marketplace.MarketplaceOrderPolicyRegistry(List.of(
+                        new com.smartomni.order.marketplace.shopee.ShopeeOrderPolicy(
+                                new com.smartomni.order.marketplace.shopee.ShopeeReturnHandler(
+                                        orderRepository, returnRefundRepository, returnRefundItemRepository)),
+                        new com.smartomni.order.marketplace.tiktok.TiktokOrderPolicy(
+                                new com.smartomni.order.marketplace.tiktok.TiktokReturnHandler(
+                                        returnRefundRepository, returnRefundItemRepository, inventoryServiceClient)))));
         TenantContext.setTenantId(TENANT_ID);
         sampleOrder = new Order();
         sampleOrder.setId(ORDER_ID);
@@ -256,7 +263,7 @@ class OrderLifecycleTest {
 
         orderService.processIncomingOrder(WebhookOrderPayload.builder()
                 .tenantId(TENANT_ID).platform("SHOPEE").platformOrderId(PLATFORM_ORDER_ID)
-                .orderStatus("IN_TRANSIT").build(), Order.OrderSource.WEBHOOK);
+                .orderStatus("SHIPPED").build(), Order.OrderSource.WEBHOOK);
 
         assertEquals(Order.OrderStatus.SHIPPED, sampleOrder.getStatus());
         assertEquals(java.time.Instant.ofEpochSecond(1_800_000_200L), sampleOrder.getPlatformUpdatedAt());
@@ -403,18 +410,21 @@ class OrderLifecycleTest {
     }
 
     @Test
-    @DisplayName("Từ chối hủy đơn đã giao bưu tá và không hoàn kho")
-    void handleOrderStatusChange_cancelledAfterCourier_doesNotRestock() {
+    @DisplayName("Hủy sau khi giao bưu tá: bỏ qua (không lỗi, không DLQ), gắn STATUS_CONFLICT, không hoàn kho")
+    void handleOrderStatusChange_cancelledAfterCourier_isSkippedAndFlagged() {
+        // Plan 3.2 / M11: an invalid marketplace transition is logged and skipped instead of throwing into the DLQ.
         sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
         sampleOrder.setCourierScannedAt(Instant.now().minusSeconds(3600));
 
         when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
                 .thenReturn(Optional.of(sampleOrder));
-        assertThrows(com.smartomni.common.exception.BusinessException.class,
-                () -> orderService.handleOrderStatusChange(TENANT_ID, "TIKTOK_SHOP", PLATFORM_ORDER_ID, "CANCELLED"));
+        when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        assertEquals(Order.OrderStatus.SHIPPED, sampleOrder.getStatus());
-        verify(orderRepository, never()).save(any());
+        Order result = orderService.handleOrderStatusChange(TENANT_ID, "TIKTOK_SHOP", PLATFORM_ORDER_ID, "CANCELLED");
+
+        assertEquals(Order.OrderStatus.SHIPPED, result.getStatus());
+        assertEquals(OrderService.RECONCILIATION_STATUS_CONFLICT, result.getReconciliationReason());
+        verify(orderRepository, times(1)).save(sampleOrder);
         verifyNoInteractions(orderStatusHistoryRepository, sellerWalletLedgerRepository);
         verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
     }
@@ -460,7 +470,8 @@ class OrderLifecycleTest {
         when(orderRepository.save(any(Order.class))).thenReturn(sampleOrder);
         when(sellerWalletLedgerRepository.existsByOrderId(ORDER_ID)).thenReturn(true);
 
-        orderService.handleOrderStatusChange(TENANT_ID, "TIKTOK_SHOP", PLATFORM_ORDER_ID, "DELIVERED");
+        // Was "DELIVERED", which since D3 maps to DELIVERING and would pass without reaching the ledger at all.
+        orderService.handleOrderStatusChange(TENANT_ID, "TIKTOK_SHOP", PLATFORM_ORDER_ID, "COMPLETED");
 
         verify(sellerWalletLedgerRepository, never()).save(any(SellerWalletLedger.class));
     }
@@ -528,283 +539,158 @@ class OrderLifecycleTest {
         assertEquals(Order.OrderStatus.TO_SHIP, updated.getStatus());
     }
 
+    // Shopee return push (code 29). Plan 4.1 / M8 / principle 6: the push only records return_refund; the order
+    // status never changes (the simulator moves COMPLETED -> TO_RETURN -> COMPLETED, which maps to COMPLETED) and
+    // nothing is restocked: RETURNED and the restock come only from WF-05 inspection. These tests used to assert
+    // ON_HOLD/RETURNED and a restock on the push itself.
+
+    private com.smartomni.common.dto.ProcessReturnRequest.ProcessReturnRequestBuilder shopeeReturn(String returnId) {
+        return com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID).platform("SHOPEE").platformOrderId(PLATFORM_ORDER_ID).returnId(returnId);
+    }
+
+    private void stubShopeeOrder(Order.OrderStatus status) {
+        sampleOrder.setPlatform(Order.Platform.SHOPEE);
+        sampleOrder.setStatus(status);
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    private com.smartomni.order.entity.ReturnRefund savedReturn() {
+        ArgumentCaptor<com.smartomni.order.entity.ReturnRefund> captor =
+                ArgumentCaptor.forClass(com.smartomni.order.entity.ReturnRefund.class);
+        verify(returnRefundRepository, atLeastOnce()).save(captor.capture());
+        return captor.getValue();
+    }
+
     @Test
-    @DisplayName("handleOrderReturn: Chấp nhận trả hàng thành công -> chuyển sang RETURNED và hoàn trả tồn kho")
-    void handleOrderReturn_completed_withRestock() {
+    @DisplayName("Shopee push 29 (mọi action): đơn giữ COMPLETED, không ghi lịch sử, không hoàn kho")
+    void shopeeReturnPushNeverChangesOrderStatusOrRestocks() {
+        stubShopeeOrder(Order.OrderStatus.COMPLETED);
+
+        for (var action : com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.values()) {
+            Order updated = orderService.handleOrderReturn(shopeeReturn("ret-" + action)
+                    .returnAction(action).returnStatus("ACCEPTED").restockRequired(true).build());
+            assertEquals(Order.OrderStatus.COMPLETED, updated.getStatus(), action.name());
+        }
+        Order updated = orderService.handleOrderReturn(shopeeReturn("ret-no-action")
+                .returnStatus("RETURN_COMPLETED").restockRequired(true).build());
+
+        assertEquals(Order.OrderStatus.COMPLETED, updated.getStatus());
+        assertNull(updated.getRestockStatus());
+        verifyNoInteractions(orderStatusHistoryRepository, inventoryServiceClient, sellerWalletLedgerRepository);
+    }
+
+    @Test
+    @DisplayName("Shopee push 29 AWAITING_INSPECTION: return_refund REQUESTED/PENDING, giữ marketplace status, lý do")
+    void shopeeReturnAwaitingInspectionRecordsReturnOnly() {
         sampleOrder.setPlatform(Order.Platform.SHOPEE);
         sampleOrder.setStatus(Order.OrderStatus.COMPLETED);
-
-        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, PLATFORM_ORDER_ID))
+        sampleOrder.setConnectionId(88L);
+        when(orderRepository.findByTenantIdAndConnectionIdAndPlatformOrderId(TENANT_ID, 88L, "SP-ORDER-1234"))
                 .thenReturn(Optional.of(sampleOrder));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
+        Order updated = orderService.handleOrderReturn(com.smartomni.common.dto.ProcessReturnRequest.builder()
+                .tenantId(TENANT_ID).connectionId(88L).platform("SHOPEE").platformOrderId("SP-ORDER-1234")
+                .returnId("ret-shopee-awaiting-1")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.AWAITING_INSPECTION)
+                .returnStatus("ACCEPTED").returnType("PHYSICAL_RETURN").returnReason("Damaged during shipping")
+                .restockRequired(false).build());
 
-        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
-                .tenantId(TENANT_ID)
-                .platform("SHOPEE")
-                .platformOrderId(PLATFORM_ORDER_ID)
-                .returnId("ret-888")
-                .returnStatus("RETURN_COMPLETED")
-                .restockRequired(true)
-                .build();
-
-        Order updated = orderService.handleOrderReturn(request);
-
-        assertNotNull(updated);
-        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
-
-        // Verify ghi nhận lịch sử đổi trạng thái
-        verify(orderStatusHistoryRepository).save(any(OrderStatusHistory.class));
-
-        assertEquals("RESTOCKED", updated.getRestockStatus());
+        assertEquals(Order.OrderStatus.COMPLETED, updated.getStatus());
+        assertEquals("Damaged during shipping", updated.getReturnReason());
+        com.smartomni.order.entity.ReturnRefund refund = savedReturn();
+        assertEquals(com.smartomni.order.entity.ReturnRefund.RefundStatus.REQUESTED, refund.getStatus());
+        assertEquals(com.smartomni.order.entity.ReturnRefund.InspectionResultType.PENDING, refund.getInspectionResult());
+        assertEquals("ACCEPTED", refund.getMarketplaceStatus());
+        assertFalse(refund.isRestocked());
+        verifyNoInteractions(inventoryServiceClient, orderStatusHistoryRepository);
     }
 
     @Test
-    @DisplayName("handleOrderReturn: Yêu cầu trả hàng đang xử lý -> chuyển sang ON_HOLD và không hoàn kho")
-    void handleOrderReturn_requested_withoutRestock() {
-        sampleOrder.setPlatform(Order.Platform.SHOPEE);
-        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+    @DisplayName("Shopee push 29 trả một phần rồi hủy: return_refund REQUESTED rồi REJECTED, đơn vẫn COMPLETED")
+    void shopeePartialReturnThenCancelledKeepsOrderCompleted() {
+        stubShopeeOrder(Order.OrderStatus.COMPLETED);
+        com.smartomni.order.entity.ReturnRefund stored = new com.smartomni.order.entity.ReturnRefund();
+        stored.setId(70L);
+        when(returnRefundRepository.findByTenantIdAndOrderId(TENANT_ID, ORDER_ID))
+                .thenReturn(Optional.empty(), Optional.of(stored));
+        when(returnRefundRepository.save(any(com.smartomni.order.entity.ReturnRefund.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
 
-        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, PLATFORM_ORDER_ID))
-                .thenReturn(Optional.of(sampleOrder));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        orderService.handleOrderReturn(shopeeReturn("ret-partial-1").partialReturn(true)
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.AWAITING_INSPECTION)
+                .returnStatus("REQUESTED").build());
+        assertEquals(com.smartomni.order.entity.ReturnRefund.RefundStatus.REQUESTED, savedReturn().getStatus());
 
-        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
-                .tenantId(TENANT_ID)
-                .platform("SHOPEE")
-                .platformOrderId(PLATFORM_ORDER_ID)
-                .returnId("ret-999")
-                .returnStatus("RETURN_REQUESTED")
-                .restockRequired(false)
-                .build();
-
-        Order updated = orderService.handleOrderReturn(request);
-
-        assertNotNull(updated);
-        assertEquals(Order.OrderStatus.ON_HOLD, updated.getStatus());
-
-        // Verify không hoàn kho
-        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
-    }
-
-    @Test
-    @DisplayName("handleOrderReturn: RECEIVE_APPROVE + restockRequired = true -> RETURNED và gọi restock")
-    void handleOrderReturn_receiveApprove_restocksInventory() {
-        sampleOrder.setPlatform(Order.Platform.SHOPEE);
-        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
-
-        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, PLATFORM_ORDER_ID))
-                .thenReturn(Optional.of(sampleOrder));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-
-        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
-                .tenantId(TENANT_ID)
-                .platform("SHOPEE")
-                .platformOrderId(PLATFORM_ORDER_ID)
-                .returnId("ret-approve-1")
-                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE)
-                .returnStatus("RETURN_COMPLETED")
-                .restockRequired(true)
-                .build();
-
-        Order updated = orderService.handleOrderReturn(request);
-
-        assertNotNull(updated);
-        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
-        assertEquals("RESTOCKED", updated.getRestockStatus());
-    }
-
-    @Test
-    @DisplayName("handleOrderReturn: REFUND_ONLY -> RETURNED và NGHIÊM CẤM gọi restock")
-    void handleOrderReturn_refundOnly_strictlyNeverRestocks() {
-        sampleOrder.setPlatform(Order.Platform.SHOPEE);
-        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
-
-        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, PLATFORM_ORDER_ID))
-                .thenReturn(Optional.of(sampleOrder));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
-                .tenantId(TENANT_ID)
-                .platform("SHOPEE")
-                .platformOrderId(PLATFORM_ORDER_ID)
-                .returnId("ret-refund-only")
-                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.REFUND_ONLY)
-                .returnType("REFUND_ONLY")
-                .returnStatus("REFUND_COMPLETE")
-                .restockRequired(false)
-                .build();
-
-        Order updated = orderService.handleOrderReturn(request);
-
-        assertNotNull(updated);
-        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
-        assertEquals("NO_RESTOCK_REFUND_ONLY", updated.getRestockStatus());
-        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
-    }
-
-    @Test
-    @DisplayName("handleOrderReturn: RECEIVE_REJECT -> ON_HOLD, lưu rejectReason & evidenceUrls và NGHIÊM CẤM restock")
-    void handleOrderReturn_receiveRejected_strictlyNeverRestocks() {
-        sampleOrder.setPlatform(Order.Platform.SHOPEE);
-        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
-
-        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, PLATFORM_ORDER_ID))
-                .thenReturn(Optional.of(sampleOrder));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
-                .tenantId(TENANT_ID)
-                .platform("SHOPEE")
-                .platformOrderId(PLATFORM_ORDER_ID)
-                .returnId("ret-reject-1")
+        orderService.handleOrderReturn(shopeeReturn("ret-partial-1")
                 .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_REJECT)
-                .returnStatus("SELLER_REJECTED")
+                .returnStatus("CANCELLED").build());
+
+        assertEquals(com.smartomni.order.entity.ReturnRefund.RefundStatus.REJECTED, stored.getStatus());
+        assertEquals("CANCELLED", stored.getMarketplaceStatus());
+        assertEquals(Order.OrderStatus.COMPLETED, sampleOrder.getStatus());
+        verifyNoInteractions(inventoryServiceClient, orderStatusHistoryRepository);
+    }
+
+    @Test
+    @DisplayName("Shopee push 29 sau khi WF-05 đã kiểm hàng: chỉ cập nhật marketplace status, không ghi đè kết quả kiểm")
+    void shopeeReturnPushAfterInspectionKeepsWarehouseOutcome() {
+        stubShopeeOrder(Order.OrderStatus.RETURNED);
+        sampleOrder.setRestockStatus("RESTOCKED");
+        com.smartomni.order.entity.ReturnRefund inspected = new com.smartomni.order.entity.ReturnRefund();
+        inspected.setId(71L);
+        inspected.setStatus(com.smartomni.order.entity.ReturnRefund.RefundStatus.COMPLETED);
+        inspected.setInspectionResult(com.smartomni.order.entity.ReturnRefund.InspectionResultType.MATCHED);
+        inspected.setRestocked(true);
+        when(returnRefundRepository.findByTenantIdAndOrderId(TENANT_ID, ORDER_ID)).thenReturn(Optional.of(inspected));
+
+        Order updated = orderService.handleOrderReturn(shopeeReturn("ret-duplicate-shopee")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.AWAITING_INSPECTION)
+                .returnStatus("ACCEPTED").restockRequired(true).build());
+
+        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
+        assertEquals("RESTOCKED", updated.getRestockStatus());
+        assertEquals(com.smartomni.order.entity.ReturnRefund.RefundStatus.COMPLETED, inspected.getStatus());
+        assertEquals(com.smartomni.order.entity.ReturnRefund.InspectionResultType.MATCHED, inspected.getInspectionResult());
+        assertTrue(inspected.isRestocked());
+        assertEquals("ACCEPTED", inspected.getMarketplaceStatus());
+        verifyNoInteractions(inventoryServiceClient);
+    }
+
+    @Test
+    @DisplayName("Shopee push 29 RECEIVE_REJECT: lưu rejectReason & evidenceUrls, không hoàn kho")
+    void shopeeReturnRejectKeepsReasonAndEvidence() {
+        stubShopeeOrder(Order.OrderStatus.COMPLETED);
+
+        Order updated = orderService.handleOrderReturn(shopeeReturn("ret-reject-1")
+                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_REJECT)
+                .returnStatus("CLOSED")
                 .rejectReason("Hàng bị bể vỡ do va đập, không đúng nguyên trạng")
                 .evidenceUrls(List.of("https://cdn.smartomni.com/ev1.jpg", "https://cdn.smartomni.com/ev2.jpg"))
-                .restockRequired(false)
-                .build();
+                .build());
 
-        Order updated = orderService.handleOrderReturn(request);
-
-        assertNotNull(updated);
-        assertEquals(Order.OrderStatus.ON_HOLD, updated.getStatus());
-        assertEquals("REJECTED", updated.getRestockStatus());
+        assertEquals(Order.OrderStatus.COMPLETED, updated.getStatus());
         assertEquals("Hàng bị bể vỡ do va đập, không đúng nguyên trạng", updated.getRejectReason());
         assertTrue(updated.getEvidenceUrls().contains("https://cdn.smartomni.com/ev1.jpg"));
         verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
     }
 
     @Test
-    @DisplayName("handleOrderReturn: DISPUTE_CLAIM -> ON_HOLD và NGHIÊM CẤM gọi restock")
-    void handleOrderReturn_disputeClaim_strictlyNeverRestocks() {
-        sampleOrder.setPlatform(Order.Platform.SHOPEE);
-        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+    @DisplayName("Thiếu platform trong yêu cầu trả hàng / tracking: 400 PLATFORM_REQUIRED, không mặc định TikTok (M10)")
+    void missingPlatformIsRejected() {
+        var returnError = assertThrows(com.smartomni.common.exception.BusinessException.class,
+                () -> orderService.handleOrderReturn(com.smartomni.common.dto.ProcessReturnRequest.builder()
+                        .tenantId(TENANT_ID).platformOrderId(PLATFORM_ORDER_ID).returnId("r").build()));
+        assertEquals("PLATFORM_REQUIRED", returnError.getErrorCode());
 
-        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, PLATFORM_ORDER_ID))
-                .thenReturn(Optional.of(sampleOrder));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
-                .tenantId(TENANT_ID)
-                .platform("SHOPEE")
-                .platformOrderId(PLATFORM_ORDER_ID)
-                .returnId("ret-dispute-1")
-                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.DISPUTE_CLAIM)
-                .returnStatus("DISPUTE_IN_PROGRESS")
-                .restockRequired(false)
-                .build();
-
-        Order updated = orderService.handleOrderReturn(request);
-
-        assertNotNull(updated);
-        assertEquals(Order.OrderStatus.ON_HOLD, updated.getStatus());
-        assertEquals("DISPUTED", updated.getRestockStatus());
-        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
-    }
-
-    @Test
-    @DisplayName("handleOrderReturn: RECEIVE_APPROVE gọi lặp lại không cộng kho lần 2 (idempotent)")
-    void handleOrderReturn_duplicateReceiveApprove_isIdempotentAndNeverRestocksTwice() {
-        sampleOrder.setPlatform(Order.Platform.SHOPEE);
-        sampleOrder.setPlatform(Order.Platform.SHOPEE);
-        sampleOrder.setStatus(Order.OrderStatus.RETURNED);
-        sampleOrder.setRestockStatus("RESTOCKED");
-
-        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, "SP-ORDER-9999"))
-                .thenReturn(Optional.of(sampleOrder));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
-                .tenantId(TENANT_ID)
-                .platform("SHOPEE")
-                .platformOrderId("SP-ORDER-9999")
-                .returnId("ret-duplicate-shopee")
-                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE)
-                .returnStatus("ACCEPTED")
-                .restockRequired(true)
-                .build();
-
-        Order updated = orderService.handleOrderReturn(request);
-
-        assertNotNull(updated);
-        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
-        assertEquals("RESTOCKED", updated.getRestockStatus());
-        verify(inventoryServiceClient, never()).restock(anyLong(), anyInt());
-    }
-
-    @Test
-    @DisplayName("handleOrderReturn: trả hàng 1 phần chỉ cộng kho đúng các SKU trong return items")
-    void handleOrderReturn_partialItemReturn_restocksOnlyReturnedItems() {
-        sampleOrder.setPlatform(Order.Platform.SHOPEE);
-        sampleOrder.setPlatform(Order.Platform.SHOPEE);
-        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
-        sampleOrder.setRestockStatus(null);
-
-        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, "SP-ORDER-9999"))
-                .thenReturn(Optional.of(sampleOrder));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        com.smartomni.common.dto.ProcessReturnRequest.ReturnItemDto returnItem =
-                com.smartomni.common.dto.ProcessReturnRequest.ReturnItemDto.builder()
-                        .skuId(101L)
-                        .quantity(1)
-                        .name("Áo thun đen")
-                        .build();
-
-        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
-                .tenantId(TENANT_ID)
-                .platform("SHOPEE")
-                .platformOrderId("SP-ORDER-9999")
-                .returnId("ret-partial-1")
-                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE)
-                .returnStatus("ACCEPTED")
-                .restockRequired(true)
-                .items(List.of(returnItem))
-                .build();
-
-        Order updated = orderService.handleOrderReturn(request);
-
-        assertNotNull(updated);
-        assertEquals(Order.OrderStatus.RETURNED, updated.getStatus());
-        assertEquals("RESTOCKED", updated.getRestockStatus());
-        verify(inventoryServiceClient, times(1)).restock(101L, 1);
-        verify(inventoryServiceClient, never()).restock(eq(102L), anyInt());
-    }
-
-    @Test
-    @DisplayName("handleOrderReturn: Shopee trả hàng vật lý AWAITING_INSPECTION chuyển ON_HOLD và không cộng kho")
-    void handleOrderReturn_awaitingInspection_setsOnHoldAndDoesNotRestock() {
-        sampleOrder.setPlatform(Order.Platform.SHOPEE);
-        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
-        sampleOrder.setRestockStatus(null);
-        sampleOrder.setConnectionId(88L);
-
-        when(orderRepository.findByTenantIdAndConnectionIdAndPlatformOrderId(TENANT_ID, 88L, "SP-ORDER-1234"))
-                .thenReturn(Optional.of(sampleOrder));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        com.smartomni.common.dto.ProcessReturnRequest request = com.smartomni.common.dto.ProcessReturnRequest.builder()
-                .tenantId(TENANT_ID)
-                .connectionId(88L)
-                .platform("SHOPEE")
-                .platformOrderId("SP-ORDER-1234")
-                .returnId("ret-shopee-awaiting-1")
-                .returnAction(com.smartomni.common.dto.ProcessReturnRequest.ReturnAction.AWAITING_INSPECTION)
-                .returnStatus("ACCEPTED")
-                .returnType("PHYSICAL_RETURN")
-                .returnReason("Damaged during shipping")
-                .restockRequired(false)
-                .build();
-
-        Order updated = orderService.handleOrderReturn(request);
-
-        assertNotNull(updated);
-        assertEquals(Order.OrderStatus.ON_HOLD, updated.getStatus());
-        assertEquals("AWAITING_INSPECTION", updated.getRestockStatus());
-        verify(returnRefundRepository, times(1)).save(any());
-        verifyNoInteractions(inventoryServiceClient);
+        var trackingError = assertThrows(com.smartomni.common.exception.BusinessException.class,
+                () -> orderService.updateOrderTracking(com.smartomni.common.dto.UpdateOrderTrackingRequest.builder()
+                        .tenantId(TENANT_ID).platformOrderId(PLATFORM_ORDER_ID).build()));
+        assertEquals("PLATFORM_REQUIRED", trackingError.getErrorCode());
+        verifyNoInteractions(orderRepository);
     }
 
     @Test
