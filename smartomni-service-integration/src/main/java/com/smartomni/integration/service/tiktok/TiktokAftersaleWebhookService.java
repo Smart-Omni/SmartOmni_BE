@@ -22,14 +22,16 @@ import org.springframework.stereotype.Service;
  * Cancellations filtered by id) and its CURRENT state is applied. An old or reordered event therefore never applies
  * its own outdated status; when its {@code update_time} is older than the record's it is only logged as stale.
  *
- * <p>Returns go to the order service ({@code processReturn}). A return that covers fewer units than the order is
- * sent as {@code partial_return}, so the whole order keeps its status. Restock: TikTok orders never deduct
- * SmartOmni stock and TikTok stock follows the {@code INVENTORY_CHANGED_BY_SHOP} snapshot, so no restock is ever
- * requested for a TikTok return or cancellation (the order service records {@code PLATFORM_SYNC}).
+ * <p>Returns go to the order service ({@code processReturn}) with the platform {@code update_time} and every line's
+ * SmartOmni SKU. Following the simulator's SmartOmni requirements (phase 07b) the order service never changes the
+ * order status for a TikTok return, ignores events older than the stored {@code update_time}, and restocks each
+ * returned line once (receipt keyed by order and order line item) when the request reaches
+ * {@code RETURN_OR_REFUND_REQUEST_SUCCESS}/{@code _COMPLETE}; the simulator itself never adds stock back.
  *
  * <p>Cancellations are checked and logged only: when TikTok completes a cancellation it moves the order to
- * CANCELLED and emits {@code ORDER_STATUS_CHANGE}, which the order flow applies. Forwarding a pending cancel
- * request through the return flow would put the order ON_HOLD.
+ * CANCELLED and emits {@code ORDER_STATUS_CHANGE}, which the order flow applies. The approval restores the
+ * simulator's reservation and emits {@code INVENTORY_CHANGED_BY_SHOP}; SmartOmni never debited its own stock for a
+ * TikTok order, so it has nothing to restore separately.
  */
 @Slf4j
 @Service

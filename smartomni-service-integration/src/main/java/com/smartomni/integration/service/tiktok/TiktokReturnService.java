@@ -36,6 +36,8 @@ public class TiktokReturnService {
     private final OrderServiceClient orderServiceClient;
     private final ObjectMapper objectMapper;
     private final ReturnEvidenceService returnEvidenceService;
+    /** Resolves a returned line's TikTok SKU to the SmartOmni SKU that the order service restocks. */
+    private final com.smartomni.integration.service.catalog.CatalogMappingService catalogMappingService;
 
 
     /**
@@ -242,6 +244,7 @@ public class TiktokReturnService {
         if (ret.getReturnLineItems() != null) {
             for (var line : ret.getReturnLineItems()) {
                 items.add(ProcessReturnRequest.ReturnItemDto.builder()
+                        .skuId(internalSkuId(tenantId, line.getSkuId(), line.getSellerSku()))
                         .externalItemId(line.getOrderLineItemId())
                         .externalModelId(line.getSkuId())
                         .name(line.getProductName())
@@ -264,10 +267,29 @@ public class TiktokReturnService {
                 .refundAmount(java.util.Optional.ofNullable(TiktokRefundAmount.totalOf(ret.getRefundAmount())).orElse(BigDecimal.ZERO))
                 .restockRequired(restockRequired)
                 .partialReturn(partial)
+                .platformUpdateTime(ret.getUpdateTime())
                 .items(items)
                 .build();
         orderServiceClient.processReturn(request);
         return request;
+    }
+
+    /** SmartOmni SKU for a TikTok line (by sku_id, then seller_sku); null when unmapped (not restocked). */
+    private Long internalSkuId(Long tenantId, String externalSkuId, String sellerSku) {
+        if (catalogMappingService == null) {
+            return null;
+        }
+        for (String key : new String[] { externalSkuId, sellerSku }) {
+            if (key != null && !key.isBlank()) {
+                var found = catalogMappingService.findInternalSkuId(tenantId, "tiktok_shop", key);
+                if (found.isPresent()) {
+                    return found.get();
+                }
+            }
+        }
+        log.warn("TikTok return line has no SmartOmni SKU mapping: tenant={}, sku_id={}, seller_sku={}",
+                tenantId, externalSkuId, sellerSku);
+        return null;
     }
 
     private ProcessReturnRequest.ReturnAction determineReturnAction(String returnType, String returnStatus, JsonNode data) {

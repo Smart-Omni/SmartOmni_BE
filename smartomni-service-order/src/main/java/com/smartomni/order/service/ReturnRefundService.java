@@ -88,6 +88,24 @@ public class ReturnRefundService {
         log.info("Performing return inspection: tenantId={}, returnId={}, orderId={}, result={}",
                 tenantId, returnId, order.getId(), request.getResult());
 
+        if (order.getPlatform() == Order.Platform.TIKTOK_SHOP) {
+            // Simulator requirements 07b.3/07b.4: the marketplace owns the return state, and restock happens once per
+            // order line when TikTok reports SUCCESS/COMPLETE. Staff inspection is recorded only: it never marks the
+            // order returned/on hold and never restocks, which would contradict or double the marketplace outcome.
+            refund.setInspectionResult(switch (request.getResult()) {
+                case MATCHED -> ReturnRefund.InspectionResultType.MATCHED;
+                case SWAPPED -> ReturnRefund.InspectionResultType.SWAPPED;
+                case MISSING_ITEMS -> ReturnRefund.InspectionResultType.MISSING_ITEMS;
+                default -> ReturnRefund.InspectionResultType.DAMAGED;
+            });
+            refund.setReceivedAt(Instant.now());
+            if (request.getVideoEvidenceUrl() != null && !request.getVideoEvidenceUrl().isBlank()) {
+                refund.setVideoEvidenceUrl(request.getVideoEvidenceUrl());
+            }
+            returnRefundRepository.save(refund);
+            return mapToReturnDetailDto(refund);
+        }
+
         if (request.getResult() == ReturnInspectionRequest.InspectionResult.MATCHED) {
             refund.setInspectionResult(ReturnRefund.InspectionResultType.MATCHED);
             refund.setReceivedAt(Instant.now());
@@ -197,6 +215,8 @@ public class ReturnRefundService {
                 .returnType(refund.getReturnType())
                 .reason(refund.getReason())
                 .status(refund.getStatus() != null ? refund.getStatus().name() : null)
+                .marketplaceStatus(refund.getMarketplaceStatus())
+                .marketplaceUpdatedAt(refund.getMarketplaceUpdatedAt())
                 .inspectionResult(refund.getInspectionResult() != null ? refund.getInspectionResult().name() : null)
                 .restocked(refund.isRestocked())
                 .returnTrackingNumber(refund.getReturnTrackingNumber())

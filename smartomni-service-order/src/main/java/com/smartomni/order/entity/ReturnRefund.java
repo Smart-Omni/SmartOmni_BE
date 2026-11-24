@@ -78,6 +78,14 @@ public class ReturnRefund extends BaseTenantEntity {
     @Column(name = "refund_amount")
     private BigDecimal refundAmount;
 
+    /** Marketplace return_status, verbatim (e.g. RETURN_OR_REFUND_REQUEST_SUCCESS). */
+    @Column(name = "marketplace_status", length = 64)
+    private String marketplaceStatus;
+
+    /** Marketplace update_time of {@link #marketplaceStatus}; older events are ignored. */
+    @Column(name = "marketplace_updated_at")
+    private Instant marketplaceUpdatedAt;
+
     public enum TriggerType { REFUSED_DELIVERY, CUSTOMER_REQUEST }
 
     public enum RefundStatus { REQUESTED, APPROVED, REJECTED, COMPLETED }

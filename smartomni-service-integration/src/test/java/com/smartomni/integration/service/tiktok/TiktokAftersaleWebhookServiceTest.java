@@ -31,7 +31,9 @@ class TiktokAftersaleWebhookServiceTest {
     private final TiktokCancellationClient cancellationClient = mock(TiktokCancellationClient.class);
     private final TiktokOrderClient orderClient = mock(TiktokOrderClient.class);
     private final OrderServiceClient orderService = mock(OrderServiceClient.class);
-    private final TiktokReturnService returnService = new TiktokReturnService(returnClient, orderService, mapper, null);
+    private final com.smartomni.integration.service.catalog.CatalogMappingService mapping =
+            mock(com.smartomni.integration.service.catalog.CatalogMappingService.class);
+    private final TiktokReturnService returnService = new TiktokReturnService(returnClient, orderService, mapper, null, mapping);
     private final TiktokAftersaleWebhookService service =
             new TiktokAftersaleWebhookService(returnClient, cancellationClient, orderClient, returnService);
     private final MarketplaceConnection connection = new MarketplaceConnection();
@@ -78,6 +80,23 @@ class TiktokAftersaleWebhookServiceTest {
         assertFalse(sent.getValue().getPartialReturn());
         assertEquals(2, sent.getValue().getItems().size());
         assertEquals(new BigDecimal("100"), sent.getValue().getItems().get(0).getRefundAmount());
+    }
+
+    @Test
+    void returnedLinesCarryTheSmartOmniSkuAndThePlatformUpdateTime() throws Exception {
+        when(returnClient.getReturnDetail(10L, "RET-1")).thenReturn(current("RETURN_OR_REFUND_REQUEST_SUCCESS", 200, 2));
+        orderHasLines(2);
+        when(mapping.findInternalSkuId(5L, "tiktok_shop", "SKU-1")).thenReturn(java.util.Optional.of(701L));
+        when(mapping.findInternalSkuId(5L, "tiktok_shop", "SKU-2")).thenReturn(java.util.Optional.empty());
+
+        service.handleReturnEvent(5L, connection, mapper.readTree("{\"return_id\":\"RET-1\"}"));
+
+        ArgumentCaptor<ProcessReturnRequest> sent = ArgumentCaptor.forClass(ProcessReturnRequest.class);
+        verify(orderService).processReturn(sent.capture());
+        assertEquals(200L, sent.getValue().getPlatformUpdateTime());
+        assertEquals(701L, sent.getValue().getItems().get(0).getSkuId());
+        assertEquals("OL-1", sent.getValue().getItems().get(0).getExternalItemId());
+        assertNull(sent.getValue().getItems().get(1).getSkuId(), "unmapped line is sent without SKU and not restocked");
     }
 
     @Test

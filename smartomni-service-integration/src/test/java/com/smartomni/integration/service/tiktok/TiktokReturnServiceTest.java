@@ -48,7 +48,7 @@ class TiktokReturnServiceTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        returnService = new TiktokReturnService(returnClient, orderServiceClient, objectMapper, new ReturnEvidenceService());
+        returnService = new TiktokReturnService(returnClient, orderServiceClient, objectMapper, new ReturnEvidenceService(), null);
     }
 
     @Test
