@@ -254,6 +254,24 @@ class MarketplaceOrderScenarioTest {
         }
 
         @Test
+        void manualSyncOfDeliveredOrderIsDeliveringAndReplayIsIdempotent() {
+            // Plan 4.4: TiktokOrderSyncService publishes the raw status with source POLLING to the same queue.
+            WebhookOrderPayload synced = WebhookOrderPayload.builder()
+                    .tenantId(TENANT).platform("TIKTOK_SHOP").platformOrderId("T5")
+                    .orderStatus("DELIVERED").platformUpdateTime(300L).source("POLLING")
+                    .totalAmount(new BigDecimal("100000")).build();
+
+            service.processIncomingOrder(synced, Order.OrderSource.POLLING);
+            service.processIncomingOrder(synced, Order.OrderSource.POLLING);
+
+            assertEquals(1, orders.size());
+            assertEquals(Order.OrderStatus.DELIVERING, order("T5").getStatus());
+            assertEquals(Order.OrderSource.POLLING, order("T5").getSource());
+            assertEquals(1, history.size());
+            assertEquals(0, ledgerRows);
+        }
+
+        @Test
         void cancelBeforeShipmentNeverTouchesStock() {
             tiktok("T4", "UNPAID", 100);
             tiktok("T4", "CANCELLED", 110);

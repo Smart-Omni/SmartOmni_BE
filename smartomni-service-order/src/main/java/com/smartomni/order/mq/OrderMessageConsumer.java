@@ -34,8 +34,11 @@ public class OrderMessageConsumer {
         if (payload.getTenantId() == null || payload.getTenantId() <= 0) {
             throw new IllegalArgumentException("Incoming order must have a valid tenant ID");
         }
+        Order.OrderSource source = "POLLING".equalsIgnoreCase(payload.getSource())
+                ? Order.OrderSource.POLLING
+                : Order.OrderSource.WEBHOOK;
         try (var scope = TenantContext.openScope(payload.getTenantId(), "staff", null)) {
-            orderService.processIncomingOrder(payload, Order.OrderSource.WEBHOOK);
+            orderService.processIncomingOrder(payload, source);
         } catch (Exception ex) {
             log.error("Xu ly order message that bai, se duoc retry/DLQ: {}", ex.getMessage());
             throw ex; // nem lai de RabbitMQ ap dung co che retry/dead-letter (FR-062)

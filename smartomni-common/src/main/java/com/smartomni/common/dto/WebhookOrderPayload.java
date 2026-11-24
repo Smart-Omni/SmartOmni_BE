@@ -54,11 +54,19 @@ public class WebhookOrderPayload {
     private Instant createdAt;
 
     /**
-     * Platform {@code update_time} of this order state (epoch seconds). Optional: platforms that do not send it
-     * (Shopee) leave it null and the order service then skips the staleness check.
+     * Platform {@code update_time} of this order state (epoch seconds): TikTok order detail {@code update_time},
+     * Shopee order detail / push code 3 {@code update_time}. Optional: when it is null on either side the order
+     * service skips the staleness check.
      */
     @JsonProperty("platform_update_time")
     private Long platformUpdateTime;
+
+    /**
+     * How the order reached SmartOmni: {@code WEBHOOK} (default when absent) or {@code POLLING} (polling and manual
+     * sync). Recorded as the order source; it never changes how the status is mapped.
+     */
+    @JsonProperty("source")
+    private String source;
 
     /** Why the order needs manual reconciliation, e.g. {@code SKU_UNMAPPED}; null when nothing is wrong. */
     @JsonProperty("reconciliation_reason")

@@ -97,6 +97,14 @@ public class TiktokOrderIngestionService {
      * Tiếp nhận và chuẩn hóa đối tượng đơn hàng TikTok sang WebhookOrderPayload.
      */
     public WebhookOrderPayload ingestOrder(Long tenantId, TiktokOrderDetailResponse order) {
+        return ingestOrder(tenantId, order, null);
+    }
+
+    /**
+     * Same as {@link #ingestOrder(Long, TiktokOrderDetailResponse)} with the message {@code source}
+     * ({@code POLLING} for polling and the manual sync; null means webhook).
+     */
+    public WebhookOrderPayload ingestOrder(Long tenantId, TiktokOrderDetailResponse order, String source) {
         if (tenantId == null || tenantId <= 0) {
             throw new BusinessException("tenantId is required and must be positive", HttpStatus.BAD_REQUEST, "INVALID_TENANT_ID");
         }
@@ -214,6 +222,7 @@ public class TiktokOrderIngestionService {
                 .createdAt(createdAt)
                 .platformUpdateTime(epochSeconds(order.getUpdateTime()))
                 .reconciliationReason(unmappedSku ? RECONCILIATION_SKU_UNMAPPED : null)
+                .source(source)
                 .items(items)
                 .build();
 
