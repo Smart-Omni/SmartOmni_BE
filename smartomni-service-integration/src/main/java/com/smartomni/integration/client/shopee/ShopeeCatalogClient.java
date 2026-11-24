@@ -29,12 +29,12 @@ public class ShopeeCatalogClient {
 
     public record ShopeeItemDetail(long itemId, String itemName, String itemSku, String description,
                                    String itemStatus, boolean hasModel, String currency,
-                                   BigDecimal originalPrice, BigDecimal currentPrice, int availableStock,
+                                   BigDecimal originalPrice, BigDecimal currentPrice, Integer availableStock,
                                    String imageUrl) {
     }
 
     public record ShopeeModelDetail(long modelId, String modelName, String modelSku, String currency,
-                                    BigDecimal originalPrice, BigDecimal currentPrice, int availableStock) {
+                                    BigDecimal originalPrice, BigDecimal currentPrice, Integer availableStock) {
     }
 
     public record ShopeeWarehouseDetail(String warehouseId, String name, String address, String city, String region) {
@@ -96,7 +96,7 @@ public class ShopeeCatalogClient {
                     currentPrice = BigDecimal.valueOf(firstPrice.path("current_price").asDouble(0));
                 }
 
-                int availableStock = item.path("stock_info_v2").path("summary_info").path("total_available_stock").asInt(0);
+                Integer availableStock = availableStock(item);
                 String imageUrl = null;
                 JsonNode imgArr = item.path("image").path("image_url_list");
                 if (imgArr.isArray() && !imgArr.isEmpty()) {
@@ -134,11 +134,23 @@ public class ShopeeCatalogClient {
                     currentPrice = BigDecimal.valueOf(firstPrice.path("current_price").asDouble(0));
                 }
 
-                int availableStock = m.path("stock_info_v2").path("summary_info").path("total_available_stock").asInt(0);
+                Integer availableStock = availableStock(m);
                 models.add(new ShopeeModelDetail(modelId, modelName, modelSku, currency, originalPrice, currentPrice, availableStock));
             }
         }
         return models;
+    }
+
+    /**
+     * Reads {@code stock_info_v2.summary_info.total_available_stock}. Returns {@code null} when Shopee omits the
+     * field or sends a non-integer or negative value, so callers can tell "unknown" apart from a real zero.
+     */
+    static Integer availableStock(JsonNode itemOrModel) {
+        JsonNode stock = itemOrModel.path("stock_info_v2").path("summary_info").path("total_available_stock");
+        if (!stock.isIntegralNumber() || !stock.canConvertToInt() || stock.intValue() < 0) {
+            return null;
+        }
+        return stock.intValue();
     }
 
     /** Fetches shop warehouses (GET /api/v2/shop/get_warehouse_detail). */

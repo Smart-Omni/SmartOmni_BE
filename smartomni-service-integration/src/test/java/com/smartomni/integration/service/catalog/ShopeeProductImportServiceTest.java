@@ -110,6 +110,76 @@ class ShopeeProductImportServiceTest {
     }
 
     @Test
+    void importReportsMissingStockWithoutCreatingZeroBalance() {
+        when(store.openRun(eq(88L), anyInt())).thenReturn(Optional.of(105L));
+        when(catalog.getItemList(eq(88L), eq(0), eq(50), any()))
+                .thenReturn(new ItemListResult(List.of(1001L), 1, false, 1));
+        when(catalog.getItemBaseInfo(88L, List.of(1001L))).thenReturn(List.of(
+                new ShopeeItemDetail(1001L, "Shirt", "A1", null, "NORMAL", false, "VND",
+                        BigDecimal.TEN, BigDecimal.TEN, null, null)));
+        when(store.findLinkByExternalSku(88L, "1001")).thenReturn(Optional.of(
+                new CatalogMappingStore.LinkRef(10L, 701L, 501L, 88L, "1001", "1001", "A1",
+                        BigDecimal.TEN, "VND", null)));
+
+        ImportReport report = service.importProducts(connection);
+
+        assertEquals("STOCK_MISSING", report.items().get(0).outcome());
+        assertEquals("completed_with_errors", report.status());
+        verify(store, never()).initInventoryIfAbsent(anyLong(), anyInt());
+        verify(store).updateLinkMeta(eq(10L), eq("1001"), eq("A1"), eq("VND"), eq("NORMAL"), anyString());
+    }
+
+    @Test
+    void importLinkExistingSkuWithMissingStockReportsStockMissing() {
+        when(store.openRun(eq(88L), anyInt())).thenReturn(Optional.of(106L));
+        when(catalog.getItemList(eq(88L), eq(0), eq(50), any()))
+                .thenReturn(new ItemListResult(List.of(1001L), 1, false, 1));
+        when(catalog.getItemBaseInfo(88L, List.of(1001L))).thenReturn(List.of(
+                new ShopeeItemDetail(1001L, "Shirt", "A1", null, "NORMAL", false, "VND",
+                        BigDecimal.TEN, BigDecimal.TEN, null, null)));
+        when(store.findLinkByExternalSku(88L, "1001")).thenReturn(Optional.empty());
+        when(store.findSkuByCode("A1")).thenReturn(Optional.of(
+                new CatalogMappingStore.SkuRef(701L, 501L, "A1")));
+        when(store.findLinkBySku(701L, 88L)).thenReturn(Optional.empty());
+
+        ImportReport report = service.importProducts(connection);
+
+        assertEquals(1, report.counters().skusLinked());
+        assertEquals("STOCK_MISSING", report.items().get(0).outcome());
+        verify(store, never()).initInventoryIfAbsent(anyLong(), anyInt());
+        verify(store).insertLink(eq(701L), eq(88L), eq("1001"), eq("1001"), eq("A1"), eq("VND"), eq("NORMAL"),
+                anyString(), eq(BigDecimal.TEN));
+    }
+
+    @Test
+    void importCreatedSkuWithMissingModelStockReportsStockMissing() {
+        when(store.openRun(eq(88L), anyInt())).thenReturn(Optional.of(107L));
+        when(store.skuLimit()).thenReturn(100);
+        when(catalog.getItemList(eq(88L), eq(0), eq(50), any()))
+                .thenReturn(new ItemListResult(List.of(1001L), 1, false, 1));
+        when(catalog.getItemBaseInfo(88L, List.of(1001L))).thenReturn(List.of(
+                new ShopeeItemDetail(1001L, "T-Shirt", "TS", null, "NORMAL", true, "VND",
+                        BigDecimal.ZERO, BigDecimal.ZERO, null, null)));
+        when(catalog.getModelList(88L, 1001L)).thenReturn(List.of(
+                new ShopeeModelDetail(9001L, "Black", "TS-BLK", "VND", BigDecimal.TEN, BigDecimal.TEN, null),
+                new ShopeeModelDetail(9002L, "White", "TS-WHT", "VND", BigDecimal.TEN, BigDecimal.TEN, 7)));
+        when(store.findLinkByExternalSku(eq(88L), anyString())).thenReturn(Optional.empty());
+        when(store.findSkuByCode(anyString())).thenReturn(Optional.empty());
+        when(store.createProduct(anyString(), any(), anyBoolean())).thenReturn(501L);
+        when(store.createSku(eq(501L), eq("TS-BLK"), any(), any())).thenReturn(701L);
+        when(store.createSku(eq(501L), eq("TS-WHT"), any(), any())).thenReturn(702L);
+
+        ImportReport report = service.importProducts(connection);
+
+        assertEquals(2, report.counters().skusCreated());
+        assertEquals(1, report.items().size());
+        assertEquals("9001", report.items().get(0).externalSkuId());
+        assertEquals("STOCK_MISSING", report.items().get(0).outcome());
+        verify(store, never()).initInventoryIfAbsent(eq(701L), anyInt());
+        verify(store, times(1)).initInventoryIfAbsent(702L, 7);
+    }
+
+    @Test
     void importRejectsConcurrentRun() {
         when(store.openRun(eq(88L), anyInt())).thenReturn(Optional.empty());
 
