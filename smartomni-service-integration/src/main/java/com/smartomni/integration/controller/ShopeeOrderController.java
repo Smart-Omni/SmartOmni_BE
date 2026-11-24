@@ -3,7 +3,7 @@ package com.smartomni.integration.controller;
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.integration.client.shopee.ShopeeOrderClient;
 import com.smartomni.integration.client.shopee.ShopeeOrderClient.ShopeeOrderDetail;
-import com.smartomni.integration.dto.order.ShopeeOrderPayload;
+import com.smartomni.common.dto.WebhookOrderPayload;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.order.ShopeeOrderSyncService;
 import com.smartomni.integration.service.shopee.ShopeeTenantConnections;
@@ -58,9 +58,9 @@ public class ShopeeOrderController {
      * Ingests and synchronizes a single order by order SN into SmartOmni.
      */
     @PostMapping("/{orderSn}/sync")
-    public ResponseEntity<ApiResponse<ShopeeOrderPayload>> syncSingleOrder(@PathVariable String orderSn) {
+    public ResponseEntity<ApiResponse<WebhookOrderPayload>> syncSingleOrder(@PathVariable String orderSn) {
         MarketplaceConnection connection = tenantConnections.requireConnected();
-        ShopeeOrderPayload payload = orderSyncService.syncOrder(connection, orderSn);
+        WebhookOrderPayload payload = orderSyncService.syncOrder(connection, orderSn);
         return ResponseEntity.ok(ApiResponse.success("Order synced successfully", payload));
     }
 
@@ -68,14 +68,14 @@ public class ShopeeOrderController {
      * Triggers batch order synchronization from Shopee Simulator.
      */
     @PostMapping("/batch-sync")
-    public ResponseEntity<ApiResponse<List<ShopeeOrderPayload>>> batchSyncOrders(
+    public ResponseEntity<ApiResponse<List<WebhookOrderPayload>>> batchSyncOrders(
             @RequestParam(required = false) Long timeFrom,
             @RequestParam(required = false) Long timeTo,
             @RequestParam(required = false) String orderStatus,
             @RequestParam(defaultValue = "50") int pageSize) {
 
         MarketplaceConnection connection = tenantConnections.requireConnected();
-        List<ShopeeOrderPayload> synced = orderSyncService.syncOrdersBatch(connection, timeFrom, timeTo, orderStatus, pageSize);
+        List<WebhookOrderPayload> synced = orderSyncService.syncOrdersBatch(connection, timeFrom, timeTo, orderStatus, pageSize);
         return ResponseEntity.ok(ApiResponse.success("Batch sync completed", synced));
     }
 

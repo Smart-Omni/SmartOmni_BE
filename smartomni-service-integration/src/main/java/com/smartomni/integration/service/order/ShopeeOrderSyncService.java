@@ -6,7 +6,7 @@ import com.smartomni.integration.client.shopee.ShopeeOrderClient.OrderListResult
 import com.smartomni.integration.client.shopee.ShopeeOrderClient.OrderSummary;
 import com.smartomni.integration.client.shopee.ShopeeOrderClient.ShopeeOrderDetail;
 import com.smartomni.integration.config.RabbitMQConfig;
-import com.smartomni.integration.dto.order.ShopeeOrderPayload;
+import com.smartomni.common.dto.WebhookOrderPayload;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,7 +33,7 @@ public class ShopeeOrderSyncService {
     /**
      * Ingests and synchronizes a single order by order SN, then publishes to RabbitMQ.
      */
-    public ShopeeOrderPayload syncOrder(MarketplaceConnection connection, String orderSn) {
+    public WebhookOrderPayload syncOrder(MarketplaceConnection connection, String orderSn) {
         log.info("Syncing Shopee order {} for tenant {}", orderSn, connection.getTenantId());
 
         List<ShopeeOrderDetail> details = orderClient.getOrderDetail(connection.getId(), List.of(orderSn));
@@ -42,7 +42,7 @@ public class ShopeeOrderSyncService {
         }
 
         ShopeeOrderDetail detail = details.get(0);
-        ShopeeOrderPayload payload = orderMapper.toPayload(connection.getTenantId(), connection.getId(), detail);
+        WebhookOrderPayload payload = orderMapper.toPayload(connection.getTenantId(), connection.getId(), detail);
 
         publishOrderToQueue(payload);
         return payload;
@@ -51,7 +51,7 @@ public class ShopeeOrderSyncService {
     /**
      * Ingests a batch of orders by time range / status, useful for initial sync or fallback polling.
      */
-    public List<ShopeeOrderPayload> syncOrdersBatch(MarketplaceConnection connection, Long timeFrom, Long timeTo,
+    public List<WebhookOrderPayload> syncOrdersBatch(MarketplaceConnection connection, Long timeFrom, Long timeTo,
                                                     String orderStatus, int pageSize) {
         log.info("Batch syncing Shopee orders for tenant {}, status={}, from={}, to={}",
                 connection.getTenantId(), orderStatus, timeFrom, timeTo);
@@ -69,11 +69,11 @@ public class ShopeeOrderSyncService {
                 .toList();
 
         List<ShopeeOrderDetail> details = orderClient.getOrderDetail(connection.getId(), orderSnList);
-        List<ShopeeOrderPayload> synced = new ArrayList<>();
+        List<WebhookOrderPayload> synced = new ArrayList<>();
 
         for (ShopeeOrderDetail detail : details) {
             try {
-                ShopeeOrderPayload payload = orderMapper.toPayload(connection.getTenantId(), connection.getId(), detail);
+                WebhookOrderPayload payload = orderMapper.toPayload(connection.getTenantId(), connection.getId(), detail);
                 publishOrderToQueue(payload);
                 synced.add(payload);
             } catch (Exception ex) {
@@ -100,9 +100,9 @@ public class ShopeeOrderSyncService {
         return orderClient.handleBuyerCancellation(connection.getId(), orderSn, operation);
     }
 
-    private void publishOrderToQueue(ShopeeOrderPayload payload) {
+    private void publishOrderToQueue(WebhookOrderPayload payload) {
         rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, "order.incoming", payload);
         log.info("Published order {} (status={}) to RabbitMQ exchange {}",
-                payload.getPlatformOrderId(), payload.getStatus(), RabbitMQConfig.ORDER_EXCHANGE);
+                payload.getPlatformOrderId(), payload.getOrderStatus(), RabbitMQConfig.ORDER_EXCHANGE);
     }
 }

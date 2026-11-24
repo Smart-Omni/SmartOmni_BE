@@ -5,7 +5,7 @@ import com.smartomni.integration.client.shopee.ShopeeOrderClient;
 import com.smartomni.integration.client.shopee.ShopeeOrderClient.OrderListResult;
 import com.smartomni.integration.client.shopee.ShopeeOrderClient.OrderSummary;
 import com.smartomni.integration.client.shopee.ShopeeOrderClient.ShopeeOrderDetail;
-import com.smartomni.integration.dto.order.ShopeeOrderPayload;
+import com.smartomni.common.dto.WebhookOrderPayload;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.order.ShopeeOrderSyncService;
 import com.smartomni.integration.service.shopee.ShopeeTenantConnections;
@@ -69,15 +69,15 @@ class ShopeeOrderControllerTest {
     @Test
     @DisplayName("syncSingleOrder returns synced payload")
     void syncSingleOrder_Success() {
-        ShopeeOrderPayload payload = ShopeeOrderPayload.builder()
+        WebhookOrderPayload payload = WebhookOrderPayload.builder()
                 .tenantId(1L)
                 .platform("SHOPEE")
                 .platformOrderId("SP01")
-                .status("TO_SHIP")
+                .orderStatus("READY_TO_SHIP")
                 .build();
         when(orderSyncService.syncOrder(connection, "SP01")).thenReturn(payload);
 
-        ResponseEntity<ApiResponse<ShopeeOrderPayload>> res = controller.syncSingleOrder("SP01");
+        ResponseEntity<ApiResponse<WebhookOrderPayload>> res = controller.syncSingleOrder("SP01");
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertNotNull(res.getBody());
@@ -87,11 +87,11 @@ class ShopeeOrderControllerTest {
     @Test
     @DisplayName("batchSyncOrders returns list of synced orders")
     void batchSyncOrders_Success() {
-        ShopeeOrderPayload payload = ShopeeOrderPayload.builder().platformOrderId("SP01").status("TO_SHIP").build();
+        WebhookOrderPayload payload = WebhookOrderPayload.builder().platformOrderId("SP01").orderStatus("READY_TO_SHIP").build();
         when(orderSyncService.syncOrdersBatch(eq(connection), any(), any(), any(), eq(50)))
                 .thenReturn(List.of(payload));
 
-        ResponseEntity<ApiResponse<List<ShopeeOrderPayload>>> res = controller.batchSyncOrders(null, null, "ALL", 50);
+        ResponseEntity<ApiResponse<List<WebhookOrderPayload>>> res = controller.batchSyncOrders(null, null, "ALL", 50);
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertNotNull(res.getBody());

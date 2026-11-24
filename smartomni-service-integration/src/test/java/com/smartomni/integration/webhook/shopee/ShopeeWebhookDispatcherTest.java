@@ -115,19 +115,21 @@ class ShopeeWebhookDispatcherTest {
 
         assertEquals(ShopeeWebhookDispatcher.DispatchOutcome.ENQUEUED_ORDER, outcome);
 
-        ArgumentCaptor<Map<String, Object>> msgCaptor = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<com.smartomni.common.dto.WebhookOrderPayload> msgCaptor =
+                ArgumentCaptor.forClass(com.smartomni.common.dto.WebhookOrderPayload.class);
         verify(rabbitTemplate).convertAndSend(
                 eq(RabbitMQConfig.ORDER_EXCHANGE),
                 eq("order.incoming"),
                 msgCaptor.capture()
         );
 
-        Map<String, Object> sent = msgCaptor.getValue();
-        assertEquals(1L, sent.get("tenantId"));
-        assertEquals("SHOPEE", sent.get("platform"));
-        assertEquals("261019TEST01", sent.get("platformOrderId"));
-        assertEquals("READY_TO_SHIP", sent.get("status"));
-        assertEquals("727720655", sent.get("shopId"));
+        // Shared snake_case order message with the RAW Shopee status; order-service maps it.
+        com.smartomni.common.dto.WebhookOrderPayload sent = msgCaptor.getValue();
+        assertEquals(1L, sent.getTenantId());
+        assertEquals("SHOPEE", sent.getPlatform());
+        assertEquals("261019TEST01", sent.getPlatformOrderId());
+        assertEquals("READY_TO_SHIP", sent.getOrderStatus());
+        assertEquals(1714000500L, sent.getPlatformUpdateTime());
     }
 
     @Test

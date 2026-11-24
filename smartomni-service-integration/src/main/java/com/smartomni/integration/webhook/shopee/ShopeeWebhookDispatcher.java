@@ -1,6 +1,7 @@
 package com.smartomni.integration.webhook.shopee;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartomni.common.dto.WebhookOrderPayload;
 import com.smartomni.common.tenant.TenantContext;
 import com.smartomni.integration.config.RabbitMQConfig;
 import com.smartomni.integration.entity.MarketplaceConnection;
@@ -173,16 +174,18 @@ public class ShopeeWebhookDispatcher {
         enqueueOrderEvent(tenantId, event, rawPayload);
     }
 
+    /**
+     * Fallback when the order detail could not be fetched: publish the push itself in the shared snake_case order
+     * message, with the raw Shopee status and its {@code update_time} (order-service does the mapping).
+     */
     private void enqueueOrderEvent(Long tenantId, ShopeeWebhookEvent event, String rawPayload) {
-        Map<String, Object> message = new LinkedHashMap<>();
-        message.put("tenantId", tenantId);
-        message.put("platform", "SHOPEE");
-        message.put("platformOrderId", event.orderSn());
-        message.put("status", event.orderStatus());
-        message.put("shopId", event.getShopId() != null ? String.valueOf(event.getShopId()) : null);
-        message.put("timestamp", event.getTimestamp());
-        message.put("source", "WEBHOOK");
-        message.put("rawPayload", rawPayload);
+        WebhookOrderPayload message = WebhookOrderPayload.builder()
+                .tenantId(tenantId)
+                .platform("SHOPEE")
+                .platformOrderId(event.orderSn())
+                .orderStatus(event.orderStatus())
+                .platformUpdateTime(event.updateTime())
+                .build();
 
         rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, "order.incoming", message);
         log.info("Published Shopee order push to RabbitMQ: ordersn={}, status={}",
