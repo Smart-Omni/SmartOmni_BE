@@ -11,7 +11,7 @@ import com.smartomni.integration.repository.MarketplaceConnectionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+
 
 import java.util.List;
 
@@ -25,18 +25,22 @@ import java.util.List;
 @RequiredArgsConstructor
 public class MarketplaceVoucherAdapterService {
 
+    static final String API_MODE_UNSUPPORTED = "TikTok coupons cannot be created through the API; create a code batch "
+            + "on Seller Center and use import mode with the batch title";
+
     private final MarketplaceConnectionRepository connectionRepository;
     private final TiktokVoucherClient tiktokVoucherClient;
+    private final com.smartomni.integration.service.tiktok.TiktokVoucherStore voucherStore;
+    private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
-    @Transactional(readOnly = true)
     public InternalIssueVoucherResponse issueVoucher(InternalIssueVoucherRequest request) {
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null || request == null || request.getConnectionId() == null) {
             return failed("Missing tenant or connectionId");
         }
 
-        MarketplaceConnection connection = connectionRepository.findByIdAndTenantId(request.getConnectionId(), tenantId)
-                .orElse(null);
+        MarketplaceConnection connection = transactionTemplate.execute(status ->
+                connectionRepository.findByIdAndTenantId(request.getConnectionId(), tenantId).orElse(null));
         if (connection == null) {
             return failed("Marketplace connection not found for tenant");
         }
@@ -53,21 +57,24 @@ public class MarketplaceVoucherAdapterService {
         return failed("Unsupported marketplace platform: " + connection.getPlatform());
     }
 
+    /**
+     * TikTok vouchers (Phase 09c): {@code api} mode is refused (no create API); {@code import} hands out one code of
+     * the Seller Center batch whose title is configured on the campaign, ONGOING and not handed out before. The
+     * same {@code requestKey} always gets the same code back.
+     */
     private InternalIssueVoucherResponse handleTiktok(MarketplaceConnection connection, InternalIssueVoucherRequest req) {
         String mode = req.getProvisioningMode() != null ? req.getProvisioningMode().trim().toLowerCase() : "import";
+        if ("api".equals(mode)) {
+            return failed(API_MODE_UNSUPPORTED);
+        }
+        long tenantId = connection.getTenantId();
         try {
-            if ("api".equals(mode)) {
-                TiktokVoucherDto created = tiktokVoucherClient.createCoupon(
-                        connection.getId(),
-                        req.getTitle(),
-                        req.getDiscountPercent(),
-                        req.getStartsAt(),
-                        req.getEndsAt(),
-                        req.getRequestKey());
-                if (created != null && hasText(created.getTiktokVoucherId()) && hasText(created.getVoucherCode())) {
-                    return issued(created.getTiktokVoucherId(), created.getVoucherCode());
+            if (hasText(req.getRequestKey())) {
+                TiktokVoucherDto already = transactionTemplate.execute(status ->
+                        voucherStore.findIssued(tenantId, connection.getId(), req.getRequestKey()).orElse(null));
+                if (already != null) {
+                    return issued(already.getTiktokVoucherId(), already.getVoucherCode());
                 }
-                return failed("TikTok Shop API did not return valid coupon id and promo code");
             }
 
             // "import" mode: verify an existing coupon on TikTok Shop / Simulator
@@ -81,25 +88,30 @@ public class MarketplaceVoucherAdapterService {
                 return failed("Configured TikTok coupon is unavailable or expired: " + req.getExternalCouponId());
             }
 
-            List<TiktokVoucherDto> coupons = tiktokVoucherClient.searchCoupons(connection.getId());
-            TiktokVoucherDto match = coupons.stream()
-                    .filter(c -> hasText(c.getTiktokVoucherId()) && hasText(c.getVoucherCode()))
-                    .filter(c -> "ONGOING".equalsIgnoreCase(c.getStatus()) || "NOT_START".equalsIgnoreCase(c.getStatus()))
-                    .filter(c -> req.getDiscountPercent() == null
-                            || ("PERCENT_OFF".equalsIgnoreCase(c.getDiscountType())
-                                && c.getDiscountValue() != null
-                                && c.getDiscountValue().compareTo(req.getDiscountPercent()) == 0))
-                    .findFirst()
-                    .orElseGet(() -> coupons.stream()
-                            .filter(c -> hasText(c.getTiktokVoucherId()) && hasText(c.getVoucherCode()))
-                            .filter(c -> "ONGOING".equalsIgnoreCase(c.getStatus()))
-                            .findFirst()
-                            .orElse(null));
-
-            if (match == null) {
-                return failed("No active coupon found on TikTok Shop for import mode");
+            if (!hasText(req.getTitle())) {
+                return failed("Import mode needs the TikTok code batch title on the campaign");
             }
-            return issued(match.getTiktokVoucherId(), match.getVoucherCode());
+            if (!hasText(req.getRequestKey())) {
+                return failed("Import mode needs a requestKey to record which code was handed out");
+            }
+            // Pull the batch (all pages), keep only codes of that batch that are ONGOING, then claim a free one.
+            String batchTitle = req.getTitle().trim();
+            List<TiktokVoucherDto> batch = tiktokVoucherClient.searchCoupons(connection.getId(), batchTitle, List.of("ONGOING")).stream()
+                    .filter(c -> hasText(c.getTiktokVoucherId()) && hasText(c.getVoucherCode()))
+                    .filter(c -> "ONGOING".equalsIgnoreCase(c.getStatus()))
+                    .filter(c -> c.getTitle() != null && c.getTitle().toLowerCase().contains(batchTitle.toLowerCase()))
+                    .toList();
+            List<String> candidates = batch.stream().map(TiktokVoucherDto::getTiktokVoucherId).toList();
+            TiktokVoucherDto claimed = transactionTemplate.execute(status -> {
+                for (TiktokVoucherDto c : batch) {
+                    voucherStore.upsertPulled(tenantId, connection.getId(), connection.getShopId(), c);
+                }
+                return voucherStore.claimFree(tenantId, connection.getId(), candidates, req.getRequestKey()).orElse(null);
+            });
+            if (claimed == null) {
+                return failed("No free code left in TikTok batch '" + batchTitle + "'");
+            }
+            return issued(claimed.getTiktokVoucherId(), claimed.getVoucherCode());
         } catch (TiktokApiException ex) {
             if (ex.getHttpStatus() >= 500 || ex.isTransientFailure()) {
                 log.warn("Transient TikTok error provisioning voucher for requestKey={}: {}", req.getRequestKey(), ex.getMessage());

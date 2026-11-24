@@ -1,6 +1,10 @@
 package com.smartomni.integration.client.tiktok;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.smartomni.integration.dto.tiktok.TiktokVoucherDto;
 import com.smartomni.integration.service.tiktok.TiktokShopApiExecutor;
 import lombok.RequiredArgsConstructor;
@@ -10,12 +14,17 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * Client calling TikTok Simulator's Coupon APIs on develop:
- * {@code POST /promotion/202406/coupons/search} and {@code GET /promotion/202406/coupons/{couponId}}.
+ * Read-only TikTok coupon APIs: {@code POST /promotion/202406/coupons/search} and
+ * {@code GET /promotion/202406/coupons/{couponId}}. Coupons cannot be created through the API (the simulator has
+ * no such route and answers 404 to every write on /promotion): the seller creates a batch of single-use codes on
+ * Seller Center, and SmartOmni pulls them by batch title.
  */
 @Slf4j
 @Component
@@ -24,55 +33,71 @@ public class TiktokVoucherClient {
 
     public static final String SEARCH_COUPONS_PATH = "/promotion/202406/coupons/search";
     public static final String COUPON_DETAIL_PATH = "/promotion/202406/coupons/";
-    public static final String CREATE_COUPON_PATH = "/promotion/202406/coupons";
+    static final int PAGE_SIZE = 100;
+    static final int MAX_PAGES = 100;
 
     private final TiktokShopApiExecutor executor;
+    private final ObjectMapper mapper;
+
+    /** Every coupon of the shop (all pages). */
+    public List<TiktokVoucherDto> searchCoupons(Long connectionId) {
+        return searchCoupons(connectionId, null, null);
+    }
 
     /**
-     * Searches coupons from TikTok Simulator ({@code POST /promotion/202406/coupons/search}).
+     * Search Coupons with {@code page_size=100}, following {@code next_page_token} to the end.
+     *
+     * @param titleKeyword batch title (case-insensitive "contains"); null for all
+     * @param statuses     e.g. {@code ["ONGOING"]}; null for all
      */
-    public List<TiktokVoucherDto> searchCoupons(Long connectionId) {
-        JsonNode data = executor.call(connectionId, "POST", SEARCH_COUPONS_PATH, Map.of("page_size", "50"), "{}");
+    public List<TiktokVoucherDto> searchCoupons(Long connectionId, String titleKeyword, List<String> statuses) {
+        ObjectNode body = mapper.createObjectNode();
+        if (titleKeyword != null && !titleKeyword.isBlank()) {
+            body.put("title_keyword", titleKeyword.trim());
+        }
+        if (statuses != null && !statuses.isEmpty()) {
+            ArrayNode status = body.putArray("status");
+            statuses.forEach(status::add);
+        }
+        String json;
+        try {
+            json = mapper.writeValueAsString(body);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Cannot serialize TikTok coupon search", e);
+        }
+
         List<TiktokVoucherDto> list = new ArrayList<>();
-        if (data != null && data.has("coupons") && data.get("coupons").isArray()) {
-            for (JsonNode node : data.get("coupons")) {
-                TiktokVoucherDto parsed = parseCoupon(node);
-                if (parsed != null) {
-                    list.add(parsed);
+        Set<String> seenTokens = new HashSet<>();
+        String token = null;
+        for (int page = 0; page < MAX_PAGES; page++) {
+            Map<String, String> query = new LinkedHashMap<>();
+            query.put("page_size", Integer.toString(PAGE_SIZE));
+            if (token != null) {
+                query.put("page_token", token);
+            }
+            JsonNode data = executor.call(connectionId, "POST", SEARCH_COUPONS_PATH, query, json);
+            if (data != null && data.path("coupons").isArray()) {
+                for (JsonNode node : data.get("coupons")) {
+                    TiktokVoucherDto parsed = parseCoupon(node);
+                    if (parsed != null) {
+                        list.add(parsed);
+                    }
                 }
             }
+            token = data == null ? null : data.path("next_page_token").asText("");
+            if (token == null || token.isBlank()) {
+                return list;
+            }
+            if (!seenTokens.add(token)) {
+                throw new TiktokApiException("TikTok coupon pagination repeated a page token", 200, null, null, false);
+            }
         }
-        return list;
+        throw new TiktokApiException("TikTok coupon pagination exceeded " + MAX_PAGES + " pages", 200, null, null, false);
     }
 
-    /**
-     * Fetches a single coupon detail ({@code GET /promotion/202406/coupons/{couponId}}).
-     */
+    /** One coupon with {@code usage_stats} ({@code GET /promotion/202406/coupons/{couponId}}). */
     public TiktokVoucherDto getCoupon(Long connectionId, String couponId) {
         JsonNode data = executor.call(connectionId, "GET", COUPON_DETAIL_PATH + couponId, Map.of(), null);
-        if (data != null && data.has("coupon")) {
-            return parseCoupon(data.get("coupon"));
-        }
-        return parseCoupon(data);
-    }
-
-    /**
-     * Calls TikTok Shop coupon creation endpoint ({@code POST /promotion/202406/coupons}) when API mode is enabled.
-     */
-    public TiktokVoucherDto createCoupon(Long connectionId, String title, BigDecimal discountPercent,
-                                         Instant startsAt, Instant endsAt, String requestKey) {
-        long startSec = (startsAt != null ? startsAt : Instant.now()).getEpochSecond();
-        long endSec = (endsAt != null ? endsAt : Instant.now().plusSeconds(30L * 24 * 3600)).getEpochSecond();
-        String safeTitle = (title != null ? title.replace("\"", "") : "SmartOmni Loyalty Voucher");
-        String body = String.format(
-                "{\"title\":\"%s\",\"request_key\":\"%s\",\"discount\":{\"type\":\"PERCENT_OFF\",\"percentage\":\"%s\"},"
-                        + "\"claim_duration\":{\"start_time\":%d,\"end_time\":%d},\"usage_limits\":{\"redemption_limit\":1}}",
-                safeTitle,
-                requestKey != null ? requestKey : "",
-                discountPercent != null ? discountPercent.stripTrailingZeros().toPlainString() : "10",
-                startSec,
-                endSec);
-        JsonNode data = executor.call(connectionId, "POST", CREATE_COUPON_PATH, Map.of(), body);
         if (data != null && data.has("coupon")) {
             return parseCoupon(data.get("coupon"));
         }

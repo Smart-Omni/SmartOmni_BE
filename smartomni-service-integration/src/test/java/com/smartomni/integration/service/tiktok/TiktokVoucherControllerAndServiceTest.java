@@ -50,7 +50,7 @@ class TiktokVoucherControllerAndServiceTest {
     @BeforeEach
     void setUp() {
         executor = mock(TiktokShopApiExecutor.class);
-        voucherClient = new TiktokVoucherClient(executor);
+        voucherClient = new TiktokVoucherClient(executor, mapper);
         tenantConnections = mock(TiktokTenantConnections.class);
         jdbcTemplate = mock(JdbcTemplate.class);
         transactionTemplate = mock(TransactionTemplate.class);
@@ -74,48 +74,16 @@ class TiktokVoucherControllerAndServiceTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/tiktok/vouchers persists voucher with RLS")
-    void createVoucher_Success() {
-        Instant start = Instant.parse("2026-11-17T00:00:00Z");
-        Instant end = start.plus(15, ChronoUnit.DAYS);
-
-        when(jdbcTemplate.query(contains("FROM tiktok_vouchers WHERE tenant_id = ? AND connection_id = ?"),
-                any(RowMapper.class), eq(10L), eq(77L), anyString())).thenReturn(List.of());
-        when(jdbcTemplate.update(any(PreparedStatementCreator.class), any(KeyHolder.class)))
-                .thenAnswer(inv -> {
-                    KeyHolder kh = inv.getArgument(1);
-                    kh.getKeyList().add(Map.of("id", 5001L));
-                    return 1;
-                });
-
+    @DisplayName("POST /api/v1/tiktok/vouchers is refused with 501: TikTok has no coupon creation API")
+    void createVoucher_IsNotSupported() {
         CreateTiktokVoucherRequest req = CreateTiktokVoucherRequest.builder()
-                .title("Voucher 15%")
-                .discountType("PERCENT_OFF")
-                .discountValue(new BigDecimal("15"))
-                .maxDiscountAmount(new BigDecimal("50000"))
-                .minOrderAmount(new BigDecimal("100000"))
-                .usageLimit(100)
-                .code("SAVE15")
-                .startTime(start)
-                .endTime(end)
-                .idempotencyKey("idem-1")
-                .build();
+                .title("Voucher 15%").discountType("PERCENT_OFF").discountValue(new BigDecimal("15")).build();
 
-        try (var scope = TenantContext.openScope(10L, "TENANT_ADMIN", 1L)) {
-            ResponseEntity<ApiResponse<TiktokVoucherDto>> res = controller.createVoucher(req);
+        BusinessException ex = assertThrows(BusinessException.class, () -> controller.createVoucher(req));
 
-            assertEquals(HttpStatus.OK, res.getStatusCode());
-            assertNotNull(res.getBody());
-            TiktokVoucherDto dto = res.getBody().getData();
-            assertEquals(5001L, dto.getId());
-            assertEquals(10L, dto.getTenantId());
-            assertEquals("SAVE15", dto.getVoucherCode());
-            assertEquals("PERCENT_OFF", dto.getDiscountType());
-            assertEquals(new BigDecimal("15"), dto.getDiscountValue());
-        }
-
-        verify(jdbcTemplate).queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, "10");
-        verify(jdbcTemplate).queryForObject("SELECT set_config('app.user_role', ?, true)", String.class, "tenant_admin");
+        assertEquals(HttpStatus.NOT_IMPLEMENTED, ex.getHttpStatus());
+        assertEquals("TIKTOK_VOUCHER_CREATE_UNSUPPORTED", ex.getErrorCode());
+        verifyNoInteractions(executor, jdbcTemplate);
     }
 
     @Test
@@ -137,7 +105,7 @@ class TiktokVoucherControllerAndServiceTest {
                   ]
                 }
                 """);
-        when(executor.call(eq(77L), eq("POST"), eq("/promotion/202406/coupons/search"), eq(Map.of("page_size", "50")), eq("{}")))
+        when(executor.call(eq(77L), eq("POST"), eq("/promotion/202406/coupons/search"), eq(Map.of("page_size", "100")), eq("{}")))
                 .thenReturn(simCoupons);
         when(jdbcTemplate.query(contains("FROM tiktok_vouchers WHERE tenant_id = ? AND connection_id = ?"),
                 any(RowMapper.class), eq(10L), eq(77L), eq("77001"))).thenReturn(List.of());
@@ -148,7 +116,7 @@ class TiktokVoucherControllerAndServiceTest {
                     return 1;
                 });
 
-        ResponseEntity<ApiResponse<List<TiktokVoucherDto>>> res = controller.syncCoupons();
+        ResponseEntity<ApiResponse<List<TiktokVoucherDto>>> res = controller.syncCoupons(null);
 
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertEquals(1, res.getBody().getData().size());
@@ -180,17 +148,4 @@ class TiktokVoucherControllerAndServiceTest {
         verify(jdbcTemplate).queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, "10");
     }
 
-    @Test
-    @DisplayName("createVoucher rejects invalid PERCENT_OFF > 100")
-    void createVoucher_InvalidPercent_ThrowsBadRequest() {
-        CreateTiktokVoucherRequest req = CreateTiktokVoucherRequest.builder()
-                .title("Invalid")
-                .discountType("PERCENT_OFF")
-                .discountValue(new BigDecimal("150"))
-                .build();
-
-        BusinessException ex = assertThrows(BusinessException.class, () -> controller.createVoucher(req));
-        assertEquals(HttpStatus.BAD_REQUEST, ex.getHttpStatus());
-        assertEquals("INVALID_DISCOUNT_VALUE", ex.getErrorCode());
-    }
 }
