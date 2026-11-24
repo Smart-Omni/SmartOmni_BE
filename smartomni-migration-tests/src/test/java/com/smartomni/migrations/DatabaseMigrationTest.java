@@ -553,7 +553,7 @@ class DatabaseMigrationTest {
             invitationsBefore = count(admin, "SELECT count(*) FROM staff_invitations");
         }
 
-        assertEquals(7, flyway(url).migrate().migrationsExecuted);
+        assertEquals(8, flyway(url).migrate().migrationsExecuted);
 
         try (Connection admin = connect(url, "postgres")) {
             assertEquals(usersBefore, count(admin, "SELECT count(*) FROM users"));
@@ -665,7 +665,7 @@ class DatabaseMigrationTest {
         Flyway baseline = Flyway.configure().dataSource(url, "smartomni_migrator", TEST_PASSWORD)
                 .defaultSchema("public").baselineVersion("5").load();
         baseline.baseline();
-        assertEquals(22, flyway(url).migrate().migrationsExecuted);
+        assertEquals(23, flyway(url).migrate().migrationsExecuted);
         try (var context = boot(url)) {
             assertNotNull(context.getBean(EntityManagerFactory.class));
         }
