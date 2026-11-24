@@ -246,6 +246,7 @@ services:
       TIKTOK_TOKEN_BASE_URL: ${TIKTOK_TOKEN_BASE_URL:-https://auth.tiktok-shops.com}
       TIKTOK_OPEN_API_BASE_URL: ${TIKTOK_OPEN_API_BASE_URL:-https://open-api.tiktokglobalshop.com}
       TIKTOK_WEBHOOK_URL: ${TIKTOK_WEBHOOK_URL:-}
+      SMARTOMNI_SERVICES_ORDER-URL: http://order-service:8085
       TIKTOK_INVENTORY_WEBHOOK_URL: ${TIKTOK_INVENTORY_WEBHOOK_URL:-}
       TIKTOK_ALLOWED_REDIRECT_URIS: ${TIKTOK_ALLOWED_REDIRECT_URIS:-smartomni://oauth/tiktok}
     networks:
