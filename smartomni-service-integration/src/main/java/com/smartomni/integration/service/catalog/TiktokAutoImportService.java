@@ -35,7 +35,8 @@ import java.util.stream.Collectors;
  *   <li>Already mapped {@code (connectionId, tiktokSkuId)} -> update link snapshot, count as {@code skippedCount}.</li>
  *   <li>Unmapped, but tenant already has {@code product_skus.sku_code == seller_sku} -> link existing SKU, count as {@code linkedExistingCount}.</li>
  *   <li>Neither mapped nor existing -> create Product (once per TikTok product), create Sku (code from {@code seller_sku}
- *       or fallback {@code TT-{tiktokSkuId}}), initialize inventory, create link, count as {@code importedCount}.</li>
+ *       or fallback {@code TT-{tiktokSkuId}}), initialize inventory, create link, count as {@code importedCount}.
+ *       Skipped once the tenant reaches its plan SKU limit; the report status is then {@code STOPPED_SKU_LIMIT}.</li>
  * </ol>
  */
 @Slf4j
@@ -134,6 +135,7 @@ public class TiktokAutoImportService {
         int linkedExistingCount = 0;
         int skippedCount = 0;
         boolean hadErrors = false;
+        boolean skuLimitReached = false;
 
         try (var scope = TenantContext.getTenantId() == null
                 ? TenantContext.openScope(tenantId, role, null)
@@ -150,6 +152,7 @@ public class TiktokAutoImportService {
                         importedCount += counts.imported();
                         linkedExistingCount += counts.linkedExisting();
                         skippedCount += counts.skipped();
+                        skuLimitReached |= counts.skuLimitReached();
                     }
                 } catch (Exception ex) {
                     hadErrors = true;
@@ -159,7 +162,7 @@ public class TiktokAutoImportService {
             }
         }
 
-        String status = hadErrors ? "COMPLETED_WITH_ERRORS" : "COMPLETED";
+        String status = skuLimitReached ? "STOPPED_SKU_LIMIT" : hadErrors ? "COMPLETED_WITH_ERRORS" : "COMPLETED";
         log.info("WF-01 TikTok auto-import finished: tenantId={}, shopId={}, products={}, skus={}, imported={}, linkedExisting={}, skipped={}, status={}",
                 tenantId, shopId, totalProducts, totalSkus, importedCount, linkedExistingCount, skippedCount, status);
 
@@ -180,6 +183,8 @@ public class TiktokAutoImportService {
         int imported = 0;
         int linkedExisting = 0;
         int skipped = 0;
+        boolean skuLimitReached = false;
+        Integer skuLimit = store.skuLimit();
         Long createdProductId = null;
         boolean hidden = product.status() != null
                 && ("SELLER_DEACTIVATED".equalsIgnoreCase(product.status())
@@ -252,6 +257,17 @@ public class TiktokAutoImportService {
                 continue;
             }
 
+            // Same plan limit as the manual import: never create a SKU beyond max_skus (null = unlimited).
+            if (skuLimit != null && store.countSkus() >= skuLimit) {
+                if (!skuLimitReached) {
+                    log.warn("Plan SKU limit {} reached for tenantId={}; not creating SKU for externalSkuId={}",
+                            skuLimit, tenantId, externalSkuId);
+                }
+                skuLimitReached = true;
+                skipped++;
+                continue;
+            }
+
             if (createdProductId == null) {
                 String productName = (product.title() != null && !product.title().isBlank())
                         ? product.title().trim()
@@ -268,7 +284,7 @@ public class TiktokAutoImportService {
             imported++;
         }
 
-        return new ProductCounts(imported, linkedExisting, skipped);
+        return new ProductCounts(imported, linkedExisting, skipped, skuLimitReached);
     }
 
     private <T> T executeInTx(java.util.function.Supplier<T> action) {
@@ -324,6 +340,6 @@ public class TiktokAutoImportService {
         return properties.getProductUrlTemplate().replace("{productId}", productId);
     }
 
-    private record ProductCounts(int imported, int linkedExisting, int skipped) {
+    private record ProductCounts(int imported, int linkedExisting, int skipped, boolean skuLimitReached) {
     }
 }

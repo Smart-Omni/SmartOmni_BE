@@ -44,6 +44,7 @@ class TiktokAutoImportServiceTest {
         connectionRepository = mock(MarketplaceConnectionRepository.class);
         catalogClient = mock(TiktokCatalogClient.class);
         store = mock(CatalogMappingStore.class);
+        when(store.skuLimit()).thenReturn(null); // unlimited plan unless a test says otherwise
 
         service = new TiktokAutoImportService(
                 tenantConnections, connectionRepository, catalogClient, store, null, new TiktokProperties());
@@ -99,6 +100,35 @@ class TiktokAutoImportServiceTest {
         verify(store).insertLink(2001L, 77L, "TK-P1", "TK-S1", "JACKET-M", "VND", "ACTIVATE", null, new BigDecimal("350000"));
         verify(store).insertLink(2002L, 77L, "TK-P1", "TK-S2", null, "VND", "ACTIVATE", null, new BigDecimal("360000"));
         verify(store).applyRlsContext(eq(42L), anyString());
+    }
+
+    @Test
+    @DisplayName("Stops creating SKUs at the plan SKU limit")
+    void autoImport_StopsCreatingAtPlanSkuLimit() {
+        Product detail = new Product("TK-P1", "Ao", "ACTIVATE", "Desc", List.of(), List.of(
+                new Sku("TK-S1", "A-1", new Price("VND", "1000", null), List.of(new Inventory("WH-1", 1)), null, List.of()),
+                new Sku("TK-S2", "A-2", new Price("VND", "1000", null), List.of(new Inventory("WH-1", 1)), null, List.of())
+        ));
+        doAnswer(inv -> {
+            Consumer<ProductPage> consumer = inv.getArgument(1);
+            consumer.accept(new ProductPage("", 1, List.of(detail)));
+            return 1;
+        }).when(catalogClient).forEachProductPage(eq(77L), any());
+        when(catalogClient.getProduct(77L, "TK-P1")).thenReturn(detail);
+        when(store.findLinkByExternalSku(eq(77L), anyString())).thenReturn(Optional.empty());
+        when(store.findSkuByCode(anyString())).thenReturn(Optional.empty());
+        when(store.skuLimit()).thenReturn(100);
+        when(store.countSkus()).thenReturn(99L, 100L);
+        when(store.createProduct(any(), any(), anyBoolean())).thenReturn(1001L);
+        when(store.createSku(eq(1001L), eq("A-1"), any(), any())).thenReturn(2001L);
+
+        TiktokAutoImportReportDto report = service.autoImportForCurrentTenant(null);
+
+        assertEquals(1, report.getImportedCount());
+        assertEquals(1, report.getSkippedCount());
+        assertEquals("STOPPED_SKU_LIMIT", report.getStatus());
+        verify(store, times(1)).createSku(anyLong(), any(), any(), any());
+        verify(store, never()).createSku(anyLong(), eq("A-2"), any(), any());
     }
 
     @Test

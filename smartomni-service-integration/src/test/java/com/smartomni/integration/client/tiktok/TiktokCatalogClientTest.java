@@ -2,12 +2,15 @@ package com.smartomni.integration.client.tiktok;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartomni.common.exception.BusinessException;
 import com.smartomni.integration.config.TiktokProperties;
 import com.smartomni.integration.dto.tiktok.TiktokCatalogDtos.ProductPage;
 import com.smartomni.integration.service.tiktok.TiktokShopApiExecutor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -109,6 +112,106 @@ class TiktokCatalogClientTest {
     void warehousesAreListed() {
         assertEquals("W1", client(token -> "").listWarehouses(1L).get(0).id());
         assertEquals("GET /logistics/202309/warehouses body=null", calls.get(0));
+    }
+
+    private TiktokShopApiExecutor priceExecutor() {
+        TiktokShopApiExecutor executor = mock(TiktokShopApiExecutor.class);
+        when(executor.call(eq(1L), eq("POST"), eq("/product/202309/products/P1/prices/update"), anyMap(), anyString()))
+                .thenReturn(mapper.createObjectNode());
+        return executor;
+    }
+
+    private JsonNode sentPrice(TiktokShopApiExecutor executor) throws Exception {
+        var body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(executor).call(eq(1L), eq("POST"), eq("/product/202309/products/P1/prices/update"), anyMap(), body.capture());
+        return mapper.readTree(body.getValue()).path("skus").get(0);
+    }
+
+    @Test
+    void priceWithZeroFractionIsSentAsIntegerVnd() throws Exception {
+        TiktokShopApiExecutor executor = priceExecutor();
+        new TiktokCatalogClient(executor, properties, mapper)
+                .updatePrice(1L, "P1", "S1", new BigDecimal("200000"), new BigDecimal("159000.00"));
+
+        JsonNode sku = sentPrice(executor);
+        assertEquals("S1", sku.path("id").asText());
+        assertEquals("159000", sku.path("price").path("amount").asText());
+        assertEquals("VND", sku.path("price").path("currency").asText());
+    }
+
+    @Test
+    void onlySalePriceIsEnoughAndOriginalPriceIsTheFallback() throws Exception {
+        TiktokShopApiExecutor executor = priceExecutor();
+        TiktokCatalogClient client = new TiktokCatalogClient(executor, properties, mapper);
+        client.updatePrice(1L, "P1", "S1", null, new BigDecimal("1.59E+5"));
+        assertEquals("159000", sentPrice(executor).path("price").path("amount").asText());
+
+        assertEquals("120000", TiktokCatalogClient.priceAmount(new BigDecimal("120000.0"), null));
+    }
+
+    @Test
+    void priceCurrencyComesFromTheLink() throws Exception {
+        TiktokShopApiExecutor executor = priceExecutor();
+        new TiktokCatalogClient(executor, properties, mapper)
+                .updatePrice(1L, "P1", "S1", null, new BigDecimal("5"), "USD");
+        assertEquals("USD", sentPrice(executor).path("price").path("currency").asText());
+    }
+
+    @Test
+    void invalidPricesAreRejectedBeforeCallingTikTok() {
+        TiktokShopApiExecutor executor = mock(TiktokShopApiExecutor.class);
+        TiktokCatalogClient client = new TiktokCatalogClient(executor, properties, mapper);
+
+        for (BigDecimal bad : new BigDecimal[] { new BigDecimal("159000.50"), BigDecimal.ZERO, new BigDecimal("-1"), null }) {
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> client.updatePrice(1L, "P1", "S1", bad, null));
+            assertEquals("TIKTOK_PRICE_INVALID", ex.getErrorCode());
+            assertEquals(HttpStatus.BAD_REQUEST, ex.getHttpStatus());
+        }
+        BusinessException badId = assertThrows(BusinessException.class,
+                () -> client.updatePrice(1L, "../orders", "S1", BigDecimal.TEN, null));
+        assertEquals("TIKTOK_PRODUCT_ID_INVALID", badId.getErrorCode());
+        verifyNoInteractions(executor);
+    }
+
+    @Test
+    void invalidStockInputIsAClientErrorWithAnExplicitCode() throws Exception {
+        TiktokShopApiExecutor executor = mock(TiktokShopApiExecutor.class);
+        when(executor.call(eq(1L), eq("GET"), eq("/product/202309/products/P1"), anyMap(), isNull()))
+                .thenReturn(mapper.readTree("{\"id\":\"P1\",\"skus\":[{\"id\":\"S1\",\"inventory\":[{\"warehouse_id\":\"W1\",\"quantity\":1}]},{\"id\":\"S2\",\"inventory\":[]}]}"));
+        when(executor.call(eq(1L), eq("GET"), eq("/logistics/202309/warehouses"), anyMap(), isNull()))
+                .thenReturn(mapper.readTree("{\"warehouses\":[{\"id\":\"W1\",\"is_default\":true}]}"));
+        TiktokCatalogClient client = new TiktokCatalogClient(executor, properties, mapper);
+
+        assertCode("TIKTOK_STOCK_INVALID", HttpStatus.BAD_REQUEST, () -> client.updateStock(1L, "P1", "S1", -1));
+        assertCode("TIKTOK_STOCK_INVALID", HttpStatus.BAD_REQUEST, () -> client.updateStock(1L, "P1", "S1", null));
+        assertCode("TIKTOK_STOCK_INVALID", HttpStatus.BAD_REQUEST, () -> client.updateStock(1L, "P1", "S1", 100_000));
+        assertCode("TIKTOK_PRODUCT_ID_INVALID", HttpStatus.BAD_REQUEST, () -> client.updateStock(1L, "P/1", "S1", 1));
+        assertCode("TIKTOK_SKU_NOT_ON_PRODUCT", HttpStatus.BAD_REQUEST, () -> client.updateStock(1L, "P1", "NOPE", 1));
+        assertCode("TIKTOK_SKU_NO_WAREHOUSE", HttpStatus.CONFLICT, () -> client.updateStock(1L, "P1", "S2", 1));
+        verify(executor, never()).call(anyLong(), eq("POST"), anyString(), anyMap(), anyString());
+    }
+
+    @Test
+    void skuListedInDataErrorsIsNotTreatedAsSent() throws Exception {
+        TiktokShopApiExecutor executor = mock(TiktokShopApiExecutor.class);
+        when(executor.call(eq(1L), eq("GET"), eq("/product/202309/products/P1"), anyMap(), isNull()))
+                .thenReturn(mapper.readTree("{\"id\":\"P1\",\"skus\":[{\"id\":\"S1\",\"inventory\":[{\"warehouse_id\":\"W1\",\"quantity\":1}]}]}"));
+        when(executor.call(eq(1L), eq("GET"), eq("/logistics/202309/warehouses"), anyMap(), isNull()))
+                .thenReturn(mapper.readTree("{\"warehouses\":[{\"id\":\"W1\"}]}"));
+        when(executor.call(eq(1L), eq("POST"), eq("/product/202309/products/P1/inventory/update"), anyMap(), anyString()))
+                .thenReturn(mapper.readTree("{\"errors\":[{\"code\":12052700,\"detail\":{\"sku_id\":\"S1\"}}]}"));
+
+        TiktokApiException ex = assertThrows(TiktokApiException.class,
+                () -> new TiktokCatalogClient(executor, properties, mapper).updateStock(1L, "P1", "S1", 3));
+        assertTrue(ex.isRejection());
+        assertEquals(12052700, ex.getApiCode());
+    }
+
+    private static void assertCode(String code, HttpStatus status, org.junit.jupiter.api.function.Executable call) {
+        BusinessException ex = assertThrows(BusinessException.class, call);
+        assertEquals(code, ex.getErrorCode());
+        assertEquals(status, ex.getHttpStatus());
     }
 
     @Test
