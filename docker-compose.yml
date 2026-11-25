@@ -172,6 +172,7 @@ services:
     environment:
       <<: *database-environment
       SMARTOMNI_SERVICES_TENANT-URL: http://tenant-service:8082
+      TIKTOK_PRODUCT_URL_TEMPLATE: ${TIKTOK_PRODUCT_URL_TEMPLATE:-}
     networks:
       - smartomni-net
 
@@ -250,6 +251,7 @@ services:
       TIKTOK_INVENTORY_WEBHOOK_URL: ${TIKTOK_INVENTORY_WEBHOOK_URL:-}
       TIKTOK_REDIRECT_URI: ${TIKTOK_REDIRECT_URI:-http://localhost:5174/merchant/channels/tiktok-shop/callback}
       TIKTOK_ALLOWED_REDIRECT_URIS: ${TIKTOK_ALLOWED_REDIRECT_URIS:-smartomni://oauth/tiktok,http://127.0.0.1:5174/merchant/channels/tiktok-shop/callback}
+      TIKTOK_PRODUCT_URL_TEMPLATE: ${TIKTOK_PRODUCT_URL_TEMPLATE:-}
     networks:
       - smartomni-net
 
