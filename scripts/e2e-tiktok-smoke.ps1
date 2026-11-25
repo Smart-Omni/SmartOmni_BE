@@ -4,7 +4,8 @@ param(
     [string]$TestAdminToken = "CHANGE_ME_test_admin_token",
     [string]$PostgresContainer = "smartomni-postgres",
     [string]$DbUser = "postgres",
-    [string]$DbName = "smartomni"
+    [string]$DbName = "smartomni",
+    [string]$DemoPassword = "123"
 )
 
 $ErrorActionPreference = "Stop"
@@ -135,15 +136,17 @@ try {
 
     $sellerSession = Invoke-Api -Method "POST" -Uri "$SimulatorBaseUrl/demo/sessions" -Body @{
         role     = "SELLER"
-        sellerId = $seller.id
+        email    = $seller.email
+        password = $DemoPassword
         shopId   = $simShop.id
     }
     $sellerHeaders = @{ "x-demo-session" = $sellerSession.sessionToken }
 
     $buyerSession = Invoke-Api -Method "POST" -Uri "$SimulatorBaseUrl/demo/sessions" -Body @{
-        role    = "BUYER"
-        buyerId = $buyer.id
-        shopId  = $simShop.id
+        role     = "BUYER"
+        email    = $buyer.email
+        password = $DemoPassword
+        shopId   = $simShop.id
     }
     $buyerHeaders = @{ "x-demo-session" = $buyerSession.sessionToken }
 
@@ -212,11 +215,6 @@ try {
     }
     $order1Id = $chk1.order.id
     Invoke-Api -Method "POST" -Uri "$SimulatorBaseUrl/demo/shops/$($simShop.id)/orders/$order1Id/pay" -Headers $buyerHeaders | Out-Null
-    Invoke-Api -Method "POST" -Uri "$SimulatorBaseUrl/test-admin/orders/$order1Id/transition" -Headers $testAdminHeaders -Body @{
-        to     = "AWAITING_SHIPMENT"
-        shopId = $simShop.id
-        note   = "e2e skip hold"
-    } | Out-Null
     $arr1 = Invoke-Api -Method "POST" -Uri "$SimulatorBaseUrl/demo/shops/$($simShop.id)/orders/$order1Id/arrange-shipment" -Headers $sellerHeaders -Body @{ handoverMethod = "PICKUP" }
     $package1Id = $arr1.package.externalId
     if (-not $package1Id) {
@@ -234,11 +232,6 @@ try {
     }
     $order2Id = $chk2.order.id
     Invoke-Api -Method "POST" -Uri "$SimulatorBaseUrl/demo/shops/$($simShop.id)/orders/$order2Id/pay" -Headers $buyerHeaders | Out-Null
-    Invoke-Api -Method "POST" -Uri "$SimulatorBaseUrl/test-admin/orders/$order2Id/transition" -Headers $testAdminHeaders -Body @{
-        to     = "AWAITING_SHIPMENT"
-        shopId = $simShop.id
-        note   = "e2e skip hold"
-    } | Out-Null
     Invoke-Api -Method "POST" -Uri "$SimulatorBaseUrl/demo/shops/$($simShop.id)/orders/$order2Id/arrange-shipment" -Headers $sellerHeaders -Body @{ handoverMethod = "PICKUP" } | Out-Null
     Invoke-Api -Method "POST" -Uri "$SimulatorBaseUrl/demo/shops/$($simShop.id)/orders/$order2Id/advance-shipment" -Headers $sellerHeaders | Out-Null
     Invoke-Api -Method "POST" -Uri "$SimulatorBaseUrl/demo/shops/$($simShop.id)/orders/$order2Id/advance-shipment" -Headers $sellerHeaders | Out-Null
