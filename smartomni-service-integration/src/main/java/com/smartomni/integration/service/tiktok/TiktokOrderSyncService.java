@@ -30,7 +30,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class TiktokOrderSyncService {
 
-    static final String SOURCE_POLLING = "POLLING";
+    static final String SOURCE_POLLING = TiktokOrderIngestionService.SOURCE_POLLING;
     private static final int MAX_SYNC_PAGES = 20;
     private static final int DEFAULT_PAGE_SIZE = 50;
 

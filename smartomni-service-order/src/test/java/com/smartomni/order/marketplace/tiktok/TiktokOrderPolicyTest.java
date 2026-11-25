@@ -32,9 +32,9 @@ class TiktokOrderPolicyTest {
             "DELIVERED, DELIVERING", "122, DELIVERING",
             "COMPLETED, COMPLETED", "130, COMPLETED",
             "CANCELLED, CANCELLED", "CANCELED, CANCELLED", "140, CANCELLED",
-            "ON_HOLD, ON_HOLD", "'', PENDING"
+            "'', PENDING"
     })
-    void mapsSimulatorStatusesAndOnHold(String raw, OrderStatus expected) {
+    void mapsSimulatorStatuses(String raw, OrderStatus expected) {
         assertEquals(expected, TiktokOrderStatusMapper.map(raw));
     }
 
@@ -44,9 +44,9 @@ class TiktokOrderPolicyTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"IN_CANCEL", "UNKNOWN_STATUS", "READY_TO_SHIP", "TO_RETURN"})
-    void inCancelAndShopeeValuesAreUnknown(String raw) {
-        // M5: IN_CANCEL is in neither the simulator nor the OAS.
+    @CsvSource({"IN_CANCEL", "ON_HOLD", "UNKNOWN_STATUS", "READY_TO_SHIP", "TO_RETURN"})
+    void inCancelOnHoldAndShopeeValuesAreUnknown(String raw) {
+        // M5: IN_CANCEL is in neither the simulator nor the OAS. ON_HOLD was dropped by the simulator (DECISIONS H1).
         var error = assertThrows(BusinessException.class, () -> TiktokOrderStatusMapper.map(raw));
         assertEquals("UNKNOWN_MARKETPLACE_ORDER_STATUS", error.getErrorCode());
     }
@@ -79,8 +79,8 @@ class TiktokOrderPolicyTest {
     @ParameterizedTest
     @CsvSource({
             "TO_SHIP, COMPLETED, true", "PENDING, DELIVERING, true",
-            "PENDING, ON_HOLD, true", "TO_SHIP, ON_HOLD, true", "SHIPPED, ON_HOLD, false",
-            "ON_HOLD, TO_SHIP, true", "ON_HOLD, CANCELLED, true",
+            "PENDING, ON_HOLD, false", "TO_SHIP, ON_HOLD, false",
+            "ON_HOLD, TO_SHIP, false", "ON_HOLD, COMPLETED, false", "ON_HOLD, CANCELLED, false",
             "DELIVERING, SHIPPED, false", "COMPLETED, DELIVERING, false", "CANCELLED, TO_SHIP, false",
             "COMPLETED, RETURNED, false", "DELIVERING, RETURNED, false"
     })

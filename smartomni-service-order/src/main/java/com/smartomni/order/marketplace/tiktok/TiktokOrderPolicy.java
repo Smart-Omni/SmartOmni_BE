@@ -22,8 +22,9 @@ import java.time.Instant;
  * DELIVERED           → COMPLETED
  * COMPLETED, CANCELLED: terminal
  * </pre>
- * Besides the forward main line: PENDING/TO_SHIP → CANCELLED; PENDING/TO_SHIP → ON_HOLD (real TikTok only);
- * ON_HOLD → TO_SHIP (or later) / CANCELLED; no cancel from SHIPPED/DELIVERING. A TikTok order never becomes RETURNED:
+ * Besides the forward main line: PENDING/TO_SHIP → CANCELLED; no cancel from SHIPPED/DELIVERING. ON_HOLD is never
+ * reached from TikTok (DECISIONS H1); an order WF-05 put on hold accepts no marketplace status. A TikTok order never
+ * becomes RETURNED:
  * returns do not change the order status (phase-07, 07b.2).
  * <p>
  * Stock: the simulator reserves and releases stock itself and SmartOmni applies the absolute quantity from
@@ -54,11 +55,9 @@ public class TiktokOrderPolicy implements MarketplaceOrderPolicy {
             return true;
         }
         return switch (from) {
-            case PENDING, TO_SHIP -> OrderStatusFlow.isForward(from, to)
-                    || to == OrderStatus.CANCELLED || to == OrderStatus.ON_HOLD;
-            case ON_HOLD -> OrderStatusFlow.isResumeFromHold(to) || to == OrderStatus.CANCELLED;
+            case PENDING, TO_SHIP -> OrderStatusFlow.isForward(from, to) || to == OrderStatus.CANCELLED;
             case SHIPPED, DELIVERING -> OrderStatusFlow.isForward(from, to);
-            case COMPLETED, CANCELLED, RETURNED -> false;
+            case COMPLETED, CANCELLED, RETURNED, ON_HOLD -> false;
         };
     }
 

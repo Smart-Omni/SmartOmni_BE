@@ -132,11 +132,13 @@ class MarketplaceOrderScenarioTest {
         @Test
         void inCancelRejectedGoesBackToShipWithoutRestock() {
             shopee("S2", "PROCESSED", 100);
+            int historyBefore = history.size();
             shopee("S2", "IN_CANCEL", 110);
-            assertEquals(Order.OrderStatus.ON_HOLD, order("S2").getStatus(), "M6: IN_CANCEL is not CANCELLED");
+            assertEquals(Order.OrderStatus.TO_SHIP, order("S2").getStatus(), "M6: IN_CANCEL is not CANCELLED");
             shopee("S2", "READY_TO_SHIP", 120);
 
             assertEquals(Order.OrderStatus.TO_SHIP, order("S2").getStatus());
+            assertEquals(historyBefore, history.size(), "no hold step: IN_CANCEL and REJECT change nothing");
             verify(inventory, never()).restock(anyLong(), anyInt());
         }
 

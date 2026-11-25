@@ -39,6 +39,8 @@ public class TiktokOrderIngestionService {
     public static final String PLATFORM_TIKTOK_SHOP = "TIKTOK_SHOP";
 
     public static final String RECONCILIATION_SKU_UNMAPPED = "SKU_UNMAPPED";
+    /** Message source for orders fetched by polling or a manual sync, rather than pushed by a webhook. */
+    public static final String SOURCE_POLLING = "POLLING";
 
     private final CatalogMappingService catalogMappingService;
     private final RabbitTemplate rabbitTemplate;

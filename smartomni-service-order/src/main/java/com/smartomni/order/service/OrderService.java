@@ -333,10 +333,9 @@ public class OrderService {
                             ? request.getCourierScannedAt()
                             : Instant.now());
                 }
-                // Nếu trạng thái hiện tại là TO_SHIP hoặc PENDING hoặc ON_HOLD -> chuyển sang SHIPPED
+                // Nếu trạng thái hiện tại là TO_SHIP hoặc PENDING -> chuyển sang SHIPPED
                 if (order.getStatus() == Order.OrderStatus.TO_SHIP
-                        || order.getStatus() == Order.OrderStatus.PENDING
-                        || order.getStatus() == Order.OrderStatus.ON_HOLD) {
+                        || order.getStatus() == Order.OrderStatus.PENDING) {
                     log.info("Đơn hàng {} đã được bưu tá quét (packageStatus={}) -> Cập nhật trạng thái SHIPPED",
                             order.getPlatformOrderId(), pkgStatus);
                     updateOrderStatus(order, Order.OrderStatus.SHIPPED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);

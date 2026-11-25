@@ -76,7 +76,7 @@ Nếu chưa có app bắt deep link, dùng browser devtools hoặc chức năng 
 - **Webhook không cần JWT.** Endpoint được xác thực bằng chữ ký HMAC. Mỗi `tts_notification_id` chỉ được xử lý một lần. Khi gặp lỗi tạm thời, SmartOmni trả 503 để simulator gửi lại.
 - **Polling bù.** Đơn, trả hàng và hủy đơn được quét theo `update_time`, có checkpoint trong `tiktok_sync_checkpoints` và lùi 300 giây (`smartomni.order-polling.overlap-seconds`). Có thể gọi tay bằng `POST /internal/jobs/poll-orders` (cần token nội bộ).
 - **Khởi động lại gateway** (`docker restart smartomni-gateway`) sau khi tạo lại container service. Integration Service mất khoảng 84 giây để sẵn sàng, và trong lúc đó Nginx giữ upstream cũ.
-- **Simulator không còn `ON_HOLD`** (từ `7f721af`). SmartOmni vẫn giữ nhánh `ON_HOLD` vì sàn thật còn dùng trạng thái này.
+- **Simulator không còn `ON_HOLD`** (từ `7f721af`). SmartOmni cũng đã bỏ nhánh này: `ON_HOLD` từ TikTok bị coi là trạng thái lạ.
 - **Reset DB local sau khi đổi tên migration.** DB đã chạy `V24__tiktok_inventory_snapshots` trước khi file được đổi thành `V25`, nên Flyway báo lệch. Chạy `docker compose -f docker-compose.yml -f docker-compose.tiktok-simulator.yml down -v`, rồi `up --build -d`, sau đó tạo lại tenant bằng `POST /api/v1/tenants/onboarding`. Lệnh `down -v` xóa toàn bộ dữ liệu local.
 
 ## 5. Lỗi thường gặp

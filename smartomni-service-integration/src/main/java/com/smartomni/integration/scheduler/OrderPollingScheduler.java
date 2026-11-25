@@ -151,7 +151,8 @@ public class OrderPollingScheduler {
 
                     for (TiktokOrderDetailResponse order : response.getOrders()) {
                         try {
-                            ingestionService.ingestOrder(connection.getTenantId(), order);
+                            ingestionService.ingestOrder(connection.getTenantId(), order,
+                                    TiktokOrderIngestionService.SOURCE_POLLING);
                             connectionSyncedCount++;
                         } catch (Exception ex) {
                             windowComplete = false;

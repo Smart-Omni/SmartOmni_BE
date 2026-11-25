@@ -49,8 +49,8 @@ Integration gui **trang thai tho** cua san (`order_status`) cung `platform` va
 
 | | Shopee (`shopee-simulator` @ 4ce7c84) | TikTok (`Smartomni-Tiktok-Simulator` @ a830fce) |
 |---|---|---|
-| Mapper | `ShopeeOrderStatusMapper`: IN_CANCEL → ON_HOLD, TO_RETURN → COMPLETED | `TiktokOrderStatusMapper`: DELIVERED → DELIVERING, IN_CANCEL la trang thai la |
-| Huy | PENDING/TO_SHIP/ON_HOLD | PENDING/TO_SHIP/ON_HOLD |
+| Mapper | `ShopeeOrderStatusMapper`: IN_CANCEL → TO_SHIP, TO_RETURN → COMPLETED | `TiktokOrderStatusMapper`: DELIVERED → DELIVERING, IN_CANCEL va ON_HOLD la trang thai la |
+| Huy | PENDING/TO_SHIP | PENDING/TO_SHIP |
 | Tru kho khi co don | Co (tru don moi da CANCELLED) | Khong (ton tuyet doi tu type 71) |
 | Hoan kho khi huy | Co, truoc khi ban giao van chuyen | Khong |
 | Tra hang | Chi ghi `return_refund`, khong doi trang thai don | Khong doi trang thai don, hoan kho idempotent khi SUCCESS/COMPLETE |
@@ -59,7 +59,8 @@ Integration gui **trang thai tho** cua san (`order_status`) cung `platform` va
 Quy tac chung: duoc tien thang ke ca nhay coc (PENDING < TO_SHIP < SHIPPED <
 DELIVERING < COMPLETED), khong lui. Chuyen trang thai khong hop le tu san duoc ghi
 log, bo qua va gan `reconciliation_reason = STATUS_CONFLICT` (khong vao DLQ); tu
-nhan vien thi van bao loi. `RETURNED` chi do kiem hang tra WF-05 dat. Message
+nhan vien thi van bao loi. `RETURNED` chi do kiem hang tra WF-05 dat. Khong san nao dua don vao
+`ON_HOLD`; chi WF-05 dat khi kiem hang khong dat, va don `ON_HOLD` khong nhan trang thai nao tu san. Message
 tracking/tra hang thieu `platform` bi tra 400.
 
 Chi tiet va can cu: `docs/plans/marketplace-order-mapper-split-plan.md`.

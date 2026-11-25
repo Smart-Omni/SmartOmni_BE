@@ -8,6 +8,7 @@
 > - `../Smartomni-Tiktok-Simulator` @ `a830fce` ("refuse cancel once shipment is arranged")
 >
 > Trạng thái: **đã triển khai** trên nhánh `refactor/order-marketplace-policies`.
+> Cập nhật 2026-11-25: **bỏ `ON_HOLD` khỏi luồng sàn.** Simulator TikTok đã bỏ trạng thái này (DECISIONS H1) và luồng chính của SmartOmni không có bước giữ đơn. Shopee `IN_CANCEL` giữ đơn ở `TO_SHIP`; TikTok `ON_HOLD` là trạng thái lạ. Chỉ WF-05 còn đặt `ON_HOLD` (kiểm hàng không đạt). Các bảng ở mục 3.2, 4 và 7 đã sửa theo.
 
 ---
 
@@ -128,7 +129,7 @@ public interface MarketplaceOrderPolicy {
 
 ### 3.2 Quy tắc chuyển trạng thái chung
 
-- **Tiến thẳng, kể cả nhảy cóc**, theo thứ tự `PENDING < TO_SHIP < SHIPPED < DELIVERING < COMPLETED`. Lý do: polling 3 phút và webhook bị mất chỉ thấy trạng thái mới nhất. Các nhánh phụ như hủy và `ON_HOLD` theo bảng riêng của từng sàn ở mục 4.
+- **Tiến thẳng, kể cả nhảy cóc**, theo thứ tự `PENDING < TO_SHIP < SHIPPED < DELIVERING < COMPLETED`. Lý do: polling 3 phút và webhook bị mất chỉ thấy trạng thái mới nhất. Nhánh phụ hủy đơn theo bảng riêng của từng sàn ở mục 4. Không sàn nào đưa đơn vào `ON_HOLD`.
 - **Không lùi.** Nguồn là `MARKETPLACE_WEBHOOK`/`POLLING` mà chuyển không hợp lệ thì **ghi log và bỏ qua** (không ném lỗi, không vào DLQ), và đặt `reconciliationReason = STATUS_CONFLICT` để đối soát (sửa M11). Nguồn là `STAFF` thì vẫn ném lỗi như hiện tại.
 - Trạng thái mới trùng trạng thái hiện tại thì không làm gì (ví dụ READY_TO_SHIP và PROCESSED cùng là TO_SHIP).
 
@@ -146,7 +147,7 @@ public interface MarketplaceOrderPolicy {
 | `SHIPPED` | `SHIPPED` | |
 | `TO_CONFIRM_RECEIVE` | `DELIVERING` | Simulator không phát ra. Giữ cho Shopee thật |
 | `COMPLETED` | `COMPLETED` | |
-| `IN_CANCEL` | `ON_HOLD` | Không phải trạng thái cuối, không hoàn kho |
+| `IN_CANCEL` | `TO_SHIP` | Buyer xin hủy, chưa phải trạng thái cuối: đơn giữ TO_SHIP, không hoàn kho, không ghi lịch sử. SmartOmni không có bước `ON_HOLD` |
 | `CANCELLED` | `CANCELLED` | |
 | `TO_RETURN` | **`COMPLETED`** | Simulator chỉ vào TO_RETURN từ COMPLETED. Đơn đã COMPLETED thì không đổi; đơn đang RETURNED thì bỏ qua (không lùi). Tiến trình trả hàng nằm ở `return_refund` (D1) |
 | khác | lỗi `UNKNOWN_MARKETPLACE_ORDER_STATUS` | |
@@ -155,16 +156,15 @@ Bảng chuyển trạng thái Shopee (ngoài các bước tiến thẳng ở 3.2
 
 | Từ | Được sang | Căn cứ simulator |
 |---|---|---|
-| `PENDING`, `TO_SHIP` | `CANCELLED` | seller hủy hoặc quá hạn SLA |
-| `TO_SHIP` | `ON_HOLD` | PROCESSED → IN_CANCEL |
-| `ON_HOLD` | `TO_SHIP`, `CANCELLED` | REJECT → READY_TO_SHIP/PROCESSED; ACCEPT → CANCELLED |
+| `PENDING`, `TO_SHIP` | `CANCELLED` | seller hủy, quá hạn SLA, hoặc seller ACCEPT yêu cầu hủy (IN_CANCEL → CANCELLED) |
+| `TO_SHIP` | (giữ nguyên) | PROCESSED → IN_CANCEL, và REJECT → READY_TO_SHIP/PROCESSED |
 | `SHIPPED`, `DELIVERING` | (không hủy) | simulator không có hủy sau khi giao vận chuyển |
 | `COMPLETED` | `RETURNED` | **chỉ qua WF-05** (kiểm hàng đạt), không qua mapper |
 
 Tồn kho Shopee:
 - Đơn mới đã map SKU và không phải CANCELLED: trừ kho, outbox đẩy tồn tuyệt đối (`update_stock`).
 - CANCELLED trước khi bàn giao vận chuyển: hoàn kho 1 lần.
-- ON_HOLD: không làm gì.
+- IN_CANCEL: không làm gì (đơn giữ TO_SHIP).
 - Trả hàng: chỉ hoàn kho khi WF-05 kiểm đạt (logic sẵn có, idempotency key theo return).
 
 `ShopeeReturnHandler` (push code 29 → `ShopeeReturnSyncService` → `handleOrderReturn`):
@@ -184,7 +184,7 @@ Tồn kho Shopee:
 | `DELIVERED` / `122` | COMPLETED | **`DELIVERING`** | DELIVERED khác COMPLETED theo phase-09 (M3). Cùng nghĩa với Shopee `TO_CONFIRM_RECEIVE`: đã giao, chờ hoàn tất |
 | `COMPLETED` / `130` | COMPLETED | `COMPLETED` | |
 | `CANCELLED`, `CANCELED` / `140` | CANCELLED | `CANCELLED` | |
-| `ON_HOLD` | ON_HOLD | `ON_HOLD` | Có trong OAS; simulator không phát ra; giữ cho TikTok thật |
+| `ON_HOLD` | ON_HOLD | **bỏ, coi là trạng thái lạ** | Simulator đã bỏ (DECISIONS H1); SmartOmni không có bước `ON_HOLD` (cập nhật 2026-11-25) |
 | `IN_CANCEL` | ON_HOLD | **bỏ, coi là trạng thái lạ** | Không có trong simulator lẫn OAS (M5) |
 
 Bảng chuyển trạng thái TikTok (ngoài các bước tiến thẳng ở 3.2), suy ra từ `TRANSITIONS` @ `a830fce`:
@@ -192,8 +192,6 @@ Bảng chuyển trạng thái TikTok (ngoài các bước tiến thẳng ở 3.2
 | Từ | Được sang |
 |---|---|
 | `PENDING`, `TO_SHIP` | `CANCELLED` |
-| `PENDING`, `TO_SHIP` | `ON_HOLD` (chỉ với TikTok thật) |
-| `ON_HOLD` | `TO_SHIP`, `CANCELLED` |
 | `SHIPPED`, `DELIVERING` | (không hủy) |
 | `COMPLETED`, `CANCELLED` | trạng thái cuối. TikTok không bao giờ vào RETURNED, vì trả hàng không đổi trạng thái đơn |
 
@@ -287,7 +285,7 @@ Migration: chỉ bước 8 cần (V28, 4 cột nullable). `ON_HOLD`, `DELIVERING
 **Shopee**, đối chiếu `test/phase4_order`, `phase5_webhook`, `phase10_lifecycle_deadline` và `phase13_returns_disputes` của simulator:
 - Mapper đủ 9 giá trị enum, giá trị lạ thì lỗi.
 - READY_TO_SHIP → PROCESSED → SHIPPED → COMPLETED. Ví ghi đúng 1 lần.
-- PROCESSED → IN_CANCEL → REJECT → READY_TO_SHIP: không hoàn kho, đơn về TO_SHIP.
+- PROCESSED → IN_CANCEL → REJECT → READY_TO_SHIP: không hoàn kho, đơn giữ TO_SHIP, không ghi lịch sử.
 - IN_CANCEL → ACCEPT → CANCELLED: hoàn kho đúng 1 lần.
 - Đơn COMPLETED nhận TO_RETURN: trạng thái giữ COMPLETED, không ghi lịch sử, không ghi ví lần hai.
 - Đơn RETURNED (sau WF-05) nhận TO_RETURN/COMPLETED: bỏ qua, không lỗi, không vào DLQ.
@@ -297,7 +295,7 @@ Migration: chỉ bước 8 cần (V28, 4 cột nullable). `ON_HOLD`, `DELIVERING
 - Serialize payload qua `Jackson2JsonMessageConverter` rồi đọc ở order: đủ field.
 
 **TikTok**, đối chiếu `backend/src/orders/order-state.ts` @ `a830fce` và `docs/smartomni-requirements/phase-07.md`, `phase-09.md`:
-- Mapper đủ 8 trạng thái của simulator cùng `ON_HOLD`; `IN_CANCEL` thì lỗi.
+- Mapper đủ 8 trạng thái của simulator; `ON_HOLD` và `IN_CANCEL` thì lỗi.
 - Duyệt mọi cặp trong `TRANSITIONS`: cặp hợp lệ thì được. `AWAITING_COLLECTION`/`IN_TRANSIT` → `CANCELLED` bị bỏ qua (ghi log, không lỗi).
 - DELIVERED → DELIVERING: chưa ghi ví, chưa có `eligibleForPointsAt`. COMPLETED mới ghi, và `completedAt` bằng `update_time` của sàn.
 - Nhảy cóc từ AWAITING_SHIPMENT sang COMPLETED (do mất webhook) vẫn được chấp nhận.

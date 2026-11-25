@@ -14,11 +14,11 @@ import org.springframework.stereotype.Component;
  * <p>
  * Transitions besides the forward main line:
  * <ul>
- *   <li>PENDING, TO_SHIP → CANCELLED: seller cancel or SLA expiry (UNPAID/READY_TO_SHIP → CANCELLED);</li>
- *   <li>TO_SHIP → ON_HOLD: PROCESSED → IN_CANCEL (buyer cancel request);</li>
- *   <li>ON_HOLD → TO_SHIP (or later, see {@link OrderStatusFlow#isResumeFromHold}), CANCELLED: seller REJECT / ACCEPT;</li>
+ *   <li>PENDING, TO_SHIP → CANCELLED: seller cancel or SLA expiry (UNPAID/READY_TO_SHIP → CANCELLED), and seller
+ *       ACCEPT of a buyer cancel request (IN_CANCEL stays TO_SHIP, see {@link ShopeeOrderStatusMapper});</li>
  *   <li>SHIPPED, DELIVERING: no cancel (the simulator has none after handover);</li>
- *   <li>COMPLETED → RETURNED only through WF-05, never through this table.</li>
+ *   <li>COMPLETED → RETURNED only through WF-05, never through this table;</li>
+ *   <li>ON_HOLD is never reached from Shopee; an order WF-05 put on hold accepts no marketplace status.</li>
  * </ul>
  * Stock: the simulator never changes stock per order, so SmartOmni deducts on a new non-cancelled order and restocks
  * once on a cancel before courier handover.
@@ -49,10 +49,9 @@ public class ShopeeOrderPolicy implements MarketplaceOrderPolicy {
         }
         return switch (from) {
             case PENDING -> OrderStatusFlow.isForward(from, to) || to == OrderStatus.CANCELLED;
-            case TO_SHIP -> OrderStatusFlow.isForward(from, to) || to == OrderStatus.CANCELLED || to == OrderStatus.ON_HOLD;
-            case ON_HOLD -> OrderStatusFlow.isResumeFromHold(to) || to == OrderStatus.CANCELLED;
+            case TO_SHIP -> OrderStatusFlow.isForward(from, to) || to == OrderStatus.CANCELLED;
             case SHIPPED, DELIVERING -> OrderStatusFlow.isForward(from, to);
-            case COMPLETED, CANCELLED, RETURNED -> false;
+            case COMPLETED, CANCELLED, RETURNED, ON_HOLD -> false;
         };
     }
 
@@ -66,9 +65,7 @@ public class ShopeeOrderPolicy implements MarketplaceOrderPolicy {
         if (order.getCourierScannedAt() != null) {
             return false;
         }
-        return previousStatus == OrderStatus.PENDING
-                || previousStatus == OrderStatus.TO_SHIP
-                || previousStatus == OrderStatus.ON_HOLD;
+        return previousStatus == OrderStatus.PENDING || previousStatus == OrderStatus.TO_SHIP;
     }
 
     @Override

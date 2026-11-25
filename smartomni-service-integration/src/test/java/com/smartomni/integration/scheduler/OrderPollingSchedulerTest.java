@@ -33,6 +33,8 @@ import static org.mockito.Mockito.*;
 @DisplayName("OrderPollingScheduler Unit Tests")
 class OrderPollingSchedulerTest {
 
+    private static final String POLLING = TiktokOrderIngestionService.SOURCE_POLLING;
+
     @Mock
     private MarketplaceConnectionRepository connectionRepository;
 
@@ -100,8 +102,8 @@ class OrderPollingSchedulerTest {
         int synced = scheduler.pollOrdersFromMarketplaces(30);
 
         assertEquals(2, synced);
-        verify(ingestionService).ingestOrder(100L, order1);
-        verify(ingestionService).ingestOrder(100L, order2);
+        verify(ingestionService).ingestOrder(100L, order1, POLLING);
+        verify(ingestionService).ingestOrder(100L, order2, POLLING);
         verify(tiktokOrderClient, times(1)).searchOrders(eq("SHOP-CIPHER-100"), any(OrderSearchRequest.class));
     }
 
@@ -135,8 +137,8 @@ class OrderPollingSchedulerTest {
         int synced = scheduler.pollOrdersFromMarketplaces(15);
 
         assertEquals(2, synced);
-        verify(ingestionService).ingestOrder(200L, page1Order);
-        verify(ingestionService).ingestOrder(200L, page2Order);
+        verify(ingestionService).ingestOrder(200L, page1Order, POLLING);
+        verify(ingestionService).ingestOrder(200L, page2Order, POLLING);
 
         ArgumentCaptor<OrderSearchRequest> reqCaptor = ArgumentCaptor.forClass(OrderSearchRequest.class);
         verify(tiktokOrderClient, times(2)).searchOrders(eq("SHOP-CIPHER-200"), reqCaptor.capture());
@@ -166,8 +168,8 @@ class OrderPollingSchedulerTest {
         int synced = scheduler.pollOrdersFromMarketplaces(30);
 
         assertEquals(1, synced);
-        verify(ingestionService, never()).ingestOrder(eq(501L), any());
-        verify(ingestionService, times(1)).ingestOrder(eq(502L), eq(successOrder));
+        verify(ingestionService, never()).ingestOrder(eq(501L), any(), any());
+        verify(ingestionService, times(1)).ingestOrder(eq(502L), eq(successOrder), eq(POLLING));
     }
 
     @Test
@@ -217,11 +219,11 @@ class OrderPollingSchedulerTest {
         TiktokOrderDetailResponse bad = TiktokOrderDetailResponse.builder().orderId("BAD").build();
         when(tiktokOrderClient.searchOrders(eq("CIPHER-500"), any(OrderSearchRequest.class)))
                 .thenReturn(OrderSearchResponse.builder().orders(List.of(bad, ok)).build());
-        when(ingestionService.ingestOrder(500L, bad)).thenThrow(new RuntimeException("queue down"));
+        when(ingestionService.ingestOrder(500L, bad, POLLING)).thenThrow(new RuntimeException("queue down"));
 
         assertEquals(1, scheduler.pollOrdersForConnection(conn, 30));
 
-        verify(ingestionService).ingestOrder(500L, ok);
+        verify(ingestionService).ingestOrder(500L, ok, POLLING);
         verify(checkpoints, never()).advance(anyLong(), anyLong(), anyString(), anyLong());
     }
 

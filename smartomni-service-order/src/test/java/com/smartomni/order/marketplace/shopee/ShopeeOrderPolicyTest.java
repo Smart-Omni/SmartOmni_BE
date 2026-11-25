@@ -24,7 +24,7 @@ class ShopeeOrderPolicyTest {
             "SHIPPED, SHIPPED",
             "TO_CONFIRM_RECEIVE, DELIVERING",
             "COMPLETED, COMPLETED",
-            "IN_CANCEL, ON_HOLD",
+            "IN_CANCEL, TO_SHIP",
             "CANCELLED, CANCELLED",
             "TO_RETURN, COMPLETED",
             "ready_to_ship, TO_SHIP"
@@ -52,9 +52,9 @@ class ShopeeOrderPolicyTest {
             "PENDING, TO_SHIP, true", "PENDING, COMPLETED, true", "TO_SHIP, COMPLETED, true", "SHIPPED, DELIVERING, true",
             // cancel only before handover
             "PENDING, CANCELLED, true", "TO_SHIP, CANCELLED, true", "SHIPPED, CANCELLED, false", "DELIVERING, CANCELLED, false",
-            // IN_CANCEL from PROCESSED; REJECT back to TO_SHIP, ACCEPT to CANCELLED
-            "TO_SHIP, ON_HOLD, true", "PENDING, ON_HOLD, false", "SHIPPED, ON_HOLD, false",
-            "ON_HOLD, TO_SHIP, true", "ON_HOLD, SHIPPED, true", "ON_HOLD, CANCELLED, true", "ON_HOLD, PENDING, false",
+            // no marketplace status leads to or out of ON_HOLD (only WF-05 sets it)
+            "TO_SHIP, ON_HOLD, false", "PENDING, ON_HOLD, false",
+            "ON_HOLD, TO_SHIP, false", "ON_HOLD, COMPLETED, false", "ON_HOLD, CANCELLED, false",
             // never backwards, terminals stay
             "SHIPPED, TO_SHIP, false", "COMPLETED, SHIPPED, false", "CANCELLED, TO_SHIP, false",
             // RETURNED only via WF-05
@@ -68,12 +68,11 @@ class ShopeeOrderPolicyTest {
     @Test
     void stockRules() {
         assertTrue(policy.deductStockOnCreate(OrderStatus.TO_SHIP));
-        assertTrue(policy.deductStockOnCreate(OrderStatus.ON_HOLD));
         assertFalse(policy.deductStockOnCreate(OrderStatus.CANCELLED), "M9");
 
         Order order = new Order();
         assertTrue(policy.restockOnCancel(OrderStatus.TO_SHIP, order));
-        assertTrue(policy.restockOnCancel(OrderStatus.ON_HOLD, order));
+        assertFalse(policy.restockOnCancel(OrderStatus.ON_HOLD, order));
         assertFalse(policy.restockOnCancel(OrderStatus.SHIPPED, order));
         order.setCourierScannedAt(Instant.now());
         assertFalse(policy.restockOnCancel(OrderStatus.TO_SHIP, order));

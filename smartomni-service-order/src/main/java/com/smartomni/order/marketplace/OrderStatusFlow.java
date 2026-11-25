@@ -6,8 +6,9 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Rules shared by every marketplace policy (plan section 3.2). Side branches such as cancel and ON_HOLD stay in each
- * platform's own table.
+ * Rules shared by every marketplace policy (plan section 3.2). The cancel side branch stays in each platform's own
+ * table. No marketplace status maps to ON_HOLD: neither simulator has it on its main flow (TikTok DECISIONS H1, and
+ * Shopee IN_CANCEL keeps the order at TO_SHIP).
  */
 public final class OrderStatusFlow {
 
@@ -23,14 +24,6 @@ public final class OrderStatusFlow {
         int f = MAIN_LINE.indexOf(from);
         int t = MAIN_LINE.indexOf(to);
         return f >= 0 && t > f;
-    }
-
-    /**
-     * A held order resumes at TO_SHIP or later. Later steps are accepted too, because the release event may have been
-     * missed and the next state seen is already SHIPPED or beyond.
-     */
-    public static boolean isResumeFromHold(OrderStatus to) {
-        return MAIN_LINE.indexOf(to) >= MAIN_LINE.indexOf(OrderStatus.TO_SHIP);
     }
 
     /** Platform epoch seconds (or millis, as some create_time values are) to an Instant; null when absent. */

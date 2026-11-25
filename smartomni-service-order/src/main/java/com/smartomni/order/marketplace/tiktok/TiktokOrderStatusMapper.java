@@ -9,13 +9,14 @@ import java.util.Locale;
 /**
  * Raw TikTok Shop order status to SmartOmni status (plan section 4.2).
  * <p>
- * Source: {@code Smartomni-Tiktok-Simulator/backend/src/orders/order-state.ts} {@code ORDER_STATUSES} @ a830fce, plus
- * ON_HOLD from the OAS status list (the simulator never emits it, DECISIONS H1; real TikTok can).
+ * Source: {@code Smartomni-Tiktok-Simulator/backend/src/orders/order-state.ts} {@code ORDER_STATUSES} @ a830fce.
+ * The simulator dropped ON_HOLD (DECISIONS H1) and SmartOmni has no hold step, so ON_HOLD is an unknown status here.
  * <ul>
  *   <li>DELIVERED is DELIVERING, not COMPLETED: phase-09 requires COMPLETED for loyalty ("DELIVERED is not enough")
  *       and DELIVERED → COMPLETED is a separate status change in the simulator (decision D3).</li>
  *   <li>PARTIALLY_SHIPPING / AWAITING_COLLECTION are SHIPPED: from a830fce they can no longer be cancelled (D2).</li>
  *   <li>IN_CANCEL is in neither the simulator nor the OAS, so it is an unknown status.</li>
+ *   <li>ON_HOLD is unknown too (see above).</li>
  * </ul>
  */
 public final class TiktokOrderStatusMapper {
@@ -34,7 +35,6 @@ public final class TiktokOrderStatusMapper {
             case "DELIVERED", "122" -> Order.OrderStatus.DELIVERING;
             case "COMPLETED", "130" -> Order.OrderStatus.COMPLETED;
             case "CANCELLED", "CANCELED", "140" -> Order.OrderStatus.CANCELLED;
-            case "ON_HOLD" -> Order.OrderStatus.ON_HOLD;
             default -> throw new BusinessException("Trạng thái TikTok không xác định: " + tiktokStatus,
                     HttpStatus.BAD_REQUEST, "UNKNOWN_MARKETPLACE_ORDER_STATUS");
         };

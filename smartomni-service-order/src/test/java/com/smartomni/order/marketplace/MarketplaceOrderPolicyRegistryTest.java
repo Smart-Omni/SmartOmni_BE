@@ -28,8 +28,8 @@ class MarketplaceOrderPolicyRegistryTest {
         assertEquals(Order.OrderStatus.COMPLETED, registry.forPlatform(Order.Platform.SHOPEE).mapStatus("TO_RETURN"));
         assertThrows(RuntimeException.class, () -> registry.forPlatform(Order.Platform.TIKTOK_SHOP).mapStatus("TO_RETURN"));
         assertThrows(RuntimeException.class, () -> registry.forPlatform(Order.Platform.SHOPEE).mapStatus("DELIVERED"));
-        assertTrue(registry.forPlatform(Order.Platform.TIKTOK_SHOP).canTransition(Order.OrderStatus.PENDING, Order.OrderStatus.ON_HOLD));
-        assertFalse(registry.forPlatform(Order.Platform.SHOPEE).canTransition(Order.OrderStatus.PENDING, Order.OrderStatus.ON_HOLD));
+        assertEquals(Order.OrderStatus.TO_SHIP, registry.forPlatform(Order.Platform.SHOPEE).mapStatus("IN_CANCEL"));
+        assertThrows(RuntimeException.class, () -> registry.forPlatform(Order.Platform.TIKTOK_SHOP).mapStatus("IN_CANCEL"));
     }
 
     @Test
