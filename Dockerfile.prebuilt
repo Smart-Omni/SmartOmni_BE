@@ -1,0 +1,9 @@
+# Dev only: packages a jar already built on the host (mvn -B -DskipTests clean package).
+# The normal per-service Dockerfiles still build from source without a local JDK.
+# Used by docker-compose.prebuilt.yml through scripts/up-dev.ps1.
+ARG BASE_IMAGE=eclipse-temurin:17-jre-alpine
+FROM ${BASE_IMAGE}
+ARG MODULE
+WORKDIR /app
+COPY ${MODULE}/target/${MODULE}-*-exec.jar app.jar
+ENTRYPOINT ["java", "-jar", "app.jar"]

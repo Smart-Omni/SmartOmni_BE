@@ -1,0 +1,26 @@
+# Dev only: build the Java service images from jars already built on the host, so Maven and its
+# dependencies never run inside Docker. Use through scripts/up-dev.ps1, which runs `mvn clean package` first.
+# Only `build:` changes; environment, networks and dependencies still come from docker-compose.yml.
+x-prebuilt: &prebuilt
+  context: .
+  dockerfile: Dockerfile.prebuilt
+
+services:
+  jobs-service:
+    build:
+      <<: *prebuilt
+      args: { MODULE: smartomni-jobs, BASE_IMAGE: "eclipse-temurin:17-jre" }
+  auth-service:
+    build: { <<: *prebuilt, args: { MODULE: smartomni-service-auth } }
+  tenant-service:
+    build: { <<: *prebuilt, args: { MODULE: smartomni-service-tenant } }
+  catalog-service:
+    build: { <<: *prebuilt, args: { MODULE: smartomni-service-catalog } }
+  inventory-service:
+    build: { <<: *prebuilt, args: { MODULE: smartomni-service-inventory } }
+  order-service:
+    build: { <<: *prebuilt, args: { MODULE: smartomni-service-order } }
+  integration-service:
+    build: { <<: *prebuilt, args: { MODULE: smartomni-service-integration } }
+  ai-service:
+    build: { <<: *prebuilt, args: { MODULE: smartomni-service-ai } }
