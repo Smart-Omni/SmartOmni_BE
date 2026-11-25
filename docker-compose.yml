@@ -248,7 +248,8 @@ services:
       TIKTOK_WEBHOOK_URL: ${TIKTOK_WEBHOOK_URL:-}
       SMARTOMNI_SERVICES_ORDER-URL: http://order-service:8085
       TIKTOK_INVENTORY_WEBHOOK_URL: ${TIKTOK_INVENTORY_WEBHOOK_URL:-}
-      TIKTOK_ALLOWED_REDIRECT_URIS: ${TIKTOK_ALLOWED_REDIRECT_URIS:-smartomni://oauth/tiktok}
+      TIKTOK_REDIRECT_URI: ${TIKTOK_REDIRECT_URI:-http://localhost:5174/merchant/channels/tiktok-shop/callback}
+      TIKTOK_ALLOWED_REDIRECT_URIS: ${TIKTOK_ALLOWED_REDIRECT_URIS:-smartomni://oauth/tiktok,http://127.0.0.1:5174/merchant/channels/tiktok-shop/callback}
     networks:
       - smartomni-net
 
