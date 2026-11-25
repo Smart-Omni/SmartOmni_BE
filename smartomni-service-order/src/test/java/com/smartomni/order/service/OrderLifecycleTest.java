@@ -477,8 +477,8 @@ class OrderLifecycleTest {
     }
 
     @Test
-    @DisplayName("updateOrderTracking: Cập nhật tracking_number, shipping_provider và chuyển trạng thái SHIPPED khi IN_TRANSIT")
-    void updateOrderTracking_inTransit_updatesTrackingAndTransitionsToShipped() {
+    @DisplayName("updateOrderTracking: lưu tracking_number, shipping_provider, courierScannedAt nhưng không đổi trạng thái đơn")
+    void updateOrderTracking_handover_storesTrackingButKeepsStatus() {
         sampleOrder.setStatus(Order.OrderStatus.TO_SHIP);
         sampleOrder.setTrackingNumber(null);
         sampleOrder.setCourierScannedAt(null);
@@ -504,10 +504,31 @@ class OrderLifecycleTest {
         assertEquals("TRK-VN-8888", updated.getTrackingNumber());
         assertEquals("J&T Express", updated.getShippingMethod());
         assertEquals(scannedTime, updated.getCourierScannedAt());
-        assertEquals(Order.OrderStatus.SHIPPED, updated.getStatus());
+        // The status comes only from the marketplace order status event (MarketplaceOrderPolicy).
+        assertEquals(Order.OrderStatus.TO_SHIP, updated.getStatus());
+        verify(orderStatusHistoryRepository, never()).save(any(OrderStatusHistory.class));
+    }
 
-        // Verify ghi lịch sử đổi trạng thái sang SHIPPED
-        verify(orderStatusHistoryRepository).save(any(OrderStatusHistory.class));
+    @Test
+    @DisplayName("updateOrderTracking: courierScannedAt đầu tiên được giữ, lần gửi sau không ghi đè")
+    void updateOrderTracking_keepsFirstCourierScan() {
+        Instant firstScan = Instant.parse("2026-03-25T10:00:00Z");
+        sampleOrder.setStatus(Order.OrderStatus.SHIPPED);
+        sampleOrder.setCourierScannedAt(firstScan);
+
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.TIKTOK_SHOP, PLATFORM_ORDER_ID))
+                .thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Order updated = orderService.updateOrderTracking(com.smartomni.common.dto.UpdateOrderTrackingRequest.builder()
+                .tenantId(TENANT_ID)
+                .platform("TIKTOK_SHOP")
+                .platformOrderId(PLATFORM_ORDER_ID)
+                .packageStatus("FULFILLING")
+                .courierScannedAt(Instant.parse("2026-03-26T10:00:00Z"))
+                .build());
+
+        assertEquals(firstScan, updated.getCourierScannedAt());
     }
 
     @Test

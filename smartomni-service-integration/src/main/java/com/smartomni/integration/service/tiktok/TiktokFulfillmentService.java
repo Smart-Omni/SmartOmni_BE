@@ -9,7 +9,6 @@ import com.smartomni.integration.client.tiktok.TiktokFulfillmentClient;
 import com.smartomni.integration.dto.tiktok.ShipPackageRequest;
 import com.smartomni.integration.dto.tiktok.ShippingDocumentResponse;
 import com.smartomni.integration.dto.tiktok.TiktokPackageResponse;
-import com.smartomni.integration.dto.tiktok.TiktokWebhookPayload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -95,113 +94,128 @@ public class TiktokFulfillmentService {
     }
 
     /**
-     * Xử lý sự kiện Webhook PACKAGE_STATUS_CHANGE từ TikTok Shop.
-     * Bóc tách package_id, tracking_number, shipping_provider và cập nhật vào smartomni-service-order.
+     * PACKAGE_UPDATE webhook (type 3). The payload only carries {@code package_id}, {@code order_id},
+     * {@code package_status} and {@code update_time}, so the tracking number and carrier are read from Get Package
+     * Detail, then sent to the order service. Tracking never changes the order status (ORDER_STATUS_CHANGE does).
      *
-     * @param tenantId       ID của tenant sở hữu shop
-     * @param webhookPayload Webhook payload nhận từ TikTok
-     * @return DTO UpdateOrderTrackingRequest đã gửi sang Order Service
+     * <p>Runs inside the tenant scope opened by the webhook controller. TikTok and order service failures propagate
+     * so the controller answers 503 and TikTok redelivers.
+     *
+     * @return the request sent to the order service, or {@code null} when the event names no order
      */
-    public UpdateOrderTrackingRequest handlePackageStatusChange(Long tenantId, TiktokWebhookPayload webhookPayload) {
+    public UpdateOrderTrackingRequest handlePackageStatusChange(Long tenantId, Long connectionId, JsonNode data) {
         if (tenantId == null || tenantId <= 0) {
             throw new BusinessException("tenantId is required and must be positive", HttpStatus.BAD_REQUEST, "INVALID_TENANT_ID");
         }
-        if (webhookPayload == null || webhookPayload.getData() == null) {
-            throw new BusinessException("Webhook payload data is required", HttpStatus.BAD_REQUEST, "INVALID_PAYLOAD");
-        }
-
-        return handlePackageStatusChange(tenantId, webhookPayload.getData());
-    }
-
-    /**
-     * Xử lý dữ liệu JsonNode chi tiết của sự kiện PACKAGE_STATUS_CHANGE.
-     */
-    public UpdateOrderTrackingRequest handlePackageStatusChange(Long tenantId, JsonNode data) {
         if (data == null || data.isMissingNode() || data.isNull()) {
             throw new BusinessException("Package data must not be empty", HttpStatus.BAD_REQUEST, "INVALID_PACKAGE_DATA");
         }
 
-        // 1. Bóc tách package_id
-        String packageId = data.path("package_id").asText(null);
+        String packageId = text(data, "package_id");
+        String packageStatus = firstText(data, "package_status", "status");
+        List<String> orderIdList = orderIds(data);
+        String trackingNumber = text(data, "tracking_number");
+        String shippingProvider = firstText(data, "shipping_provider_name", "shipping_provider", "shipping_provider_id");
 
-        // 2. Bóc tách tracking_number
-        String trackingNumber = data.path("tracking_number").asText(null);
-
-        // 3. Bóc tách shipping_provider
-        String shippingProvider = null;
-        if (data.hasNonNull("shipping_provider_name")) {
-            shippingProvider = data.get("shipping_provider_name").asText();
-        } else if (data.hasNonNull("shipping_provider")) {
-            shippingProvider = data.get("shipping_provider").asText();
-        } else if (data.hasNonNull("shipping_provider_id")) {
-            shippingProvider = data.get("shipping_provider_id").asText();
-        }
-
-        // 4. Bóc tách trạng thái kiện hàng
-        String packageStatus = null;
-        if (data.hasNonNull("package_status")) {
-            packageStatus = data.get("package_status").asText();
-        } else if (data.hasNonNull("status")) {
-            packageStatus = data.get("status").asText();
-        }
-
-        // 5. Bóc tách danh sách mã đơn hàng liên quan
-        List<String> orderIdList = new ArrayList<>();
-        if (data.has("order_id_list") && data.get("order_id_list").isArray()) {
-            for (JsonNode node : data.get("order_id_list")) {
-                if (node.isTextual() && !node.asText().isBlank()) {
-                    orderIdList.add(node.asText());
+        if ((trackingNumber == null || shippingProvider == null) && packageId != null && connectionId != null) {
+            TiktokPackageResponse detail = fulfillmentClient.getPackageDetail(connectionId, packageId);
+            if (detail != null) {
+                trackingNumber = firstNonBlank(trackingNumber, detail.getTrackingNumber());
+                shippingProvider = firstNonBlank(shippingProvider, detail.getShippingProviderName(),
+                        detail.getShippingProviderId());
+                packageStatus = firstNonBlank(packageStatus, detail.getPackageStatus(), detail.getStatus());
+                if (orderIdList.isEmpty() && detail.getOrderIdList() != null) {
+                    detail.getOrderIdList().stream().filter(id -> id != null && !id.isBlank()).forEach(orderIdList::add);
                 }
             }
         }
-        if (orderIdList.isEmpty() && data.hasNonNull("order_id")) {
-            orderIdList.add(data.get("order_id").asText());
+
+        if (orderIdList.isEmpty()) {
+            log.warn("PACKAGE_UPDATE không có order_id, bỏ qua: tenantId={}, packageId={}", tenantId, packageId);
+            return null;
         }
 
-        String platformOrderId = !orderIdList.isEmpty() ? orderIdList.get(0) : null;
-
-        // 6. Tính toán courierScannedAt khi trạng thái chuyển sang IN_TRANSIT hoặc PICKED_UP
-        Instant courierScannedAt = null;
-        boolean isHandover = packageStatus != null && (
-                packageStatus.equalsIgnoreCase("IN_TRANSIT")
-                        || packageStatus.equalsIgnoreCase("PICKED_UP")
-                        || packageStatus.equalsIgnoreCase("SHIPPED"));
-
-        if (isHandover) {
-            long updateTime = data.path("update_time").asLong(0);
-            if (updateTime > 0) {
-                courierScannedAt = (updateTime > 100_000_000_000L)
-                        ? Instant.ofEpochMilli(updateTime)
-                        : Instant.ofEpochSecond(updateTime);
-            } else {
-                courierScannedAt = Instant.now();
-            }
-        }
-
-        // 7. Tạo DTO cập nhật tracking cho Order Service
         UpdateOrderTrackingRequest updateRequest = UpdateOrderTrackingRequest.builder()
                 .tenantId(tenantId)
                 .platform(PLATFORM_TIKTOK_SHOP)
-                .platformOrderId(platformOrderId)
+                .platformOrderId(orderIdList.get(0))
                 .orderIdList(orderIdList)
                 .packageId(packageId)
                 .trackingNumber(trackingNumber)
                 .shippingProvider(shippingProvider)
                 .packageStatus(packageStatus)
-                .courierScannedAt(courierScannedAt)
+                .courierScannedAt(isCarrierHandover(packageStatus) ? eventTime(data) : null)
                 .build();
 
-        log.info("Xử lý PACKAGE_STATUS_CHANGE: tenantId={}, packageId={}, tracking={}, provider={}, status={}, scannedAt={}",
-                tenantId, packageId, trackingNumber, shippingProvider, packageStatus, courierScannedAt);
-
-        // 8. Gọi OrderServiceClient để cập nhật vào bảng orders
-        try {
-            orderServiceClient.updateTracking(updateRequest);
-            log.info("Đã gửi yêu cầu cập nhật thông tin vận đơn sang OrderService thành công");
-        } catch (Exception ex) {
-            log.error("Lỗi khi gọi OrderService để cập nhật vận đơn: {}", ex.getMessage(), ex);
-        }
-
+        log.info("Xử lý PACKAGE_UPDATE: tenantId={}, packageId={}, tracking={}, provider={}, status={}, scannedAt={}",
+                tenantId, packageId, trackingNumber, shippingProvider, packageStatus, updateRequest.getCourierScannedAt());
+        orderServiceClient.updateTracking(updateRequest);
         return updateRequest;
+    }
+
+    /**
+     * The carrier has the package. TikTok package statuses are TO_FULFILL, PROCESSING (awaiting collection),
+     * FULFILLING (in transit), COMPLETED and CANCELLED; the other values are kept for older payloads.
+     */
+    static boolean isCarrierHandover(String packageStatus) {
+        if (packageStatus == null) {
+            return false;
+        }
+        return switch (packageStatus.trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "FULFILLING", "IN_TRANSIT", "PICKED_UP", "SHIPPED" -> true;
+            default -> false;
+        };
+    }
+
+    private static Instant eventTime(JsonNode data) {
+        long updateTime = data.path("update_time").asLong(0);
+        if (updateTime <= 0) {
+            return Instant.now();
+        }
+        return updateTime > 100_000_000_000L ? Instant.ofEpochMilli(updateTime) : Instant.ofEpochSecond(updateTime);
+    }
+
+    private static List<String> orderIds(JsonNode data) {
+        List<String> ids = new ArrayList<>();
+        if (data.path("order_id_list").isArray()) {
+            for (JsonNode node : data.get("order_id_list")) {
+                if (node.isTextual() && !node.asText().isBlank()) {
+                    ids.add(node.asText());
+                }
+            }
+        }
+        String single = text(data, "order_id");
+        if (ids.isEmpty() && single != null) {
+            ids.add(single);
+        }
+        return ids;
+    }
+
+    private static String firstText(JsonNode data, String... fields) {
+        for (String field : fields) {
+            String value = text(data, field);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static String text(JsonNode data, String field) {
+        JsonNode node = data.get(field);
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        String value = node.asText();
+        return value.isBlank() ? null : value;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 }

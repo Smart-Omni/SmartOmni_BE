@@ -322,27 +322,13 @@ public class OrderService {
                 order.setShippingMethod(request.getShippingProvider());
             }
 
-            // 3. Cập nhật courierScannedAt & trạng thái khi package chuyển sang IN_TRANSIT / PICKED_UP
-            String pkgStatus = request.getPackageStatus();
-            boolean isHandover = pkgStatus != null && (
-                    pkgStatus.equalsIgnoreCase("IN_TRANSIT")
-                            || pkgStatus.equalsIgnoreCase("PICKED_UP")
-                            || pkgStatus.equalsIgnoreCase("SHIPPED"));
-
-            if (isHandover) {
-                if (order.getCourierScannedAt() == null) {
-                    order.setCourierScannedAt(request.getCourierScannedAt() != null
-                            ? request.getCourierScannedAt()
-                            : Instant.now());
-                }
-                // Nếu trạng thái hiện tại là TO_SHIP hoặc PENDING -> chuyển sang SHIPPED
-                if (order.getStatus() == Order.OrderStatus.TO_SHIP
-                        || order.getStatus() == Order.OrderStatus.PENDING) {
-                    log.info("Đơn hàng {} đã được bưu tá quét (packageStatus={}) -> Cập nhật trạng thái SHIPPED",
-                            order.getPlatformOrderId(), pkgStatus);
-                    updateOrderStatus(order, Order.OrderStatus.SHIPPED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
-                }
+            // 3. courierScannedAt: the caller decides the carrier handover (package statuses are platform-specific)
+            //    and sends its time; the first one is kept.
+            if (request.getCourierScannedAt() != null && order.getCourierScannedAt() == null) {
+                order.setCourierScannedAt(request.getCourierScannedAt());
             }
+            // Tracking never changes the order status: the marketplace order status event drives it through the
+            // platform's MarketplaceOrderPolicy (mapping and transition table).
 
             lastUpdatedOrder = orderRepository.save(order);
             log.info("Đã cập nhật thông tin vận đơn cho đơn hàng id={}, orderId={}, trackingNumber={}, courierScannedAt={}",

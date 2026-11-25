@@ -46,8 +46,11 @@ public class OrderController {
         return ApiResponse.success(orderService.updateStatus(orderId, status));
     }
 
-    /** Cập nhật thông tin vận đơn và tracking (Giai đoạn 4 - Bước 4.1). */
-    @PatchMapping("/tracking")
+    /**
+     * Cập nhật thông tin vận đơn và tracking (Giai đoạn 4 - Bước 4.1). Integration Service calls it with POST, because
+     * its Feign client cannot send PATCH; PATCH stays accepted for existing callers.
+     */
+    @RequestMapping(value = "/tracking", method = {RequestMethod.PATCH, RequestMethod.POST})
     public ApiResponse<Order> updateTracking(@RequestBody com.smartomni.common.dto.UpdateOrderTrackingRequest request) {
         return ApiResponse.success(orderService.updateOrderTracking(request));
     }
