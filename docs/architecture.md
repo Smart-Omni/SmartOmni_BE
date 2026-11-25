@@ -37,6 +37,34 @@ doi chieu voi Database noi bo, va day cac don hang bi thieu vao lai
 `OrderService.processIncomingOrder(..., OrderSource.POLLING)` — dung chung
 co che idempotency voi luong Webhook.
 
+Nut "Sync" don TikTok (`POST /api/v1/integrations/tiktok/orders/sync`) cung khong
+ghi DB truc tiep: moi don duoc day vao `order.incoming` voi `source = POLLING`.
+
+## 2a. Quy tac don hang theo tung san
+
+Integration gui **trang thai tho** cua san (`order_status`) cung `platform` va
+`platform_update_time`; viec map chi dien ra o Order Service, moi san dung mot cho
+(`order/marketplace/<san>/`). `OrderService` khong biet ten san, chi goi
+`MarketplaceOrderPolicyRegistry.forPlatform(platform)`.
+
+| | Shopee (`shopee-simulator` @ 4ce7c84) | TikTok (`Smartomni-Tiktok-Simulator` @ a830fce) |
+|---|---|---|
+| Mapper | `ShopeeOrderStatusMapper`: IN_CANCEL → TO_SHIP, TO_RETURN → COMPLETED | `TiktokOrderStatusMapper`: DELIVERED → DELIVERING, IN_CANCEL va ON_HOLD la trang thai la |
+| Huy | PENDING/TO_SHIP | PENDING/TO_SHIP |
+| Tru kho khi co don | Co (tru don moi da CANCELLED) | Khong (ton tuyet doi tu type 71) |
+| Hoan kho khi huy | Co, truoc khi ban giao van chuyen | Khong |
+| Tra hang | Chi ghi `return_refund`, khong doi trang thai don | Khong doi trang thai don, hoan kho idempotent khi SUCCESS/COMPLETE |
+| `completedAt` | thoi diem nhan | `update_time` cua san luc sang COMPLETED |
+
+Quy tac chung: duoc tien thang ke ca nhay coc (PENDING < TO_SHIP < SHIPPED <
+DELIVERING < COMPLETED), khong lui. Chuyen trang thai khong hop le tu san duoc ghi
+log, bo qua va gan `reconciliation_reason = STATUS_CONFLICT` (khong vao DLQ); tu
+nhan vien thi van bao loi. `RETURNED` chi do kiem hang tra WF-05 dat. Khong san nao dua don vao
+`ON_HOLD`; chi WF-05 dat khi kiem hang khong dat, va don `ON_HOLD` khong nhan trang thai nao tu san. Message
+tracking/tra hang thieu `platform` bi tra 400.
+
+Chi tiet va can cu: `docs/plans/marketplace-order-mapper-split-plan.md`.
+
 ## 3. Luong tu dong nhap san pham & dong bo gia (UC-40 -> UC-43)
 
 ```

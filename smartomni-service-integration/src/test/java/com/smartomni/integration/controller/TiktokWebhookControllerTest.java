@@ -234,11 +234,29 @@ class TiktokWebhookControllerTest {
     }
 
     @Test
-    @DisplayName("Type 3 PACKAGE_UPDATE tới fulfillment service")
-    void packageUpdateGoesToFulfillment() throws Exception {
-        send(body(3, "notif-3", "{\"package_id\":\"P1\"}")).andExpect(status().isOk());
+    @DisplayName("Type 3 PACKAGE_UPDATE chạy trong tenant scope của shop (order service cần token nội bộ)")
+    void packageUpdateRunsInTenantScope() throws Exception {
+        when(fulfillmentService.handlePackageStatusChange(eq(TENANT_ID), eq(10L), any(JsonNode.class))).thenAnswer(inv -> {
+            assertEquals(TENANT_ID, com.smartomni.common.tenant.TenantContext.getTenantId());
+            return null;
+        });
 
-        verify(fulfillmentService).handlePackageStatusChange(eq(TENANT_ID), any(com.smartomni.integration.dto.tiktok.TiktokWebhookPayload.class));
+        send(body(3, "notif-3", "{\"package_id\":\"P1\",\"order_id\":\"O1\"}")).andExpect(status().isOk());
+
+        verify(fulfillmentService).handlePackageStatusChange(eq(TENANT_ID), eq(10L), any(JsonNode.class));
+        verify(eventRecorder).markProcessed(TENANT_ID, "notif-3", "PACKAGE_UPDATE");
+        assertEquals(null, com.smartomni.common.tenant.TenantContext.getTenantId());
+    }
+
+    @Test
+    @DisplayName("Type 3 PACKAGE_UPDATE: lỗi order service trả 503 để TikTok gửi lại, không đánh dấu đã xử lý")
+    void packageUpdateFailureAsksForRedelivery() throws Exception {
+        when(fulfillmentService.handlePackageStatusChange(eq(TENANT_ID), eq(10L), any(JsonNode.class)))
+                .thenThrow(new IllegalStateException("order service down"));
+
+        send(body(3, "notif-3b", "{\"package_id\":\"P1\",\"order_id\":\"O1\"}")).andExpect(status().isServiceUnavailable());
+
+        verify(eventRecorder, never()).markProcessed(TENANT_ID, "notif-3b", "PACKAGE_UPDATE");
     }
 
     @Test

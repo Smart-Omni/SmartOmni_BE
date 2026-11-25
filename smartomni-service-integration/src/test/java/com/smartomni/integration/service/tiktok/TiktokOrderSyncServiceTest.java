@@ -1,5 +1,7 @@
 package com.smartomni.integration.service.tiktok;
 
+import com.smartomni.common.dto.WebhookOrderPayload;
+import com.smartomni.common.exception.BusinessException;
 import com.smartomni.integration.client.tiktok.TiktokOrderClient;
 import com.smartomni.integration.dto.tiktok.OrderSearchRequest;
 import com.smartomni.integration.dto.tiktok.OrderSearchResponse;
@@ -7,52 +9,39 @@ import com.smartomni.integration.dto.tiktok.TiktokOrderDetailResponse;
 import com.smartomni.integration.dto.tiktok.TiktokOrderSyncResponse;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.catalog.CatalogMappingService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.PreparedStatementCreator;
-import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.support.KeyHolder;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.support.TransactionCallback;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.mockito.ArgumentCaptor;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-@DisplayName("TiktokOrderSyncService Unit Tests (D2 & WF-02)")
+/**
+ * The manual sync publishes to the shared order queue instead of writing {@code orders} itself (plan 4.4, M12/M13).
+ */
+@DisplayName("TiktokOrderSyncService: manual sync goes through order.incoming")
 class TiktokOrderSyncServiceTest {
 
     private TiktokOrderClient orderClient;
-    private CatalogMappingService catalogMappingService;
-    private JdbcTemplate jdbcTemplate;
-    private TransactionTemplate transactionTemplate;
+    private RabbitTemplate rabbitTemplate;
     private TiktokOrderSyncService syncService;
     private MarketplaceConnection connection;
 
     @BeforeEach
     void setUp() {
         orderClient = mock(TiktokOrderClient.class);
-        catalogMappingService = mock(CatalogMappingService.class);
-        jdbcTemplate = mock(JdbcTemplate.class);
-        transactionTemplate = mock(TransactionTemplate.class);
-
-        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-            TransactionCallback<?> cb = invocation.getArgument(0);
-            return cb.doInTransaction(mock(TransactionStatus.class));
-        });
-
-        syncService = new TiktokOrderSyncService(orderClient, catalogMappingService, jdbcTemplate, transactionTemplate);
+        rabbitTemplate = mock(RabbitTemplate.class);
+        CatalogMappingService catalogMappingService = mock(CatalogMappingService.class);
+        TiktokOrderIngestionService ingestion = new TiktokOrderIngestionService(
+                catalogMappingService, rabbitTemplate, new ObjectMapper(), orderClient);
+        syncService = new TiktokOrderSyncService(orderClient, ingestion);
 
         connection = new MarketplaceConnection();
         connection.setId(77L);
@@ -60,112 +49,104 @@ class TiktokOrderSyncServiceTest {
         connection.setPlatform(MarketplaceConnection.Platform.TIKTOK_SHOP);
     }
 
-    @Test
-    @DisplayName("syncOrders inserts new COMPLETED order with completed_at and eligible_for_points_at = completed_at + 15 days (WF-02)")
-    void syncOrders_NewCompletedOrder_SetsLoyaltyDates() {
-        long completedUnix = 1700000000L;
-        TiktokOrderDetailResponse order = TiktokOrderDetailResponse.builder()
-                .orderId("ORD-NEW-1")
-                .orderStatus("COMPLETED")
-                .completedTime(completedUnix)
+    private static TiktokOrderDetailResponse order(String id, String status, long updateTime) {
+        return TiktokOrderDetailResponse.builder()
+                .orderId(id)
+                .orderStatus(status)
                 .createTime(1699900000L)
+                .updateTime(updateTime)
                 .payment(TiktokOrderDetailResponse.Payment.builder().totalAmount(new BigDecimal("250000")).build())
-                .lineItems(List.of(
-                        TiktokOrderDetailResponse.LineItem.builder()
-                                .skuId("TK-SKU-1")
-                                .sellerSku("LOCAL-SKU-1")
-                                .quantity(2)
-                                .salePrice(new BigDecimal("125000"))
-                                .build()
-                ))
+                .lineItems(List.of(TiktokOrderDetailResponse.LineItem.builder()
+                        .skuId("TK-SKU-1").sellerSku("LOCAL-SKU-1").quantity(1).salePrice(new BigDecimal("250000")).build()))
                 .build();
+    }
 
-        when(orderClient.searchOrders(eq(77L), any(OrderSearchRequest.class)))
-                .thenReturn(OrderSearchResponse.builder().orders(List.of(order)).build());
-        when(catalogMappingService.findInternalSkuId(10L, "tiktok_shop", "LOCAL-SKU-1"))
-                .thenReturn(Optional.of(501L));
-
-        // Simulate no existing row in orders
-        when(jdbcTemplate.query(contains("FROM orders"), any(RowMapper.class), eq(10L), eq(77L), eq("ORD-NEW-1")))
-                .thenReturn(List.of());
-
-        when(jdbcTemplate.update(any(PreparedStatementCreator.class), any(KeyHolder.class)))
-                .thenAnswer(invocation -> {
-                    KeyHolder kh = invocation.getArgument(1);
-                    kh.getKeyList().add(Map.of("id", 9001L));
-                    return 1;
-                });
-
-        TiktokOrderSyncResponse result = syncService.syncOrders(connection, null, null);
-
-        assertEquals(1, result.getTotalFetched());
-        assertEquals(1, result.getCreatedCount());
-        assertEquals(0, result.getUpdatedCount());
-
-        // Verify RLS session settings were applied
-        verify(jdbcTemplate).queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, "10");
-        verify(jdbcTemplate).queryForObject(eq("SELECT set_config('app.user_role', ?, true)"), eq(String.class), anyString());
-
-        // Verify order_items inserted with resolved internal sku_id
-        verify(jdbcTemplate).update(
-                contains("INSERT INTO order_items"),
-                eq(10L), eq(9001L), eq(501L), eq(2), eq(new BigDecimal("125000")), isNull());
+    private List<WebhookOrderPayload> published(int times) {
+        ArgumentCaptor<WebhookOrderPayload> captor = ArgumentCaptor.forClass(WebhookOrderPayload.class);
+        verify(rabbitTemplate, times(times)).convertAndSend(
+                eq(TiktokOrderIngestionService.ORDER_EXCHANGE), eq(TiktokOrderIngestionService.ORDER_ROUTING_KEY), captor.capture());
+        return captor.getAllValues();
     }
 
     @Test
-    @DisplayName("syncOrders preserves existing completed_at and eligible_for_points_at on repeated sync (WF-02)")
-    void syncOrders_ExistingCompletedOrder_DoesNotOverwriteCompletedAt() throws Exception {
-        Instant originalCompletedAt = Instant.parse("2026-01-01T00:00:00Z");
-        Instant originalEligibleAt = originalCompletedAt.plus(15, ChronoUnit.DAYS);
-
-        // Simulator returns a later completed_time on re-sync
-        long laterUnix = Instant.parse("2026-02-01T00:00:00Z").getEpochSecond();
-        TiktokOrderDetailResponse order = TiktokOrderDetailResponse.builder()
-                .orderId("ORD-EXISTING-1")
-                .orderStatus("COMPLETED")
-                .completedTime(laterUnix)
-                .payment(TiktokOrderDetailResponse.Payment.builder().totalAmount(new BigDecimal("100000")).build())
-                .lineItems(List.of(
-                        TiktokOrderDetailResponse.LineItem.builder()
-                                .skuId("TK-SKU-1")
-                                .quantity(1)
-                                .salePrice(new BigDecimal("100000"))
-                                .build()
-                ))
-                .build();
-
+    @DisplayName("A DELIVERED order is published raw with source POLLING (order-service maps it to DELIVERING)")
+    void deliveredOrderIsPublishedRawWithPollingSource() {
         when(orderClient.searchOrders(eq(77L), any(OrderSearchRequest.class)))
-                .thenReturn(OrderSearchResponse.builder().orders(List.of(order)).build());
+                .thenReturn(OrderSearchResponse.builder().orders(List.of(order("ORD-1", "DELIVERED", 1700000500L))).build());
 
-        // Simulate existing row with originalCompletedAt already persisted
-        when(jdbcTemplate.query(contains("FROM orders"), any(RowMapper.class), eq(10L), eq(77L), eq("ORD-EXISTING-1")))
-                .thenAnswer(invocation -> {
-                    RowMapper<?> mapper = invocation.getArgument(1);
-                    var rs = mock(java.sql.ResultSet.class);
-                    when(rs.getLong("id")).thenReturn(888L);
-                    when(rs.getTimestamp("completed_at")).thenReturn(Timestamp.from(originalCompletedAt));
-                    when(rs.getTimestamp("eligible_for_points_at")).thenReturn(Timestamp.from(originalEligibleAt));
-                    return List.of(mapper.mapRow(rs, 0));
-                });
+        TiktokOrderSyncResponse response = syncService.syncOrders(connection, null, null);
 
-        TiktokOrderSyncResponse result = syncService.syncOrders(connection, null, null);
+        assertEquals(1, response.getTotalFetched());
+        assertEquals(1, response.getEnqueuedCount());
+        assertEquals(0, response.getFailedCount());
+        WebhookOrderPayload payload = published(1).get(0);
+        assertEquals(10L, payload.getTenantId());
+        assertEquals("TIKTOK_SHOP", payload.getPlatform());
+        assertEquals("ORD-1", payload.getPlatformOrderId());
+        assertEquals("DELIVERED", payload.getOrderStatus());
+        assertEquals(1700000500L, payload.getPlatformUpdateTime());
+        assertEquals("POLLING", payload.getSource());
+    }
 
-        assertEquals(1, result.getTotalFetched());
-        assertEquals(0, result.getCreatedCount());
-        assertEquals(1, result.getUpdatedCount());
+    @Test
+    @DisplayName("Syncing the same orders twice publishes them twice; order-service dedups on tenant+platform+order id")
+    void repeatedSyncOnlyRepublishes() {
+        when(orderClient.searchOrders(eq(77L), any(OrderSearchRequest.class)))
+                .thenReturn(OrderSearchResponse.builder().orders(List.of(order("ORD-2", "COMPLETED", 1700000600L))).build());
 
-        // Verify UPDATE kept originalCompletedAt and originalEligibleAt instead of laterUnix
-        verify(jdbcTemplate).update(
-                contains("UPDATE orders SET status"),
-                eq("completed"),
-                isNull(),
-                isNull(),
-                isNull(),
-                isNull(),
-                eq(new BigDecimal("100000")),
-                eq(Timestamp.from(originalCompletedAt)),
-                eq(Timestamp.from(originalEligibleAt)),
-                eq(10L),
-                eq(888L));
+        syncService.syncOrders(connection, null, null);
+        syncService.syncOrders(connection, null, null);
+
+        List<WebhookOrderPayload> payloads = published(2);
+        assertEquals(payloads.get(0).getPlatformOrderId(), payloads.get(1).getPlatformOrderId());
+    }
+
+    @Test
+    @DisplayName("Order detail is read only when line items are missing (no completed_time check, M13)")
+    void detailOnlyWhenItemsMissing() {
+        TiktokOrderDetailResponse withoutItems = TiktokOrderDetailResponse.builder()
+                .orderId("ORD-3").orderStatus("COMPLETED").updateTime(1700000700L).build();
+        when(orderClient.searchOrders(eq(77L), any(OrderSearchRequest.class)))
+                .thenReturn(OrderSearchResponse.builder()
+                        .orders(List.of(order("ORD-4", "COMPLETED", 1700000800L), withoutItems)).build());
+        when(orderClient.getOrderDetail(77L, "ORD-3")).thenReturn(order("ORD-3", "COMPLETED", 1700000700L));
+
+        TiktokOrderSyncResponse response = syncService.syncOrders(connection, null, null);
+
+        assertEquals(2, response.getEnqueuedCount());
+        verify(orderClient, never()).getOrderDetail(77L, "ORD-4");
+        verify(orderClient).getOrderDetail(77L, "ORD-3");
+    }
+
+    @Test
+    @DisplayName("A failed publish is counted and does not stop the other orders")
+    void publishFailureIsCounted() {
+        when(orderClient.searchOrders(eq(77L), any(OrderSearchRequest.class)))
+                .thenReturn(OrderSearchResponse.builder()
+                        .orders(List.of(order("ORD-5", "AWAITING_SHIPMENT", 1L), order("ORD-6", "AWAITING_SHIPMENT", 2L))).build());
+        doThrow(new RuntimeException("broker down")).doNothing()
+                .when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(WebhookOrderPayload.class));
+
+        TiktokOrderSyncResponse response = syncService.syncOrders(connection, null, null);
+
+        assertEquals(1, response.getEnqueuedCount());
+        assertEquals(1, response.getFailedCount());
+    }
+
+    @Test
+    @DisplayName("Paginates with next_page_token and stops on a repeated token")
+    void paginates() {
+        when(orderClient.searchOrders(eq(77L), argThat(r -> r != null && r.getPageToken() == null)))
+                .thenReturn(OrderSearchResponse.builder().orders(List.of(order("P1", "UNPAID", 1L))).nextPageToken("T1").build());
+        when(orderClient.searchOrders(eq(77L), argThat(r -> r != null && "T1".equals(r.getPageToken()))))
+                .thenReturn(OrderSearchResponse.builder().orders(List.of(order("P2", "UNPAID", 2L))).nextPageToken("T1").build());
+
+        assertEquals(2, syncService.syncOrders(connection, null, null).getEnqueuedCount());
+    }
+
+    @Test
+    void connectionIsRequired() {
+        assertThrows(BusinessException.class, () -> syncService.syncOrders(null, null, null));
+        verifyNoInteractions(rabbitTemplate);
     }
 }

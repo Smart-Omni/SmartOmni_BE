@@ -4,7 +4,6 @@ import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.common.dto.ProcessReturnRequest;
 import com.smartomni.common.dto.UpdateOrderTrackingRequest;
 import org.springframework.cloud.openfeign.FeignClient;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
@@ -15,7 +14,8 @@ import org.springframework.web.bind.annotation.RequestBody;
         configuration = OrderServiceClientAuth.class)
 public interface OrderServiceClient {
 
-    @PatchMapping("/api/v1/orders/tracking")
+    /** POST, not PATCH: Feign's default HttpURLConnection client cannot send PATCH ("Invalid HTTP method"). */
+    @PostMapping("/api/v1/orders/tracking")
     ApiResponse<Void> updateTracking(@RequestBody UpdateOrderTrackingRequest request);
 
     @PostMapping("/api/v1/orders/returns")

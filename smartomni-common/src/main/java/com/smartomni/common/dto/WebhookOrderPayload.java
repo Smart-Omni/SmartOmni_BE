@@ -54,11 +54,38 @@ public class WebhookOrderPayload {
     private Instant createdAt;
 
     /**
-     * Platform {@code update_time} of this order state (epoch seconds). Optional: platforms that do not send it
-     * (Shopee) leave it null and the order service then skips the staleness check.
+     * Platform {@code update_time} of this order state (epoch seconds): TikTok order detail {@code update_time},
+     * Shopee order detail / push code 3 {@code update_time}. Optional: when it is null on either side the order
+     * service skips the staleness check.
      */
     @JsonProperty("platform_update_time")
     private Long platformUpdateTime;
+
+    /**
+     * How the order reached SmartOmni: {@code WEBHOOK} (default when absent) or {@code POLLING} (polling and manual
+     * sync). Recorded as the order source; it never changes how the status is mapped.
+     */
+    @JsonProperty("source")
+    private String source;
+
+    // Marketplace delivery milestones (epoch seconds), TikTok order detail only for now; null when not happened yet.
+    // Display and reconciliation only: they never decide the status, completed_at, the wallet or loyalty.
+
+    /** TikTok {@code rts_time} (order moved to AWAITING_COLLECTION). */
+    @JsonProperty("platform_rts_time")
+    private Long platformRtsTime;
+
+    /** TikTok {@code collection_time} (order moved to IN_TRANSIT). */
+    @JsonProperty("platform_collection_time")
+    private Long platformCollectionTime;
+
+    /** TikTok {@code delivery_time} (order moved to DELIVERED); not the completion time. */
+    @JsonProperty("platform_delivery_time")
+    private Long platformDeliveryTime;
+
+    /** TikTok {@code cancel_time} (order moved to CANCELLED). */
+    @JsonProperty("platform_cancel_time")
+    private Long platformCancelTime;
 
     /** Why the order needs manual reconciliation, e.g. {@code SKU_UNMAPPED}; null when nothing is wrong. */
     @JsonProperty("reconciliation_reason")

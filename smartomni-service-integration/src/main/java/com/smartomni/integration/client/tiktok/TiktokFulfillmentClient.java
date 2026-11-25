@@ -83,6 +83,15 @@ public class TiktokFulfillmentClient {
     }
 
     /**
+     * Get Package Detail (GET /fulfillment/202309/packages/{package_id}): tracking number and carrier of a package.
+     * The tracking number is absent until shipment is arranged.
+     */
+    public TiktokPackageResponse getPackageDetail(Long connectionId, String packageId) {
+        JsonNode data = executor.call(connectionId, "GET", PACKAGES_BASE_PATH + packageId, Map.of(), null);
+        return convert(data, TiktokPackageResponse.class);
+    }
+
+    /**
      * Lấy tài liệu nhãn vận đơn (Shipping Documents / Waybill) theo shopCipher.
      */
     public ShippingDocumentResponse getShippingDocuments(String shopCipher, String packageId, String documentType) {

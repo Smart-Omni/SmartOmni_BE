@@ -92,4 +92,18 @@ class OrderControllerTest {
         assertNotNull(response);
         assertEquals(1, response.getData().getTotalElements());
     }
+
+    @Test
+    @DisplayName("PATCH/POST /tracking: Integration Service gọi bằng POST vì Feign mặc định không gửi được PATCH")
+    void trackingAcceptsPostAndPatch() throws Exception {
+        var mapping = org.springframework.core.annotation.AnnotatedElementUtils.findMergedAnnotation(
+                OrderController.class.getMethod("updateTracking", com.smartomni.common.dto.UpdateOrderTrackingRequest.class),
+                org.springframework.web.bind.annotation.RequestMapping.class);
+
+        assertNotNull(mapping);
+        assertEquals(List.of("/tracking"), List.of(mapping.value()));
+        assertTrue(List.of(mapping.method()).containsAll(List.of(
+                org.springframework.web.bind.annotation.RequestMethod.POST,
+                org.springframework.web.bind.annotation.RequestMethod.PATCH)));
+    }
 }

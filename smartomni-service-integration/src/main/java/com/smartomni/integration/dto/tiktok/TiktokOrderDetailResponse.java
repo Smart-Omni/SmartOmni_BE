@@ -62,8 +62,23 @@ public class TiktokOrderDetailResponse {
     @JsonProperty("paid_time")
     private Long paidTime;
 
-    @JsonProperty("completed_time")
-    private Long completedTime;
+    // Delivery milestones of Get Order Detail/List (simulator order.mapper.ts @ a830fce). Each is omitted from the JSON
+    // until it happens. There is no completion time field: completion is the update_time of the change to COMPLETED.
+    /** Set when the order moves to AWAITING_COLLECTION. */
+    @JsonProperty("rts_time")
+    private Long rtsTime;
+
+    /** Set when the order moves to IN_TRANSIT. */
+    @JsonProperty("collection_time")
+    private Long collectionTime;
+
+    /** Set when the order moves to DELIVERED. */
+    @JsonProperty("delivery_time")
+    private Long deliveryTime;
+
+    /** Set when the order moves to CANCELLED. */
+    @JsonProperty("cancel_time")
+    private Long cancelTime;
 
     @JsonProperty("cancel_reason")
     private String cancelReason;

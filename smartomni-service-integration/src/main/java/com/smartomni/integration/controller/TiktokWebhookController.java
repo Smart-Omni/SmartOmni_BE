@@ -202,14 +202,12 @@ public class TiktokWebhookController {
                     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("Inventory webhook queue unavailable");
                 }
             case PACKAGE_UPDATE:
-                if (fulfillmentService != null) {
-                    try {
-                        fulfillmentService.handlePackageStatusChange(tenantId, payload);
-                    } catch (Exception ex) {
-                        log.error("Lỗi khi xử lý PACKAGE_UPDATE webhook: {}", ex.getMessage(), ex);
-                    }
+                // The order service call needs the tenant scope (internal token); failures answer 503 for a redelivery.
+                if (fulfillmentService == null) {
+                    return ResponseEntity.ok(SUCCESS);
                 }
-                return ResponseEntity.ok(SUCCESS);
+                return runEvent(type, tenantId,
+                        () -> fulfillmentService.handlePackageStatusChange(tenantId, connection.getId(), payload.getData()));
             case RETURN_STATUS_CHANGE:
             case REVERSE_STATUS_UPDATE:
                 // TikTok gửi cả hai topic cho cùng một yêu cầu trả hàng; đọc lại bản ghi hiện tại nên xử lý lặp vô hại.

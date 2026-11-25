@@ -1,10 +1,9 @@
 package com.smartomni.integration.service.order;
 
+import com.smartomni.common.dto.WebhookOrderPayload;
 import com.smartomni.integration.client.shopee.ShopeeOrderClient;
 import com.smartomni.integration.client.shopee.ShopeeOrderClient.OrderItemDetail;
 import com.smartomni.integration.client.shopee.ShopeeOrderClient.ShopeeOrderDetail;
-import com.smartomni.integration.dto.order.ShopeeOrderPayload;
-import com.smartomni.integration.dto.order.ShopeeOrderPayload.OrderItemPayload;
 import com.smartomni.integration.service.catalog.CatalogMappingStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,36 +20,14 @@ public class ShopeeOrderMapper {
 
     private final CatalogMappingStore store;
 
-    /**
-     * Maps Shopee status to SmartOmni canonical OrderStatus string:
-     * UNPAID -> PENDING
-     * READY_TO_SHIP, PROCESSED -> TO_SHIP
-     * SHIPPED -> SHIPPED
-     * TO_CONFIRM_RECEIVE -> DELIVERING
-     * COMPLETED -> COMPLETED
-     * IN_CANCEL, CANCELLED -> CANCELLED
-     * TO_RETURN -> RETURNED
-     */
-    public String toCanonicalStatus(String shopeeStatus) {
-        if (shopeeStatus == null) return "PENDING";
-        return switch (shopeeStatus.toUpperCase()) {
-            case "UNPAID" -> "PENDING";
-            case "READY_TO_SHIP", "PROCESSED" -> "TO_SHIP";
-            case "SHIPPED" -> "SHIPPED";
-            case "TO_CONFIRM_RECEIVE" -> "DELIVERING";
-            case "COMPLETED" -> "COMPLETED";
-            case "IN_CANCEL", "CANCELLED" -> "CANCELLED";
-            case "TO_RETURN" -> "RETURNED";
-            default -> "PENDING";
-        };
-    }
+    /** Reconciliation reason when a line item has no SmartOmni SKU (same value as the TikTok ingestion). */
+    public static final String RECONCILIATION_SKU_UNMAPPED = "SKU_UNMAPPED";
 
     /**
-     * Converts ShopeeOrderDetail into normalized ShopeeOrderPayload resolving internal SKU IDs.
+     * Converts a Shopee order detail into the shared order message ({@link WebhookOrderPayload}, snake_case).
+     * The status is the RAW Shopee status: mapping happens only in order-service ({@code ShopeeOrderStatusMapper}).
      */
-    public ShopeeOrderPayload toPayload(Long tenantId, Long connectionId, ShopeeOrderDetail order) {
-        String canonicalStatus = toCanonicalStatus(order.orderStatus());
-
+    public WebhookOrderPayload toPayload(Long tenantId, Long connectionId, ShopeeOrderDetail order) {
         String customerName = null;
         String customerPhone = null;
         String fullAddress = null;
@@ -64,10 +41,14 @@ public class ShopeeOrderMapper {
             customerName = order.buyerUsername();
         }
 
-        List<OrderItemPayload> itemPayloads = new ArrayList<>();
+        List<WebhookOrderPayload.OrderItemPayload> itemPayloads = new ArrayList<>();
+        boolean unmappedSku = false;
         if (order.items() != null) {
             for (OrderItemDetail item : order.items()) {
                 Long resolvedSkuId = resolveSkuId(connectionId, item);
+                if (resolvedSkuId == null) {
+                    unmappedSku = true;
+                }
 
                 String skuCode = (item.modelSku() != null && !item.modelSku().isBlank())
                         ? item.modelSku()
@@ -75,9 +56,9 @@ public class ShopeeOrderMapper {
 
                 String externalSkuId = String.valueOf(item.modelId() != 0 ? item.modelId() : item.itemId());
 
-                itemPayloads.add(OrderItemPayload.builder()
+                itemPayloads.add(WebhookOrderPayload.OrderItemPayload.builder()
                         .skuId(resolvedSkuId)
-                        .skuCode(skuCode)
+                        .sellerSku(skuCode)
                         .externalSkuId(externalSkuId)
                         .productName(item.itemName() + (item.modelName() != null && !item.modelName().isBlank() ? " - " + item.modelName() : ""))
                         .quantity(item.quantityPurchased())
@@ -86,19 +67,18 @@ public class ShopeeOrderMapper {
             }
         }
 
-        return ShopeeOrderPayload.builder()
+        return WebhookOrderPayload.builder()
                 .tenantId(tenantId)
                 .platform("SHOPEE")
                 .platformOrderId(order.orderSn())
-                .status(canonicalStatus)
-                .rawShopeeStatus(order.orderStatus())
+                .orderStatus(order.orderStatus())
                 .customerName(customerName)
                 .customerPhone(customerPhone)
                 .shippingAddress(fullAddress)
                 .totalAmount(order.totalAmount())
-                .currency(order.currency())
-                .shipByDate(order.shipByDate())
                 .createTime(order.createTime())
+                .platformUpdateTime(order.updateTime())
+                .reconciliationReason(unmappedSku ? RECONCILIATION_SKU_UNMAPPED : null)
                 .items(itemPayloads)
                 .build();
     }

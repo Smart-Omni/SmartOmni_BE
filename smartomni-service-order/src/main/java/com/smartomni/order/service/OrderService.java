@@ -13,14 +13,13 @@ import com.smartomni.order.client.InventoryServiceClient;
 import com.smartomni.order.entity.Order;
 import com.smartomni.order.entity.OrderItem;
 import com.smartomni.order.entity.OrderStatusHistory;
-import com.smartomni.order.entity.ReturnRefund;
-import com.smartomni.order.entity.ReturnRefundItem;
 import com.smartomni.order.entity.SellerWalletLedger;
+import com.smartomni.order.marketplace.MarketplaceOrderPolicy;
+import com.smartomni.order.marketplace.MarketplaceOrderPolicyRegistry;
+import com.smartomni.order.marketplace.OrderStatusFlow;
 import com.smartomni.order.repository.OrderItemRepository;
 import com.smartomni.order.repository.OrderRepository;
 import com.smartomni.order.repository.OrderStatusHistoryRepository;
-import com.smartomni.order.repository.ReturnRefundItemRepository;
-import com.smartomni.order.repository.ReturnRefundRepository;
 import com.smartomni.order.repository.SellerWalletLedgerRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,19 +40,27 @@ import java.util.Optional;
  * UC-06: Tra cứu đơn hàng chéo nền tảng (Khách hàng)
  * Giai đoạn 3 (Bước 3.1): Quản lý vòng đời đơn hàng, ghi lịch sử order_status_history,
  * hoàn tồn kho khi CANCELLED và ghi nhận doanh thu vào seller_wallet_ledger khi COMPLETED.
+ * <p>
+ * Mapping, transition table, stock and return rules are per marketplace ({@link MarketplaceOrderPolicy}); this class
+ * keeps only what every marketplace shares: idempotency, staleness by platform update time, the staff rule, history,
+ * wallet ledger and tenant scope.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class OrderService {
 
+    /** Reconciliation reason for a marketplace status change that the platform's table does not allow. */
+    public static final String RECONCILIATION_STATUS_CONFLICT = "STATUS_CONFLICT";
+    /** Every manual order id starts with this, so it can never equal a marketplace order id. */
+    public static final String MANUAL_ORDER_ID_PREFIX = "MANUAL-";
+
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
     private final SellerWalletLedgerRepository sellerWalletLedgerRepository;
     private final InventoryServiceClient inventoryServiceClient;
-    private final ReturnRefundRepository returnRefundRepository;
-    private final ReturnRefundItemRepository returnRefundItemRepository;
+    private final MarketplaceOrderPolicyRegistry policies;
 
     /**
      * Được gọi bởi RabbitMQ Consumer (OrderMessageConsumer) - nội dung chính của UC-33.
@@ -62,11 +69,12 @@ public class OrderService {
     @Transactional
     public void processIncomingOrder(WebhookOrderPayload payload, Order.OrderSource source) {
         Order.Platform platform = Order.Platform.valueOf(payload.getPlatform());
+        MarketplaceOrderPolicy policy = policies.forPlatform(platform);
 
         Optional<Order> existing = orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(
                 payload.getTenantId(), platform, payload.getPlatformOrderId());
 
-        Instant incomingUpdate = platformInstant(payload.getPlatformUpdateTime());
+        Instant incomingUpdate = OrderStatusFlow.platformInstant(payload.getPlatformUpdateTime());
 
         if (existing.isPresent()) {
             Order order = existing.get();
@@ -74,7 +82,7 @@ public class OrderService {
                     payload.getPlatformOrderId(), payload.getTenantId(), source);
 
             // Webhooks can arrive out of order and polling can replay old state: never move an order back.
-            // Without a platform time on either side (e.g. Shopee) the comparison is skipped.
+            // Without a platform time on either side the comparison is skipped.
             if (incomingUpdate != null && order.getPlatformUpdatedAt() != null
                     && incomingUpdate.isBefore(order.getPlatformUpdatedAt())) {
                 log.info("Bỏ qua cập nhật cũ cho đơn {}: platform update {} < {} (source={})",
@@ -87,9 +95,10 @@ public class OrderService {
             if (payload.getReconciliationReason() != null) {
                 order.setReconciliationReason(payload.getReconciliationReason());
             }
+            applyMilestones(order, payload);
 
             if (payload.getOrderStatus() != null && !payload.getOrderStatus().isBlank()) {
-                Order.OrderStatus incomingStatus = TiktokOrderStatusMapper.map(payload.getOrderStatus());
+                Order.OrderStatus incomingStatus = policy.mapStatus(payload.getOrderStatus());
                 if (incomingStatus != order.getStatus()) {
                     log.info("Cập nhật trạng thái đơn hàng {} từ {} sang {} (source={})",
                             payload.getPlatformOrderId(), order.getStatus(), incomingStatus, source);
@@ -110,13 +119,14 @@ public class OrderService {
         order.setSource(source);
         order.setPlatformUpdatedAt(incomingUpdate);
         order.setReconciliationReason(payload.getReconciliationReason());
+        applyMilestones(order, payload);
 
         Order.OrderStatus initialStatus = payload.getOrderStatus() != null && !payload.getOrderStatus().isBlank()
-                ? TiktokOrderStatusMapper.map(payload.getOrderStatus())
+                ? policy.mapStatus(payload.getOrderStatus())
                 : Order.OrderStatus.TO_SHIP;
         order.setStatus(initialStatus);
         if (initialStatus == Order.OrderStatus.COMPLETED) {
-            markCompletedIfNeeded(order);
+            markCompletedIfNeeded(order, policy);
         }
 
         order = orderRepository.save(order);
@@ -125,6 +135,7 @@ public class OrderService {
             recordWalletLedger(order);
         }
 
+        boolean deductStock = policy.deductStockOnCreate(initialStatus);
         if (payload.getItems() != null) {
             for (var itemPayload : payload.getItems()) {
                 OrderItem item = new OrderItem();
@@ -136,8 +147,8 @@ public class OrderService {
                 item.setImageUrl(itemPayload.getImageUrl());
                 orderItemRepository.save(item);
 
-                // FR-027, FR-028: gọi Inventory Service trừ kho nếu đã map được internal skuId
-                if (platform != Order.Platform.TIKTOK_SHOP && itemPayload.getSkuId() != null
+                // FR-027, FR-028: trừ kho nếu sàn yêu cầu và đã map được internal skuId
+                if (deductStock && itemPayload.getSkuId() != null
                         && itemPayload.getQuantity() != null && itemPayload.getQuantity() > 0) {
                     inventoryServiceClient.deductStock(itemPayload.getSkuId(), itemPayload.getQuantity());
                 }
@@ -163,8 +174,12 @@ public class OrderService {
      * Xử lý chuyển đổi trạng thái vòng đời đơn hàng:
      * 1. Cập nhật trạng thái trong orders.
      * 2. Ghi lịch sử vào order_status_history.
-     * 3. Hoàn trả tồn kho nếu CANCELLED trước khi giao bưu tá.
+     * 3. Hoàn trả tồn kho nếu CANCELLED và sàn yêu cầu (policy).
      * 4. Ghi nhận doanh thu vào seller_wallet_ledger nếu COMPLETED.
+     * <p>
+     * A staff change that is not allowed throws. A marketplace change that the platform's table does not allow is
+     * logged and skipped (no exception, so the message is not retried into the DLQ) and the order is flagged
+     * {@link #RECONCILIATION_STATUS_CONFLICT}.
      */
     @Transactional
     public Order updateOrderStatus(Order order, Order.OrderStatus newStatus, OrderStatusHistory.OrderChangeSource source) {
@@ -172,29 +187,38 @@ public class OrderService {
         if (previousStatus == newStatus) {
             return order;
         }
+        MarketplaceOrderPolicy policy = policies.forPlatform(order.getPlatform());
 
-        if (source == OrderStatusHistory.OrderChangeSource.STAFF
-                && (previousStatus != Order.OrderStatus.PENDING || newStatus != Order.OrderStatus.TO_SHIP)) {
-            throw new BusinessException("Nhân viên chỉ được chuyển PENDING sang TO_SHIP",
-                    HttpStatus.CONFLICT, "INVALID_ORDER_STATUS_TRANSITION");
-        }
-
-        if (!TiktokOrderStatusMapper.isValidTransition(previousStatus, newStatus)) {
-            throw new BusinessException("Chuyển trạng thái không hợp lệ từ " + previousStatus + " sang " + newStatus,
-                    HttpStatus.CONFLICT, "INVALID_ORDER_STATUS_TRANSITION");
+        if (source == OrderStatusHistory.OrderChangeSource.STAFF) {
+            if (previousStatus != Order.OrderStatus.PENDING || newStatus != Order.OrderStatus.TO_SHIP) {
+                throw new BusinessException("Nhân viên chỉ được chuyển PENDING sang TO_SHIP",
+                        HttpStatus.CONFLICT, "INVALID_ORDER_STATUS_TRANSITION");
+            }
+        } else if (!policy.canTransition(previousStatus, newStatus)) {
+            if (previousStatus == Order.OrderStatus.RETURNED && newStatus == Order.OrderStatus.COMPLETED) {
+                // RETURNED is set by WF-05 after COMPLETED; the marketplace keeps reporting the order as completed.
+                log.info("Đơn {} đã RETURNED (WF-05), bỏ qua trạng thái sàn {}", order.getPlatformOrderId(), newStatus);
+                return order;
+            }
+            log.warn("Bỏ qua chuyển trạng thái không hợp lệ của {} cho đơn {}: {} -> {} (source={})",
+                    order.getPlatform(), order.getPlatformOrderId(), previousStatus, newStatus, source);
+            if (order.getReconciliationReason() == null) {
+                order.setReconciliationReason(RECONCILIATION_STATUS_CONFLICT);
+            }
+            return orderRepository.save(order);
         }
 
         order.setStatus(newStatus);
         if (newStatus == Order.OrderStatus.COMPLETED) {
-            markCompletedIfNeeded(order);
+            markCompletedIfNeeded(order, policy);
         }
         order = orderRepository.save(order);
 
         // 1. Ghi nhận dòng lịch sử thay đổi trạng thái
         recordStatusHistory(order, newStatus, source, null);
 
-        // 2. Nếu đơn chuyển sang CANCELLED trước khi giao bưu tá: hoàn trả tồn kho
-        if (newStatus == Order.OrderStatus.CANCELLED && isBeforeCourierHandover(previousStatus, order)) {
+        // 2. Nếu đơn chuyển sang CANCELLED và sàn yêu cầu SmartOmni tự hoàn kho
+        if (newStatus == Order.OrderStatus.CANCELLED && policy.restockOnCancel(previousStatus, order)) {
             restockOrderItems(order);
         }
 
@@ -206,17 +230,32 @@ public class OrderService {
         return order;
     }
 
-    /** Platform epoch seconds (or millis, as some create_time values are) to an Instant; null when absent. */
-    private static Instant platformInstant(Long epoch) {
-        if (epoch == null || epoch <= 0) {
-            return null;
+    /**
+     * Stores the marketplace milestones of a non-stale message (plan 4.3). A missing field never clears a stored value;
+     * the milestones are display data only and never touch the status, completed_at, the wallet or loyalty.
+     */
+    private static void applyMilestones(Order order, WebhookOrderPayload payload) {
+        Instant rts = OrderStatusFlow.platformInstant(payload.getPlatformRtsTime());
+        Instant collected = OrderStatusFlow.platformInstant(payload.getPlatformCollectionTime());
+        Instant delivered = OrderStatusFlow.platformInstant(payload.getPlatformDeliveryTime());
+        Instant cancelled = OrderStatusFlow.platformInstant(payload.getPlatformCancelTime());
+        if (rts != null) {
+            order.setPlatformRtsAt(rts);
         }
-        return epoch > 100_000_000_000L ? Instant.ofEpochMilli(epoch) : Instant.ofEpochSecond(epoch);
+        if (collected != null) {
+            order.setPlatformCollectedAt(collected);
+        }
+        if (delivered != null) {
+            order.setPlatformDeliveredAt(delivered);
+        }
+        if (cancelled != null) {
+            order.setPlatformCancelledAt(cancelled);
+        }
     }
 
-    private void markCompletedIfNeeded(Order order) {
+    private void markCompletedIfNeeded(Order order, MarketplaceOrderPolicy policy) {
         if (order.getCompletedAt() == null) {
-            Instant completedAt = Instant.now();
+            Instant completedAt = policy.completedAt(order);
             order.setCompletedAt(completedAt);
             order.setEligibleForPointsAt(completedAt.plus(15, java.time.temporal.ChronoUnit.DAYS));
         } else if (order.getEligibleForPointsAt() == null) {
@@ -229,10 +268,10 @@ public class OrderService {
      */
     @Transactional
     public Order handleOrderStatusChange(Long tenantId, String platform, String platformOrderId, String rawPlatformStatus) {
-        Order.Platform p = Order.Platform.valueOf(platform.toUpperCase());
+        Order.Platform p = requirePlatform(platform);
         Order order = orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(tenantId, p, platformOrderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Đơn hàng không tồn tại: platform=" + platform + ", id=" + platformOrderId));
-        Order.OrderStatus newStatus = TiktokOrderStatusMapper.map(rawPlatformStatus);
+        Order.OrderStatus newStatus = policies.forPlatform(p).mapStatus(rawPlatformStatus);
         return updateOrderStatus(order, newStatus, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
     }
 
@@ -246,9 +285,7 @@ public class OrderService {
             throw new IllegalArgumentException("Request must not be null");
         }
         Long tenantId = requireRequestTenant(request.getTenantId());
-        Order.Platform platform = request.getPlatform() != null && !request.getPlatform().isBlank()
-                ? Order.Platform.valueOf(request.getPlatform().toUpperCase())
-                : Order.Platform.TIKTOK_SHOP;
+        Order.Platform platform = requirePlatform(request.getPlatform());
 
         java.util.List<String> orderIds = new java.util.ArrayList<>();
         if (request.getOrderIdList() != null && !request.getOrderIdList().isEmpty()) {
@@ -285,28 +322,13 @@ public class OrderService {
                 order.setShippingMethod(request.getShippingProvider());
             }
 
-            // 3. Cập nhật courierScannedAt & trạng thái khi package chuyển sang IN_TRANSIT / PICKED_UP
-            String pkgStatus = request.getPackageStatus();
-            boolean isHandover = pkgStatus != null && (
-                    pkgStatus.equalsIgnoreCase("IN_TRANSIT")
-                            || pkgStatus.equalsIgnoreCase("PICKED_UP")
-                            || pkgStatus.equalsIgnoreCase("SHIPPED"));
-
-            if (isHandover) {
-                if (order.getCourierScannedAt() == null) {
-                    order.setCourierScannedAt(request.getCourierScannedAt() != null
-                            ? request.getCourierScannedAt()
-                            : Instant.now());
-                }
-                // Nếu trạng thái hiện tại là TO_SHIP hoặc PENDING hoặc ON_HOLD -> chuyển sang SHIPPED
-                if (order.getStatus() == Order.OrderStatus.TO_SHIP
-                        || order.getStatus() == Order.OrderStatus.PENDING
-                        || order.getStatus() == Order.OrderStatus.ON_HOLD) {
-                    log.info("Đơn hàng {} đã được bưu tá quét (packageStatus={}) -> Cập nhật trạng thái SHIPPED",
-                            order.getPlatformOrderId(), pkgStatus);
-                    updateOrderStatus(order, Order.OrderStatus.SHIPPED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
-                }
+            // 3. courierScannedAt: the caller decides the carrier handover (package statuses are platform-specific)
+            //    and sends its time; the first one is kept.
+            if (request.getCourierScannedAt() != null && order.getCourierScannedAt() == null) {
+                order.setCourierScannedAt(request.getCourierScannedAt());
             }
+            // Tracking never changes the order status: the marketplace order status event drives it through the
+            // platform's MarketplaceOrderPolicy (mapping and transition table).
 
             lastUpdatedOrder = orderRepository.save(order);
             log.info("Đã cập nhật thông tin vận đơn cho đơn hàng id={}, orderId={}, trackingNumber={}, courierScannedAt={}",
@@ -317,10 +339,8 @@ public class OrderService {
     }
 
     /**
-     * Xử lý yêu cầu Trả hàng / Hoàn tiền (Returns & Refund Management - Bước 4.2).
-     * - Cập nhật trạng thái đơn hàng (nếu trả hàng thành công -> RETURNED, hoặc ON_HOLD nếu đang xử lý).
-     * - Ghi nhận lịch sử vào order_status_history.
-     * - Nếu đơn hàng hoàn trả kho thành công (restockRequired = true): Gọi InventoryServiceClient để nhập lại tồn kho.
+     * Xử lý yêu cầu Trả hàng / Hoàn tiền từ sàn (Returns & Refund Management - Bước 4.2).
+     * The rules belong to the order's marketplace policy; no marketplace return ever sets RETURNED (only WF-05 does).
      */
     @Transactional
     public Order handleOrderReturn(ProcessReturnRequest request) {
@@ -328,9 +348,7 @@ public class OrderService {
             throw new IllegalArgumentException("ProcessReturnRequest must not be null");
         }
         Long tenantId = requireRequestTenant(request.getTenantId());
-        Order.Platform platform = request.getPlatform() != null && !request.getPlatform().isBlank()
-                ? Order.Platform.valueOf(request.getPlatform().toUpperCase())
-                : Order.Platform.TIKTOK_SHOP;
+        Order.Platform platform = requirePlatform(request.getPlatform());
 
         String platformOrderId = request.getOrderId() != null && !request.getOrderId().isBlank()
                 ? request.getOrderId()
@@ -358,290 +376,13 @@ public class OrderService {
         }
 
         Order order = orderOpt.get();
-        if (order.getPlatform() == Order.Platform.TIKTOK_SHOP) {
-            return handleTiktokReturn(tenantId, order, request);
-        }
-        if (Boolean.TRUE.equals(request.getPartialReturn())) {
-            // A partial return must not move the whole order to ON_HOLD/RETURNED: only the return record changes.
-            log.info("Trả hàng một phần cho orderId={}, returnId={}: giữ nguyên trạng thái đơn {}",
-                    platformOrderId, request.getReturnId(), order.getStatus());
-            ReturnRefund.RefundStatus refundStatus = partialRefundStatus(request);
-            upsertReturnRecord(tenantId, order, request, refundStatus,
-                    refundStatus == ReturnRefund.RefundStatus.COMPLETED ? ReturnRefund.InspectionResultType.MATCHED
-                            : ReturnRefund.InspectionResultType.PENDING, false);
-            return orderRepository.save(order);
-        }
-        ProcessReturnRequest.ReturnAction returnAction = request.getReturnAction();
-        String returnStatus = request.getReturnStatus();
-        boolean isRestockRequired = Boolean.TRUE.equals(request.getRestockRequired());
-
-        // Cập nhật lý do và bằng chứng nếu có
-        if (request.getReturnReason() != null && !request.getReturnReason().isBlank()) {
-            order.setReturnReason(request.getReturnReason());
-        }
-        if (request.getRejectReason() != null && !request.getRejectReason().isBlank()) {
-            order.setRejectReason(request.getRejectReason());
-        }
-        if (request.getEvidenceUrls() != null && !request.getEvidenceUrls().isEmpty()) {
-            order.setEvidenceUrls(String.join(",", request.getEvidenceUrls()));
-        }
-
-        if (returnAction != null) {
-            switch (returnAction) {
-                case AWAITING_INSPECTION -> {
-                    log.info("Xử lý yêu cầu trả hàng vật lý (AWAITING_INSPECTION) cho orderId={}, returnId={}. Chờ nhân viên kho kiểm định.",
-                            platformOrderId, request.getReturnId());
-                    updateOrderStatus(order, Order.OrderStatus.ON_HOLD, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
-                    order.setRestockStatus("AWAITING_INSPECTION");
-                    upsertReturnRecord(tenantId, order, request, ReturnRefund.RefundStatus.REQUESTED, ReturnRefund.InspectionResultType.PENDING, false);
-                }
-                case RECEIVE_APPROVE -> {
-                    log.info("Xác nhận trả hàng thành công (RECEIVE_APPROVE) cho orderId={}, returnId={}",
-                            platformOrderId, request.getReturnId());
-                    updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
-                    if (isRestockRequired && order.getPlatform() == Order.Platform.TIKTOK_SHOP) {
-                        order.setRestockStatus("PLATFORM_SYNC");
-                    } else if (isRestockRequired) {
-                        if ("RESTOCKED".equals(order.getRestockStatus())) {
-                            log.info("Đơn hàng id={} đã được hoàn kho trước đó (idempotent), bỏ qua restock.", order.getId());
-                        } else {
-                            log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
-                            restockOrderItems(order, request.getItems());
-                            order.setRestockStatus("RESTOCKED");
-                        }
-                    } else {
-                        order.setRestockStatus("SKIPPED");
-                    }
-                    upsertReturnRecord(tenantId, order, request, ReturnRefund.RefundStatus.COMPLETED, ReturnRefund.InspectionResultType.MATCHED, "RESTOCKED".equals(order.getRestockStatus()));
-                }
-                case REFUND_ONLY -> {
-                    log.info("Hoàn tiền không hoàn hàng vật lý (REFUND_ONLY) cho orderId={}, returnId={}. Nghiêm cấm hoàn kho.",
-                            platformOrderId, request.getReturnId());
-                    updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
-                    order.setRestockStatus("NO_RESTOCK_REFUND_ONLY");
-                    upsertReturnRecord(tenantId, order, request, ReturnRefund.RefundStatus.COMPLETED, ReturnRefund.InspectionResultType.MATCHED, false);
-                }
-                case RECEIVE_REJECT, RECEIVE_REJECTED -> {
-                    log.warn("Từ chối nhận hàng hoàn / trả hàng (RECEIVE_REJECT) cho orderId={}, returnId={}, rejectReason={}. Nghiêm cấm hoàn kho.",
-                            platformOrderId, request.getReturnId(), request.getRejectReason());
-                    updateOrderStatus(order, Order.OrderStatus.ON_HOLD, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
-                    order.setRestockStatus("REJECTED");
-                    upsertReturnRecord(tenantId, order, request, ReturnRefund.RefundStatus.REJECTED, ReturnRefund.InspectionResultType.DAMAGED, false);
-                }
-                case DISPUTE_CLAIM, DISPUTE_APPROVED -> {
-                    log.info("Xử lý khiếu nại sàn ({}) cho orderId={}, returnId={}. Nghiêm cấm hoàn kho.",
-                            returnAction, platformOrderId, request.getReturnId());
-                    Order.OrderStatus targetStatus = (returnAction == ProcessReturnRequest.ReturnAction.DISPUTE_APPROVED)
-                            ? Order.OrderStatus.RETURNED
-                            : Order.OrderStatus.ON_HOLD;
-                    updateOrderStatus(order, targetStatus, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
-                    order.setRestockStatus("DISPUTED");
-                    upsertReturnRecord(tenantId, order, request,
-                            returnAction == ProcessReturnRequest.ReturnAction.DISPUTE_APPROVED ? ReturnRefund.RefundStatus.APPROVED : ReturnRefund.RefundStatus.REQUESTED,
-                            ReturnRefund.InspectionResultType.PENDING, false);
-                }
-            }
-        } else {
-            boolean isReturnCompleted = returnStatus != null && (
-                    returnStatus.toUpperCase().contains("COMPLETE")
-                            || returnStatus.toUpperCase().contains("SUCCESS")
-                            || returnStatus.toUpperCase().contains("APPROVED")
-                            || returnStatus.equalsIgnoreCase("RETURNED"));
-
-            if (isReturnCompleted) {
-                log.info("Xác nhận trả hàng thành công cho orderId={}, returnId={}. Chuyển trạng thái sang RETURNED",
-                        platformOrderId, request.getReturnId());
-                updateOrderStatus(order, Order.OrderStatus.RETURNED, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
-
-                if (isRestockRequired && !"REFUND_ONLY".equalsIgnoreCase(request.getReturnType())
-                        && order.getPlatform() == Order.Platform.TIKTOK_SHOP) {
-                    order.setRestockStatus("PLATFORM_SYNC");
-                } else if (isRestockRequired && !"REFUND_ONLY".equalsIgnoreCase(request.getReturnType())) {
-                    if ("RESTOCKED".equals(order.getRestockStatus())) {
-                        log.info("Đơn hàng id={} đã được hoàn kho trước đó (idempotent), bỏ qua restock.", order.getId());
-                    } else {
-                        log.info("Yêu cầu nhập lại tồn kho cho đơn hàng hoàn trả id={}", order.getId());
-                        restockOrderItems(order, request.getItems());
-                        order.setRestockStatus("RESTOCKED");
-                    }
-                } else {
-                    order.setRestockStatus("SKIPPED");
-                }
-            } else {
-                log.info("Tiếp nhận yêu cầu trả hàng (đang xử lý): orderId={}, returnStatus={}", platformOrderId, returnStatus);
-                if (order.getStatus() != Order.OrderStatus.RETURNED && order.getStatus() != Order.OrderStatus.CANCELLED) {
-                    updateOrderStatus(order, Order.OrderStatus.ON_HOLD, OrderStatusHistory.OrderChangeSource.MARKETPLACE_WEBHOOK);
-                }
-            }
-        }
-
-        return orderRepository.save(order);
+        return policies.forPlatform(order.getPlatform()).handleReturn(tenantId, order, request);
     }
 
-
-    /** Return statuses after which the returned units are restocked (simulator requirements 07b.4). */
-    static final java.util.Set<String> TIKTOK_RETURN_DONE = java.util.Set.of(
-            "RETURN_OR_REFUND_REQUEST_SUCCESS", "RETURN_OR_REFUND_REQUEST_COMPLETE");
-
-    /**
-     * TikTok return, following the simulator's SmartOmni requirements (phase 07b):
-     * <ul>
-     *   <li>the order status is never changed by a return (07b.2: the platform has no RETURNED order status);</li>
-     *   <li>the request keeps the marketplace {@code return_status} and {@code update_time}; an event older than the
-     *       stored {@code update_time} is ignored (07b.2);</li>
-     *   <li>when the request reaches {@code RETURN_OR_REFUND_REQUEST_SUCCESS} or {@code _COMPLETE}, every returned
-     *       line is restocked through an idempotent receipt keyed by (order, order line item), so a webhook replay or
-     *       a polling overlap cannot restock twice (07b.4). The simulator never adds stock back itself.</li>
-     * </ul>
-     */
-    private Order handleTiktokReturn(Long tenantId, Order order, ProcessReturnRequest request) {
-        if (request.getReturnId() == null || request.getReturnId().isBlank()) {
-            log.warn("TikTok return without return id for order {}", order.getPlatformOrderId());
-            return order;
-        }
-        Long connectionId = request.getConnectionId() != null ? request.getConnectionId() : order.getConnectionId();
-        ReturnRefund refund = (connectionId != null
-                ? returnRefundRepository.findByTenantIdAndConnectionIdAndExternalReturnId(tenantId, connectionId, request.getReturnId())
-                : Optional.<ReturnRefund>empty())
-                .orElseGet(() -> {
-                    ReturnRefund created = new ReturnRefund();
-                    created.setTenantId(tenantId);
-                    created.setOrderId(order.getId());
-                    created.setConnectionId(connectionId);
-                    created.setExternalReturnId(request.getReturnId());
-                    created.setPlatform(order.getPlatform());
-                    return created;
-                });
-
-        Instant incoming = platformInstant(request.getPlatformUpdateTime());
-        if (incoming != null && refund.getMarketplaceUpdatedAt() != null && incoming.isBefore(refund.getMarketplaceUpdatedAt())) {
-            log.info("Bỏ qua trạng thái trả hàng cũ cho return {}: {} < {}", request.getReturnId(), incoming,
-                    refund.getMarketplaceUpdatedAt());
-            return order;
-        }
-
-        String marketplaceStatus = request.getReturnStatus();
-        refund.setMarketplaceStatus(marketplaceStatus);
-        if (incoming != null) {
-            refund.setMarketplaceUpdatedAt(incoming);
-        }
-        refund.setReturnType(request.getReturnType());
-        if (request.getReturnReason() != null) {
-            refund.setReason(request.getReturnReason());
-        }
-        if (request.getRefundAmount() != null) {
-            refund.setRefundAmount(request.getRefundAmount());
-        }
-        refund.setStatus(tiktokRefundStatus(marketplaceStatus));
-        refund = returnRefundRepository.save(refund);
-
-        List<ReturnRefundItem> items = upsertTiktokReturnItems(tenantId, refund, request);
-
-        if (marketplaceStatus != null && TIKTOK_RETURN_DONE.contains(marketplaceStatus)) {
-            boolean allRestocked = !items.isEmpty();
-            for (ReturnRefundItem item : items) {
-                if (item.getSkuId() == null || item.getExternalItemId() == null) {
-                    allRestocked = false;
-                    log.warn("Không hoàn kho dòng trả hàng chưa ánh xạ SKU: return={}, line={}",
-                            request.getReturnId(), item.getExternalItemId());
-                    continue;
-                }
-                int qty = item.getQuantityReturned() != null && item.getQuantityReturned() > 0 ? item.getQuantityReturned() : 1;
-                inventoryServiceClient.restock(item.getSkuId(), qty,
-                        "tiktok-return:" + order.getPlatformOrderId() + ":" + item.getExternalItemId());
-            }
-            refund.setRestocked(allRestocked);
-            returnRefundRepository.save(refund);
-        }
-        return order;
-    }
-
-    /** Coarse SmartOmni refund status; the exact platform status is kept in marketplace_status. */
-    static ReturnRefund.RefundStatus tiktokRefundStatus(String marketplaceStatus) {
-        if (marketplaceStatus == null) {
-            return ReturnRefund.RefundStatus.REQUESTED;
-        }
-        return switch (marketplaceStatus) {
-            case "RETURN_OR_REFUND_REQUEST_SUCCESS", "RETURN_OR_REFUND_REQUEST_COMPLETE" -> ReturnRefund.RefundStatus.COMPLETED;
-            case "AWAITING_BUYER_SHIP", "BUYER_SHIPPED_ITEM" -> ReturnRefund.RefundStatus.APPROVED;
-            case "REFUND_OR_RETURN_REQUEST_REJECT", "REJECT_RECEIVE_PACKAGE", "RETURN_OR_REFUND_REQUEST_CANCEL" ->
-                    ReturnRefund.RefundStatus.REJECTED;
-            default -> ReturnRefund.RefundStatus.REQUESTED;
-        };
-    }
-
-    /** One item per order line item of the request (TikTok lists one line per unit); refreshes the SKU mapping. */
-    private List<ReturnRefundItem> upsertTiktokReturnItems(Long tenantId, ReturnRefund refund, ProcessReturnRequest request) {
-        List<ReturnRefundItem> existing = returnRefundItemRepository == null ? new java.util.ArrayList<>()
-                : new java.util.ArrayList<>(returnRefundItemRepository.findByTenantIdAndReturnRefundId(tenantId, refund.getId()));
-        if (request.getItems() == null || returnRefundItemRepository == null) {
-            return existing;
-        }
-        for (ProcessReturnRequest.ReturnItemDto dto : request.getItems()) {
-            ReturnRefundItem item = existing.stream()
-                    .filter(e -> e.getExternalItemId() != null && e.getExternalItemId().equals(dto.getExternalItemId()))
-                    .findFirst().orElse(null);
-            if (item == null) {
-                item = new ReturnRefundItem();
-                item.setTenantId(tenantId);
-                item.setReturnRefundId(refund.getId());
-                item.setExternalItemId(dto.getExternalItemId());
-                item.setQuantityInspected(0);
-                existing.add(item);
-            }
-            if (dto.getSkuId() != null) {
-                item.setSkuId(dto.getSkuId());
-            }
-            item.setItemName(dto.getName());
-            item.setQuantityReturned(dto.getQuantity() != null ? dto.getQuantity() : 1);
-            item.setRefundAmount(dto.getRefundAmount());
-            returnRefundItemRepository.save(item);
-        }
-        return existing;
-    }
-
-    private static ReturnRefund.RefundStatus partialRefundStatus(ProcessReturnRequest request) {
-        ProcessReturnRequest.ReturnAction action = request.getReturnAction();
-        if (action == ProcessReturnRequest.ReturnAction.RECEIVE_APPROVE || action == ProcessReturnRequest.ReturnAction.REFUND_ONLY) {
-            return ReturnRefund.RefundStatus.COMPLETED;
-        }
-        if (action == ProcessReturnRequest.ReturnAction.RECEIVE_REJECT || action == ProcessReturnRequest.ReturnAction.RECEIVE_REJECTED) {
-            return ReturnRefund.RefundStatus.REJECTED;
-        }
-        return ReturnRefund.RefundStatus.REQUESTED;
-    }
-
-    private boolean isBeforeCourierHandover(Order.OrderStatus previousStatus, Order order) {
-        if (order.getCourierScannedAt() != null) {
-            return false;
-        }
-        return previousStatus == Order.OrderStatus.PENDING
-                || previousStatus == Order.OrderStatus.TO_SHIP
-                || previousStatus == Order.OrderStatus.ON_HOLD;
-    }
-
+    /** Restocks every order item once (cancel before handover, for platforms whose policy asks for it). */
     private void restockOrderItems(Order order) {
-        restockOrderItems(order, null);
-    }
-
-    private void restockOrderItems(Order order, List<ProcessReturnRequest.ReturnItemDto> returnItems) {
-        if (order.getPlatform() == Order.Platform.TIKTOK_SHOP) {
-            return; // TikTok stock is applied from the absolute inventory webhook snapshot.
-        }
-        if (returnItems != null && !returnItems.isEmpty()) {
-            log.info("Hoàn trả tồn kho theo danh mục mặt hàng trả lại cho đơn hàng id={}, itemsCount={}",
-                    order.getId(), returnItems.size());
-            for (ProcessReturnRequest.ReturnItemDto item : returnItems) {
-                if (item.getSkuId() != null && item.getQuantity() != null && item.getQuantity() > 0) {
-                    inventoryServiceClient.restock(item.getSkuId(), item.getQuantity());
-                    log.info("Hoàn trả tồn kho thành công cho skuId={}, quantity={}", item.getSkuId(), item.getQuantity());
-                }
-            }
-            return;
-        }
-
         List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
-        log.info("Tự động hoàn trả tồn kho cho đơn hàng CANCELLED/RETURNED id={}, itemsCount={}", order.getId(), items.size());
+        log.info("Tự động hoàn trả tồn kho cho đơn hàng CANCELLED id={}, itemsCount={}", order.getId(), items.size());
         for (OrderItem item : items) {
             if (item.getSkuId() != null && item.getQuantity() != null && item.getQuantity() > 0) {
                 inventoryServiceClient.restock(item.getSkuId(), item.getQuantity());
@@ -650,61 +391,28 @@ public class OrderService {
         }
     }
 
-    private void upsertReturnRecord(Long tenantId, Order order, ProcessReturnRequest request,
-                                    ReturnRefund.RefundStatus status, ReturnRefund.InspectionResultType inspectionResult,
-                                    boolean restocked) {
-        if (returnRefundRepository == null || request.getReturnId() == null) {
-            return;
+    /** Marketplace messages must name their platform; a missing one is a 400, never a guess (M10). */
+    /**
+     * Orders are looked up by tenant + platform + platform_order_id, and connection_id is null on manual and webhook
+     * orders alike, so the database does not reject a duplicate. A manual order that reused a marketplace id would be
+     * updated by that marketplace order's webhooks; the prefix keeps the two id spaces apart.
+     */
+    private static String manualPlatformOrderId(String requested) {
+        if (requested == null || requested.isBlank()) {
+            return MANUAL_ORDER_ID_PREFIX + System.currentTimeMillis();
         }
+        String trimmed = requested.trim();
+        return trimmed.startsWith(MANUAL_ORDER_ID_PREFIX) ? trimmed : MANUAL_ORDER_ID_PREFIX + trimmed;
+    }
 
-        Long connectionId = request.getConnectionId() != null ? request.getConnectionId() : order.getConnectionId();
-        ReturnRefund refund = null;
-        if (connectionId != null) {
-            refund = returnRefundRepository.findByTenantIdAndConnectionIdAndExternalReturnId(tenantId, connectionId, request.getReturnId())
-                    .orElse(null);
+    private static Order.Platform requirePlatform(String platform) {
+        if (platform == null || platform.isBlank()) {
+            throw new BusinessException("platform is required", HttpStatus.BAD_REQUEST, "PLATFORM_REQUIRED");
         }
-        if (refund == null) {
-            refund = returnRefundRepository.findByTenantIdAndOrderId(tenantId, order.getId()).orElse(null);
-        }
-        if (refund == null) {
-            refund = new ReturnRefund();
-            refund.setTenantId(tenantId);
-            refund.setOrderId(order.getId());
-            refund.setConnectionId(connectionId);
-            refund.setExternalReturnId(request.getReturnId());
-            refund.setPlatform(order.getPlatform());
-        }
-
-        refund.setReturnType(request.getReturnType());
-        refund.setReason(request.getReturnReason());
-        refund.setStatus(status);
-        refund.setInspectionResult(inspectionResult);
-        refund.setRestocked(restocked);
-        if (request.getRefundAmount() != null) {
-            refund.setRefundAmount(request.getRefundAmount());
-        }
-        if (request.getEvidenceUrls() != null && !request.getEvidenceUrls().isEmpty()) {
-            refund.setVideoEvidenceUrl(String.join(",", request.getEvidenceUrls()));
-        }
-        ReturnRefund savedRefund = returnRefundRepository.save(refund);
-        Long refundId = savedRefund != null && savedRefund.getId() != null ? savedRefund.getId() : refund.getId();
-
-        if (refundId != null && returnRefundItemRepository != null && request.getItems() != null && !request.getItems().isEmpty()) {
-            List<ReturnRefundItem> existingItems = returnRefundItemRepository.findByTenantIdAndReturnRefundId(tenantId, refundId);
-            if (existingItems.isEmpty()) {
-                for (ProcessReturnRequest.ReturnItemDto itemDto : request.getItems()) {
-                    ReturnRefundItem item = new ReturnRefundItem();
-                    item.setTenantId(tenantId);
-                    item.setReturnRefundId(refundId);
-                    item.setSkuId(itemDto.getSkuId());
-                    item.setExternalItemId(itemDto.getExternalItemId());
-                    item.setItemName(itemDto.getName());
-                    item.setQuantityReturned(itemDto.getQuantity() != null ? itemDto.getQuantity() : 1);
-                    item.setQuantityInspected(0);
-                    item.setRefundAmount(itemDto.getRefundAmount());
-                    returnRefundItemRepository.save(item);
-                }
-            }
+        try {
+            return Order.Platform.valueOf(platform.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException("Unknown platform: " + platform, HttpStatus.BAD_REQUEST, "UNKNOWN_PLATFORM");
         }
     }
 
@@ -786,6 +494,10 @@ public class OrderService {
                 .shippingMethod(order.getShippingMethod())
                 .trackingNumber(order.getTrackingNumber())
                 .courierScannedAt(order.getCourierScannedAt())
+                .platformRtsAt(order.getPlatformRtsAt())
+                .platformCollectedAt(order.getPlatformCollectedAt())
+                .platformDeliveredAt(order.getPlatformDeliveredAt())
+                .platformCancelledAt(order.getPlatformCancelledAt())
                 .customerName(order.getCustomerName())
                 .customerPhone(order.getCustomerPhone())
                 .shippingAddress(order.getShippingAddress())
@@ -809,16 +521,14 @@ public class OrderService {
             throw new BusinessException("Đơn hàng phải chứa ít nhất 1 sản phẩm", HttpStatus.BAD_REQUEST, "ITEMS_REQUIRED");
         }
 
-        Order.Platform platform = Order.Platform.SHOPEE;
-        if (request.getPlatform() != null && !request.getPlatform().isBlank()) {
-            try {
-                platform = Order.Platform.valueOf(request.getPlatform().toUpperCase());
-            } catch (IllegalArgumentException ignored) {}
-        }
+        // D4: no default marketplace; a missing or unknown platform is a 400, like tracking and return requests.
+        Order.Platform platform = requirePlatform(request.getPlatform());
 
-        String platformOrderId = (request.getPlatformOrderId() != null && !request.getPlatformOrderId().isBlank())
-                ? request.getPlatformOrderId()
-                : "MANUAL-" + System.currentTimeMillis();
+        String platformOrderId = manualPlatformOrderId(request.getPlatformOrderId());
+        if (orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(tenantId, platform, platformOrderId).isPresent()) {
+            throw new BusinessException("Mã đơn đã tồn tại: " + platformOrderId,
+                    HttpStatus.CONFLICT, "DUPLICATE_PLATFORM_ORDER_ID");
+        }
 
         BigDecimal computedTotal = BigDecimal.ZERO;
         for (CreateManualOrderRequest.ManualOrderItem item : request.getItems()) {

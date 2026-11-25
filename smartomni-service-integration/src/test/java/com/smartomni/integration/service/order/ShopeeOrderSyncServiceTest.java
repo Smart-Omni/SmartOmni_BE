@@ -6,7 +6,7 @@ import com.smartomni.integration.client.shopee.ShopeeOrderClient.OrderListResult
 import com.smartomni.integration.client.shopee.ShopeeOrderClient.OrderSummary;
 import com.smartomni.integration.client.shopee.ShopeeOrderClient.ShopeeOrderDetail;
 import com.smartomni.integration.config.RabbitMQConfig;
-import com.smartomni.integration.dto.order.ShopeeOrderPayload;
+import com.smartomni.common.dto.WebhookOrderPayload;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -56,21 +56,21 @@ class ShopeeOrderSyncServiceTest {
         );
         when(orderClient.getOrderDetail(88L, List.of("241027SP1042"))).thenReturn(List.of(detail));
 
-        ShopeeOrderPayload payload = ShopeeOrderPayload.builder()
+        WebhookOrderPayload payload = WebhookOrderPayload.builder()
                 .tenantId(1L)
                 .platform("SHOPEE")
                 .platformOrderId("241027SP1042")
-                .status("TO_SHIP")
+                .orderStatus("READY_TO_SHIP")
                 .totalAmount(new BigDecimal("450000"))
                 .build();
         when(orderMapper.toPayload(1L, 88L, detail)).thenReturn(payload);
 
-        ShopeeOrderPayload result = service.syncOrder(connection, "241027SP1042");
+        WebhookOrderPayload result = service.syncOrder(connection, "241027SP1042");
 
         assertEquals("241027SP1042", result.getPlatformOrderId());
-        assertEquals("TO_SHIP", result.getStatus());
+        assertEquals("READY_TO_SHIP", result.getOrderStatus());
 
-        ArgumentCaptor<ShopeeOrderPayload> payloadCaptor = ArgumentCaptor.forClass(ShopeeOrderPayload.class);
+        ArgumentCaptor<WebhookOrderPayload> payloadCaptor = ArgumentCaptor.forClass(WebhookOrderPayload.class);
         verify(rabbitTemplate).convertAndSend(
                 eq(RabbitMQConfig.ORDER_EXCHANGE),
                 eq("order.incoming"),
@@ -104,15 +104,15 @@ class ShopeeOrderSyncServiceTest {
         ShopeeOrderDetail d2 = new ShopeeOrderDetail("SP02", "UNPAID", "VND", BigDecimal.ONE, null, null, null, List.of(), null, null, null, null, null, null, null);
         when(orderClient.getOrderDetail(88L, List.of("SP01", "SP02"))).thenReturn(List.of(d1, d2));
 
-        ShopeeOrderPayload p1 = ShopeeOrderPayload.builder().platformOrderId("SP01").status("TO_SHIP").build();
-        ShopeeOrderPayload p2 = ShopeeOrderPayload.builder().platformOrderId("SP02").status("PENDING").build();
+        WebhookOrderPayload p1 = WebhookOrderPayload.builder().platformOrderId("SP01").orderStatus("READY_TO_SHIP").build();
+        WebhookOrderPayload p2 = WebhookOrderPayload.builder().platformOrderId("SP02").orderStatus("UNPAID").build();
         when(orderMapper.toPayload(1L, 88L, d1)).thenReturn(p1);
         when(orderMapper.toPayload(1L, 88L, d2)).thenReturn(p2);
 
-        List<ShopeeOrderPayload> synced = service.syncOrdersBatch(connection, null, null, "ALL", 50);
+        List<WebhookOrderPayload> synced = service.syncOrdersBatch(connection, null, null, "ALL", 50);
 
         assertEquals(2, synced.size());
-        verify(rabbitTemplate, times(2)).convertAndSend(eq(RabbitMQConfig.ORDER_EXCHANGE), eq("order.incoming"), any(ShopeeOrderPayload.class));
+        verify(rabbitTemplate, times(2)).convertAndSend(eq(RabbitMQConfig.ORDER_EXCHANGE), eq("order.incoming"), any(WebhookOrderPayload.class));
     }
 
     @Test

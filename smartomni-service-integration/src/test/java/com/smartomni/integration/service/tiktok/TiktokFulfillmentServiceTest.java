@@ -11,7 +11,6 @@ import com.smartomni.integration.client.tiktok.TiktokFulfillmentClient;
 import com.smartomni.integration.dto.tiktok.ShipPackageRequest;
 import com.smartomni.integration.dto.tiktok.ShippingDocumentResponse;
 import com.smartomni.integration.dto.tiktok.TiktokPackageResponse;
-import com.smartomni.integration.dto.tiktok.TiktokWebhookPayload;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -130,91 +129,102 @@ class TiktokFulfillmentServiceTest {
                 fulfillmentService.getShippingLabel(CONNECTION_ID, "   "));
     }
 
-    @Test
-    @DisplayName("handlePackageStatusChange: bóc tách dữ liệu và cập nhật đúng thông tin vận đơn khi trạng thái IN_TRANSIT")
-    void testHandlePackageStatusChangeInTransit() {
+    private ObjectNode packageEvent(String status) {
         ObjectNode data = objectMapper.createObjectNode();
+        data.put("order_id", "TT_ORDER_101");
         data.put("package_id", PACKAGE_ID);
-        data.put("tracking_number", TRACKING_NUMBER);
-        data.put("shipping_provider_name", "SPX Express");
-        data.put("package_status", "IN_TRANSIT");
+        data.put("package_status", status);
         data.put("update_time", 1710000000L);
+        return data;
+    }
 
-        ArrayNode orderIdList = data.putArray("order_id_list");
-        orderIdList.add("TT_ORDER_101");
-        orderIdList.add("TT_ORDER_102");
+    @Test
+    @DisplayName("handlePackageStatusChange: webhook không có mã vận đơn thì lấy từ Get Package Detail")
+    void packageUpdateReadsTrackingFromPackageDetail() {
+        when(fulfillmentClient.getPackageDetail(CONNECTION_ID, PACKAGE_ID)).thenReturn(TiktokPackageResponse.builder()
+                .packageId(PACKAGE_ID).trackingNumber(TRACKING_NUMBER).shippingProviderName("Sim Express")
+                .packageStatus("PROCESSING").build());
 
-        TiktokWebhookPayload webhookPayload = TiktokWebhookPayload.builder()
-                .ttsNotificationId("notif_pkg_001")
-                .type(3)
-                .shopId("SHOP_CIPHER_1")
-                .timestamp(1710000000L)
-                .data(data)
-                .build();
+        UpdateOrderTrackingRequest request =
+                fulfillmentService.handlePackageStatusChange(TENANT_ID, CONNECTION_ID, packageEvent("PROCESSING"));
 
-        when(orderServiceClient.updateTracking(any(UpdateOrderTrackingRequest.class)))
-                .thenReturn(ApiResponse.success(null));
-
-        UpdateOrderTrackingRequest request = fulfillmentService.handlePackageStatusChange(TENANT_ID, webhookPayload);
-
-        assertNotNull(request);
         assertEquals(TENANT_ID, request.getTenantId());
         assertEquals("TIKTOK_SHOP", request.getPlatform());
+        assertEquals("TT_ORDER_101", request.getPlatformOrderId());
+        assertEquals(List.of("TT_ORDER_101"), request.getOrderIdList());
         assertEquals(PACKAGE_ID, request.getPackageId());
         assertEquals(TRACKING_NUMBER, request.getTrackingNumber());
-        assertEquals("SPX Express", request.getShippingProvider());
-        assertEquals("IN_TRANSIT", request.getPackageStatus());
-        assertEquals("TT_ORDER_101", request.getPlatformOrderId());
-        assertEquals(2, request.getOrderIdList().size());
-        assertNotNull(request.getCourierScannedAt());
-        assertEquals(Instant.ofEpochSecond(1710000000L), request.getCourierScannedAt());
+        assertEquals("Sim Express", request.getShippingProvider());
+        assertEquals("PROCESSING", request.getPackageStatus());
+        assertNull(request.getCourierScannedAt(), "PROCESSING is awaiting collection, not yet with the carrier");
 
-        ArgumentCaptor<UpdateOrderTrackingRequest> captor = ArgumentCaptor.forClass(UpdateOrderTrackingRequest.class);
-        verify(orderServiceClient, times(1)).updateTracking(captor.capture());
-
-        UpdateOrderTrackingRequest sent = captor.getValue();
-        assertEquals(TRACKING_NUMBER, sent.getTrackingNumber());
-        assertEquals("SPX Express", sent.getShippingProvider());
-        assertEquals("IN_TRANSIT", sent.getPackageStatus());
+        ArgumentCaptor<UpdateOrderTrackingRequest> sent = ArgumentCaptor.forClass(UpdateOrderTrackingRequest.class);
+        verify(orderServiceClient).updateTracking(sent.capture());
+        assertEquals(TRACKING_NUMBER, sent.getValue().getTrackingNumber());
     }
 
     @Test
-    @DisplayName("handlePackageStatusChange: khi trạng thái PICKED_UP cũng ghi nhận courierScannedAt")
-    void testHandlePackageStatusChangePickedUp() {
-        ObjectNode data = objectMapper.createObjectNode();
-        data.put("package_id", PACKAGE_ID);
+    @DisplayName("handlePackageStatusChange: FULFILLING là đã bàn giao cho bưu tá, courierScannedAt = update_time")
+    void fulfillingSetsCourierScanFromEventTime() {
+        when(fulfillmentClient.getPackageDetail(CONNECTION_ID, PACKAGE_ID)).thenReturn(TiktokPackageResponse.builder()
+                .trackingNumber(TRACKING_NUMBER).shippingProviderName("Sim Express").build());
+
+        UpdateOrderTrackingRequest request =
+                fulfillmentService.handlePackageStatusChange(TENANT_ID, CONNECTION_ID, packageEvent("FULFILLING"));
+
+        assertEquals(Instant.ofEpochSecond(1710000000L), request.getCourierScannedAt());
+    }
+
+    @Test
+    @DisplayName("handlePackageStatusChange: webhook đã có đủ mã vận đơn và hãng thì không gọi Get Package Detail")
+    void fullPayloadSkipsPackageDetail() {
+        ObjectNode data = packageEvent("IN_TRANSIT");
         data.put("tracking_number", TRACKING_NUMBER);
         data.put("shipping_provider", "NinjaVan");
-        data.put("status", "PICKED_UP");
-        data.put("order_id", "TT_ORDER_202");
-        data.put("update_time", 1710005000000L); // timestamp dạng millis
+        data.put("update_time", 1710005000000L); // millis
+        ArrayNode ids = data.putArray("order_id_list");
+        ids.add("TT_ORDER_101");
+        ids.add("TT_ORDER_102");
 
-        UpdateOrderTrackingRequest request = fulfillmentService.handlePackageStatusChange(TENANT_ID, data);
+        UpdateOrderTrackingRequest request = fulfillmentService.handlePackageStatusChange(TENANT_ID, CONNECTION_ID, data);
 
-        assertNotNull(request);
+        verify(fulfillmentClient, never()).getPackageDetail(any(), any());
         assertEquals("NinjaVan", request.getShippingProvider());
-        assertEquals("PICKED_UP", request.getPackageStatus());
-        assertEquals("TT_ORDER_202", request.getPlatformOrderId());
+        assertEquals(2, request.getOrderIdList().size());
         assertEquals(Instant.ofEpochMilli(1710005000000L), request.getCourierScannedAt());
-
-        verify(orderServiceClient, times(1)).updateTracking(any(UpdateOrderTrackingRequest.class));
     }
 
     @Test
-    @DisplayName("handlePackageStatusChange: khi trạng thái CREATED chưa bàn giao cho bưu tá thì courierScannedAt là null")
-    void testHandlePackageStatusChangeBeforeHandover() {
+    @DisplayName("handlePackageStatusChange: lỗi order service không bị nuốt, để webhook trả 503 và TikTok gửi lại")
+    void orderServiceFailurePropagates() {
+        when(fulfillmentClient.getPackageDetail(CONNECTION_ID, PACKAGE_ID)).thenReturn(TiktokPackageResponse.builder()
+                .trackingNumber(TRACKING_NUMBER).build());
+        when(orderServiceClient.updateTracking(any(UpdateOrderTrackingRequest.class)))
+                .thenThrow(new IllegalStateException("order service down"));
+
+        assertThrows(IllegalStateException.class,
+                () -> fulfillmentService.handlePackageStatusChange(TENANT_ID, CONNECTION_ID, packageEvent("PROCESSING")));
+    }
+
+    @Test
+    @DisplayName("handlePackageStatusChange: không có order_id thì bỏ qua, không gọi order service")
+    void eventWithoutOrderIsSkipped() {
         ObjectNode data = objectMapper.createObjectNode();
         data.put("package_id", PACKAGE_ID);
-        data.put("tracking_number", TRACKING_NUMBER);
-        data.put("package_status", "PACKED");
-        data.put("order_id", "TT_ORDER_303");
+        when(fulfillmentClient.getPackageDetail(CONNECTION_ID, PACKAGE_ID)).thenReturn(TiktokPackageResponse.builder().build());
 
-        UpdateOrderTrackingRequest request = fulfillmentService.handlePackageStatusChange(TENANT_ID, data);
+        assertNull(fulfillmentService.handlePackageStatusChange(TENANT_ID, CONNECTION_ID, data));
+        verify(orderServiceClient, never()).updateTracking(any());
+    }
 
-        assertNotNull(request);
-        assertEquals("PACKED", request.getPackageStatus());
-        assertNull(request.getCourierScannedAt());
-
-        verify(orderServiceClient, times(1)).updateTracking(any(UpdateOrderTrackingRequest.class));
+    @Test
+    @DisplayName("isCarrierHandover: chỉ FULFILLING và các giá trị cũ IN_TRANSIT/PICKED_UP/SHIPPED")
+    void carrierHandoverStatuses() {
+        for (String yes : List.of("FULFILLING", "in_transit", "PICKED_UP", "SHIPPED")) {
+            assertTrue(TiktokFulfillmentService.isCarrierHandover(yes), yes);
+        }
+        for (String no : java.util.Arrays.asList("TO_FULFILL", "PROCESSING", "COMPLETED", "CANCELLED", null)) {
+            assertFalse(TiktokFulfillmentService.isCarrierHandover(no), String.valueOf(no));
+        }
     }
 }

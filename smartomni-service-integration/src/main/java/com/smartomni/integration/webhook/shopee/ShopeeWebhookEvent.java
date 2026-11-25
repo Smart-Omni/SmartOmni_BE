@@ -55,6 +55,14 @@ public class ShopeeWebhookEvent {
         return null;
     }
 
+    /** {@code data.update_time} of an order status push (code 3), epoch seconds; null when absent. */
+    public Long updateTime() {
+        if (data == null || !data.hasNonNull("update_time")) {
+            return null;
+        }
+        return data.get("update_time").asLong();
+    }
+
     public String returnSn() {
         if (data == null) {
             return null;
