@@ -314,7 +314,7 @@ Migration: chỉ bước 8 cần (V28, 4 cột nullable). `ON_HOLD`, `DELIVERING
 | D1 | Shopee `TO_RETURN` → `COMPLETED`. Trả hàng theo dõi qua `return_refund`; `RETURNED` chỉ do WF-05 đặt | Trong lúc có return đang mở, simulator hiển thị `TO_RETURN` còn SmartOmni hiển thị COMPLETED. FE cần badge "Đang trả hàng" lấy từ `return_refund` |
 | D2 | TikTok giữ `AWAITING_COLLECTION`/`PARTIALLY_SHIPPING` → `SHIPPED` (simulator đã sửa ở `a830fce`) | Không đổi code mapping, không đổi FE. Nút hủy đơn TikTok trên FE chỉ nên hiện ở PENDING/TO_SHIP |
 | D3 | TikTok `DELIVERED` → `DELIVERING`, giống Shopee `TO_CONFIRM_RECEIVE` | Xem mục 8.1 |
-| D4 | Đơn thủ công mặc định `SHOPEE` (`createManualOrder` dòng 812) | Ngoài phạm vi; ghi thành việc riêng |
+| D4 | Đơn thủ công mặc định `SHOPEE` (`createManualOrder` dòng 812) | **Đã xử lý 2026-11-25:** bắt buộc `platform` (400 `PLATFORM_REQUIRED`/`UNKNOWN_PLATFORM`); mã đơn luôn có tiền tố `MANUAL-` để không trùng mã đơn sàn; mã đã tồn tại thì 409 `DUPLICATE_PLATFORM_ORDER_ID` |
 | D5 | Shopee push code 8 (tồn kho đổi trên sàn) | Ngoài phạm vi; vẫn bỏ qua |
 
 ### 8.1 Ảnh hưởng của D3

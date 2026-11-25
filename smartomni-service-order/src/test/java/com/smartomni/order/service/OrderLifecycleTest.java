@@ -757,6 +757,73 @@ class OrderLifecycleTest {
         verify(orderRepository).save(any(Order.class));
         verify(orderItemRepository).save(any(OrderItem.class));
     }
+
+    private static com.smartomni.common.dto.CreateManualOrderRequest manualRequest(String platform, String platformOrderId) {
+        return com.smartomni.common.dto.CreateManualOrderRequest.builder()
+                .platform(platform)
+                .platformOrderId(platformOrderId)
+                .items(List.of(new com.smartomni.common.dto.CreateManualOrderRequest.ManualOrderItem(55L, 1, BigDecimal.TEN, null)))
+                .build();
+    }
+
+    @Test
+    @DisplayName("createManualOrder without platform is a 400, no SHOPEE default (D4)")
+    void createManualOrder_missingPlatform_isRejected() {
+        var error = assertThrows(com.smartomni.common.exception.BusinessException.class,
+                () -> orderService.createManualOrder(manualRequest(null, null)));
+
+        assertEquals("PLATFORM_REQUIRED", error.getErrorCode());
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("createManualOrder with an unknown platform is a 400 instead of silently SHOPEE")
+    void createManualOrder_unknownPlatform_isRejected() {
+        var error = assertThrows(com.smartomni.common.exception.BusinessException.class,
+                () -> orderService.createManualOrder(manualRequest("tiktok", null)));
+
+        assertEquals("UNKNOWN_PLATFORM", error.getErrorCode());
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("createManualOrder prefixes a given id with MANUAL- so it never matches a marketplace order")
+    void createManualOrder_prefixesGivenId() {
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order o = invocation.getArgument(0);
+            o.setId(ORDER_ID);
+            return o;
+        });
+        Order stored = new Order();
+        stored.setId(ORDER_ID);
+        stored.setTenantId(TENANT_ID);
+        stored.setPlatform(Order.Platform.TIKTOK_SHOP);
+        stored.setStatus(Order.OrderStatus.PENDING);
+        when(orderRepository.findByIdAndTenantId(ORDER_ID, TENANT_ID)).thenReturn(Optional.of(stored));
+        when(orderItemRepository.findByOrderIdAndTenantId(ORDER_ID, TENANT_ID)).thenReturn(List.of());
+
+        orderService.createManualOrder(manualRequest("tiktok_shop", " 5800001 "));
+        orderService.createManualOrder(manualRequest("TIKTOK_SHOP", "MANUAL-42"));
+
+        ArgumentCaptor<Order> saved = ArgumentCaptor.forClass(Order.class);
+        verify(orderRepository, times(2)).save(saved.capture());
+        assertEquals("MANUAL-5800001", saved.getAllValues().get(0).getPlatformOrderId());
+        assertEquals("MANUAL-42", saved.getAllValues().get(1).getPlatformOrderId(), "an id already prefixed is kept");
+        assertEquals(Order.Platform.TIKTOK_SHOP, saved.getAllValues().get(0).getPlatform());
+    }
+
+    @Test
+    @DisplayName("createManualOrder with an id that already exists is a 409")
+    void createManualOrder_duplicateId_isConflict() {
+        when(orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(TENANT_ID, Order.Platform.SHOPEE, "MANUAL-7"))
+                .thenReturn(Optional.of(new Order()));
+
+        var error = assertThrows(com.smartomni.common.exception.BusinessException.class,
+                () -> orderService.createManualOrder(manualRequest("SHOPEE", "7")));
+
+        assertEquals("DUPLICATE_PLATFORM_ORDER_ID", error.getErrorCode());
+        verify(orderRepository, never()).save(any(Order.class));
+    }
 }
 
 

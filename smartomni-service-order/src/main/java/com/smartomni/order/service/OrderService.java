@@ -52,6 +52,8 @@ public class OrderService {
 
     /** Reconciliation reason for a marketplace status change that the platform's table does not allow. */
     public static final String RECONCILIATION_STATUS_CONFLICT = "STATUS_CONFLICT";
+    /** Every manual order id starts with this, so it can never equal a marketplace order id. */
+    public static final String MANUAL_ORDER_ID_PREFIX = "MANUAL-";
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
@@ -404,6 +406,19 @@ public class OrderService {
     }
 
     /** Marketplace messages must name their platform; a missing one is a 400, never a guess (M10). */
+    /**
+     * Orders are looked up by tenant + platform + platform_order_id, and connection_id is null on manual and webhook
+     * orders alike, so the database does not reject a duplicate. A manual order that reused a marketplace id would be
+     * updated by that marketplace order's webhooks; the prefix keeps the two id spaces apart.
+     */
+    private static String manualPlatformOrderId(String requested) {
+        if (requested == null || requested.isBlank()) {
+            return MANUAL_ORDER_ID_PREFIX + System.currentTimeMillis();
+        }
+        String trimmed = requested.trim();
+        return trimmed.startsWith(MANUAL_ORDER_ID_PREFIX) ? trimmed : MANUAL_ORDER_ID_PREFIX + trimmed;
+    }
+
     private static Order.Platform requirePlatform(String platform) {
         if (platform == null || platform.isBlank()) {
             throw new BusinessException("platform is required", HttpStatus.BAD_REQUEST, "PLATFORM_REQUIRED");
@@ -520,16 +535,14 @@ public class OrderService {
             throw new BusinessException("Đơn hàng phải chứa ít nhất 1 sản phẩm", HttpStatus.BAD_REQUEST, "ITEMS_REQUIRED");
         }
 
-        Order.Platform platform = Order.Platform.SHOPEE;
-        if (request.getPlatform() != null && !request.getPlatform().isBlank()) {
-            try {
-                platform = Order.Platform.valueOf(request.getPlatform().toUpperCase());
-            } catch (IllegalArgumentException ignored) {}
-        }
+        // D4: no default marketplace; a missing or unknown platform is a 400, like tracking and return requests.
+        Order.Platform platform = requirePlatform(request.getPlatform());
 
-        String platformOrderId = (request.getPlatformOrderId() != null && !request.getPlatformOrderId().isBlank())
-                ? request.getPlatformOrderId()
-                : "MANUAL-" + System.currentTimeMillis();
+        String platformOrderId = manualPlatformOrderId(request.getPlatformOrderId());
+        if (orderRepository.findByTenantIdAndPlatformAndPlatformOrderId(tenantId, platform, platformOrderId).isPresent()) {
+            throw new BusinessException("Mã đơn đã tồn tại: " + platformOrderId,
+                    HttpStatus.CONFLICT, "DUPLICATE_PLATFORM_ORDER_ID");
+        }
 
         BigDecimal computedTotal = BigDecimal.ZERO;
         for (CreateManualOrderRequest.ManualOrderItem item : request.getItems()) {
