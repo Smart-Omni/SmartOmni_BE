@@ -169,9 +169,7 @@ public class TiktokConnectionStore {
         if (identifier == null || identifier.isBlank()) {
             return Optional.empty();
         }
-        return connections.findFirstByShopCipher(identifier)
-                .or(() -> connections.findFirstByShopId(identifier))
-                .or(() -> connections.findFirstBySellerOpenId(identifier));
+        return connections.findTiktokByShopIdentifier(identifier);
     }
 
     @Transactional(readOnly = true)

@@ -35,6 +35,44 @@ public interface MarketplaceConnectionRepository extends JpaRepository<Marketpla
     /** Find connection by TikTok seller_open_id. */
     Optional<MarketplaceConnection> findFirstBySellerOpenId(String sellerOpenId);
 
+    Optional<MarketplaceConnection> findFirstByPlatformAndShopCipherAndStatusNotOrderByIdAsc(
+            MarketplaceConnection.Platform platform, String shopCipher, MarketplaceConnection.ConnectionStatus status);
+
+    Optional<MarketplaceConnection> findFirstByPlatformAndShopIdAndStatusNotOrderByIdAsc(
+            MarketplaceConnection.Platform platform, String shopId, MarketplaceConnection.ConnectionStatus status);
+
+    Optional<MarketplaceConnection> findFirstByPlatformAndSellerOpenIdAndStatusNotOrderByIdAsc(
+            MarketplaceConnection.Platform platform, String sellerOpenId, MarketplaceConnection.ConnectionStatus status);
+
+    /**
+     * TikTok connection for a shop cipher. A disconnected row keeps its shop identity (audit), so a tenant that
+     * once held the shop may still own a row with the same cipher: a TikTok row that is not DISCONNECTED wins.
+     * Without one, the first row with that cipher is returned, as before.
+     */
+    default Optional<MarketplaceConnection> findTiktokByShopCipher(String shopCipher) {
+        if (shopCipher == null || shopCipher.isBlank()) return Optional.empty();
+        return findFirstByPlatformAndShopCipherAndStatusNotOrderByIdAsc(MarketplaceConnection.Platform.TIKTOK_SHOP,
+                shopCipher, MarketplaceConnection.ConnectionStatus.DISCONNECTED)
+                .or(() -> findFirstByShopCipher(shopCipher));
+    }
+
+    /**
+     * TikTok connection for an identifier that may be a shop cipher, a shop id or a seller open id (webhook
+     * {@code shop_id}). A TikTok row that is not DISCONNECTED wins for any of the three; without one, the earlier
+     * lookup order (cipher, shop id, seller open id, any status) is kept.
+     */
+    default Optional<MarketplaceConnection> findTiktokByShopIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) return Optional.empty();
+        MarketplaceConnection.Platform tiktok = MarketplaceConnection.Platform.TIKTOK_SHOP;
+        MarketplaceConnection.ConnectionStatus disconnected = MarketplaceConnection.ConnectionStatus.DISCONNECTED;
+        return findFirstByPlatformAndShopCipherAndStatusNotOrderByIdAsc(tiktok, identifier, disconnected)
+                .or(() -> findFirstByPlatformAndShopIdAndStatusNotOrderByIdAsc(tiktok, identifier, disconnected))
+                .or(() -> findFirstByPlatformAndSellerOpenIdAndStatusNotOrderByIdAsc(tiktok, identifier, disconnected))
+                .or(() -> findFirstByShopCipher(identifier))
+                .or(() -> findFirstByShopId(identifier))
+                .or(() -> findFirstBySellerOpenId(identifier));
+    }
+
     /**
      * Compare-and-swap token rotation: succeeds (1) only if nobody rotated since {@code expectedVersion}
      * and the connection is still CONNECTED. Both tokens are replaced in one statement.
