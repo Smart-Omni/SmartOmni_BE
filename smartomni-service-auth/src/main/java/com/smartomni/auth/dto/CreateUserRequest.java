@@ -44,7 +44,7 @@ public class CreateUserRequest {
     private String avatar;
 
     /**
-     * Role của tài khoản mới. Bắt buộc phải là một trong: ADMIN, TENANT_ADMIN, STAFF, CUSTOMER.
+     * Role của tài khoản mới. Bắt buộc phải là một trong: ADMIN, TENANT_ADMIN, MANAGER, CUSTOMER.
      * SUPER_ADMIN không được phép tạo thông qua API này.
      */
     @NotNull(message = "Role không được để trống")

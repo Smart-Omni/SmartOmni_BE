@@ -70,7 +70,7 @@ public class User extends BaseTenantEntity {
         SUPER_ADMIN,
         ADMIN,
         TENANT_ADMIN,
-        STAFF,
+        MANAGER,
         CUSTOMER
     }
 

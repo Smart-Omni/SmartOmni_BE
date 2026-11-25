@@ -86,7 +86,7 @@ public class AuthServiceImpl implements AuthService {
         User.UserRole targetRole = resolveSelfRegisterRole(request.getRole());
 
         // B2: Với CUSTOMER, phân giải cửa hàng nếu có subdomain (body hoặc Host/TenantContext) hoặc tenantId.
-        // Với STAFF tự đăng ký (Guest), không bắt buộc subdomain/tenantId và khởi tạo tenantId = null.
+        // Với MANAGER tự đăng ký (Guest), không bắt buộc subdomain/tenantId và khởi tạo tenantId = null.
         Long resolvedTenantId = null;
         String resolvedSubdomain = null;
         if (targetRole == User.UserRole.CUSTOMER) {
@@ -550,11 +550,11 @@ public class AuthServiceImpl implements AuthService {
         if ("CUSTOMER".equals(normalized)) {
             return User.UserRole.CUSTOMER;
         }
-        if ("STAFF".equals(normalized)) {
-            return User.UserRole.STAFF;
+        if ("MANAGER".equals(normalized)) {
+            return User.UserRole.MANAGER;
         }
         throw new BusinessException(
-                "Vai trò đăng ký không hợp lệ. Chỉ cho phép CUSTOMER hoặc STAFF",
+                "Vai trò đăng ký không hợp lệ. Chỉ cho phép CUSTOMER hoặc MANAGER",
                 HttpStatus.BAD_REQUEST,
                 "INVALID_ROLE");
     }

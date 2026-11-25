@@ -24,8 +24,8 @@ import java.util.List;
  * xác thực và nạp thông tin user (id, role, tenantId) vào SecurityContext & TenantContext.
  */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+    private static final String LEGACY_ROLE_STAFF = "STAFF";
 
-    private static final String LEGACY_ROLE_MANAGER = "MANAGER";
 
     private final JwtTokenProvider jwtTokenProvider;
     private final TokenBlacklistValidator tokenBlacklistValidator;
@@ -75,8 +75,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 Long tenantId = jwtTokenProvider.getTenantId(token);
                 String subdomain = jwtTokenProvider.getSubdomain(token);
 
-                // MANAGER đã bị gỡ (gộp vào STAFF): Redis vẫn có thể ghi ACTIVE nên phải chặn theo role.
-                if (LEGACY_ROLE_MANAGER.equalsIgnoreCase(role)) {
+                // STAFF đã đổi tên thành MANAGER: Redis vẫn có thể ghi ACTIVE nên phải chặn theo role.
+                if (LEGACY_ROLE_STAFF.equalsIgnoreCase(role)) {
                     writeRevoked(response);
                     return;
                 }
@@ -95,11 +95,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
 
-                // Chặn STAFF chưa thuộc cửa hàng (tenantId == null) truy cập các API dữ liệu của tenant
-                if (AppConstants.ROLE_STAFF.equalsIgnoreCase(role) && tenantId == null && !isAllowedForUnassignedStaff(request)) {
+                // Chặn MANAGER chưa thuộc cửa hàng (tenantId == null) truy cập các API dữ liệu của tenant
+                if (AppConstants.ROLE_MANAGER.equalsIgnoreCase(role) && tenantId == null && !isAllowedForUnassignedManager(request)) {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     response.setContentType("application/json;charset=UTF-8");
-                    response.getWriter().write("{\"success\":false,\"message\":\"Tài khoản nhân viên chưa thuộc cửa hàng nào\",\"code\":\"STAFF_NO_TENANT\"}");
+                    response.getWriter().write("{\"success\":false,\"message\":\"Tài khoản nhân viên chưa thuộc cửa hàng nào\",\"code\":\"MANAGER_NO_TENANT\"}");
                     return;
                 }
 
@@ -149,7 +149,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    private boolean isAllowedForUnassignedStaff(HttpServletRequest request) {
+    private boolean isAllowedForUnassignedManager(HttpServletRequest request) {
         String path = request.getRequestURI();
         if (path == null || path.isEmpty()) {
             path = request.getServletPath();

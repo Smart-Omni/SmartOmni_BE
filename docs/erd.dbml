@@ -6,6 +6,8 @@
 Enum user_role {
   super_admin
   admin
+  tenant_admin
+  customer
   manager
 }
 

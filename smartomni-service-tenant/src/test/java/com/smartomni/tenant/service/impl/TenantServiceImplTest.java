@@ -259,7 +259,7 @@ public class TenantServiceImplTest {
     }
 
     @Test
-    @DisplayName("onboardTenant: Luồng STAFF thành công gán vào Tenant có sẵn ở trạng thái DISABLED")
+    @DisplayName("onboardTenant: Luồng MANAGER thành công gán vào Tenant có sẵn ở trạng thái DISABLED")
     void testOnboardTenant_StaffRole_Success() {
         Tenant existingTenant = new Tenant();
         existingTenant.setId(10L);
@@ -274,7 +274,7 @@ public class TenantServiceImplTest {
                 .adminFullName("Staff Member")
                 .adminPassword("StaffPass123@")
                 .contactPhone("0911223344")
-                .roleChoice("STAFF")
+                .roleChoice("MANAGER")
                 .build();
 
         when(tenantRepository.findBySubdomain("existing-store")).thenReturn(Optional.of(existingTenant));
@@ -296,7 +296,7 @@ public class TenantServiceImplTest {
         assertEquals("Staff Member", response.getAdminFullName());
 
         verify(userRepository).save(argThat(user ->
-                user.getRole() == TenantUser.UserRole.STAFF
+                user.getRole() == TenantUser.UserRole.MANAGER
                         && user.getStatus() == TenantUser.UserStatus.DISABLED
                         && user.getTenantId().equals(10L)
         ));
@@ -304,9 +304,9 @@ public class TenantServiceImplTest {
     }
 
     @Test
-    @DisplayName("onboardTenant: roleChoice=MANAGER (đã gỡ) và giá trị lạ bị từ chối INVALID_ROLE, không tạo tenant/user")
+    @DisplayName("onboardTenant: roleChoice=STAFF (đã đổi tên) và giá trị lạ bị từ chối INVALID_ROLE, không tạo tenant/user")
     void testOnboardTenant_RemovedOrUnknownRole_Rejected() {
-        for (String role : new String[]{"MANAGER", "ROLE_MANAGER", "ADMIN", "CUSTOMER"}) {
+        for (String role : new String[]{"STAFF", "ROLE_STAFF", "ADMIN", "CUSTOMER"}) {
             TenantOnboardingRequest request = TenantOnboardingRequest.builder()
                     .subdomain("existing-store")
                     .adminEmail("manager@existingstore.vn")
@@ -324,12 +324,12 @@ public class TenantServiceImplTest {
     }
 
     @Test
-    @DisplayName("onboardTenant: Luồng STAFF thất bại khi không tìm thấy Tenant")
+    @DisplayName("onboardTenant: Luồng MANAGER thất bại khi không tìm thấy Tenant")
     void testOnboardTenant_StaffRole_TenantNotFound() {
         TenantOnboardingRequest request = TenantOnboardingRequest.builder()
                 .subdomain("nonexistent-store")
                 .adminEmail("staff@notfound.vn")
-                .roleChoice("STAFF")
+                .roleChoice("MANAGER")
                 .build();
 
         when(tenantRepository.findBySubdomain("nonexistent-store")).thenReturn(Optional.empty());
@@ -339,7 +339,7 @@ public class TenantServiceImplTest {
     }
 
     @Test
-    @DisplayName("onboardTenant: Luồng STAFF thất bại khi Tenant đã bị khóa")
+    @DisplayName("onboardTenant: Luồng MANAGER thất bại khi Tenant đã bị khóa")
     void testOnboardTenant_StaffRole_TenantLocked() {
         Tenant lockedTenant = new Tenant();
         lockedTenant.setId(11L);
@@ -350,7 +350,7 @@ public class TenantServiceImplTest {
         TenantOnboardingRequest request = TenantOnboardingRequest.builder()
                 .subdomain("locked-shop")
                 .adminEmail("staff@lockedshop.vn")
-                .roleChoice("STAFF")
+                .roleChoice("MANAGER")
                 .build();
 
         when(tenantRepository.findBySubdomain("locked-shop")).thenReturn(Optional.of(lockedTenant));
@@ -362,7 +362,7 @@ public class TenantServiceImplTest {
     }
 
     @Test
-    @DisplayName("onboardTenant: Luồng STAFF thất bại khi email đã tồn tại")
+    @DisplayName("onboardTenant: Luồng MANAGER thất bại khi email đã tồn tại")
     void testOnboardTenant_StaffRole_DuplicateEmail() {
         Tenant existingTenant = new Tenant();
         existingTenant.setId(10L);
@@ -373,7 +373,7 @@ public class TenantServiceImplTest {
         TenantOnboardingRequest request = TenantOnboardingRequest.builder()
                 .subdomain("existing-store")
                 .adminEmail("staff-dup@store.vn")
-                .roleChoice("STAFF")
+                .roleChoice("MANAGER")
                 .build();
 
         when(tenantRepository.findBySubdomain("existing-store")).thenReturn(Optional.of(existingTenant));
@@ -518,7 +518,7 @@ public class TenantServiceImplTest {
     @Test
     @DisplayName("getCurrentTenantProfile: Thành công khi TenantContext có tenantId")
     void testGetCurrentTenantProfile_Success() {
-        TenantContext.openScope(100L, "STAFF", null);
+        TenantContext.openScope(100L, "MANAGER", null);
 
         Tenant tenant = new Tenant();
         tenant.setId(100L);

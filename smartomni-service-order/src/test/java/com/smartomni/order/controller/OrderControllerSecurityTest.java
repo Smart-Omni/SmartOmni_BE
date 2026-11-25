@@ -80,14 +80,14 @@ class OrderControllerSecurityTest {
 
     @Test
     void staffCanMovePendingOrderToShip() throws Exception {
-        loginAs("STAFF");
+        loginAs("MANAGER");
         mockMvc.perform(patch("/api/v1/orders/1/status").param("status", "TO_SHIP")).andExpect(status().isOk());
         verify(orderService).updateStatus(1L, Order.OrderStatus.TO_SHIP);
     }
 
     @Test
     void staffCanCreateManualOrder() throws Exception {
-        loginAs("STAFF");
+        loginAs("MANAGER");
         mockMvc.perform(post("/api/v1/orders").contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isOk());
         verify(orderService).createManualOrder(any(CreateManualOrderRequest.class));
@@ -102,8 +102,8 @@ class OrderControllerSecurityTest {
     }
 
     @Test
-    void customerAndLegacyManagerAreDenied() {
-        for (String role : new String[]{"CUSTOMER", "MANAGER"}) {
+    void customerAndLegacyStaffAreDenied() {
+        for (String role : new String[]{"CUSTOMER", "STAFF"}) {
             loginAs(role);
             var patchError = assertThrows(Exception.class,
                     () -> mockMvc.perform(patch("/api/v1/orders/1/status").param("status", "TO_SHIP")));

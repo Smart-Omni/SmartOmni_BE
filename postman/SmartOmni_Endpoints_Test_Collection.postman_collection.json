@@ -2907,7 +2907,7 @@
                                                    {
                                                        "request":  {
                                                                        "body":  {
-                                                                                    "raw":  "{\"email\":\"staff@smartshop.vn\",\"fullName\":\"Staff Member\",\"password\":\"Password123@\",\"role\":\"STAFF\"}",
+                                                                                    "raw":  "{\"email\":\"staff@smartshop.vn\",\"fullName\":\"Staff Member\",\"password\":\"Password123@\",\"role\":\"MANAGER\"}",
                                                                                     "options":  {
                                                                                                     "raw":  {
                                                                                                                 "language":  "json"
@@ -3025,7 +3025,7 @@
                                                    {
                                                        "request":  {
                                                                        "body":  {
-                                                                                    "raw":  "{\"email\":\"staff@smartshop.vn\",\"fullName\":\"Staff Member\",\"password\":\"Password123@\",\"role\":\"STAFF\"}",
+                                                                                    "raw":  "{\"email\":\"staff@smartshop.vn\",\"fullName\":\"Staff Member\",\"password\":\"Password123@\",\"role\":\"MANAGER\"}",
                                                                                     "options":  {
                                                                                                     "raw":  {
                                                                                                                 "language":  "json"
