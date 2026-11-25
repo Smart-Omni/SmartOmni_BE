@@ -177,7 +177,7 @@ class TiktokConnectionServiceTest {
 
     @Test
     void onlyATenantAdminMayStartCompleteOrDisconnect() {
-        for (String role : new String[]{"STAFF", "SUPER_ADMIN", null}) {
+        for (String role : new String[]{"MANAGER", "SUPER_ADMIN", null}) {
             TenantContext.setCurrentRole(role);
             assertEquals("TENANT_ADMIN_REQUIRED", assertThrows(BusinessException.class, () -> service.start()).getErrorCode());
             assertEquals("TENANT_ADMIN_REQUIRED", assertThrows(BusinessException.class,

@@ -28,7 +28,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/tiktok")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF')")
+@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER')")
 public class TiktokLogisticsController {
 
     private final TiktokTenantConnections tenantConnections;

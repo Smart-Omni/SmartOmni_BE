@@ -28,7 +28,7 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/tiktok/products")
-@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF')")
+@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER')")
 public class TiktokCatalogController {
 
     private final TiktokProductImportService importService;

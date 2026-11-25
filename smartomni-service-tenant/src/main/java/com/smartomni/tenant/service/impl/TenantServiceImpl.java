@@ -134,14 +134,14 @@ public class TenantServiceImpl implements TenantService {
             roleChoice = roleChoice.substring(5);
         }
 
-        if (!"STAFF".equals(roleChoice) && !"TENANT_ADMIN".equals(roleChoice)) {
-            throw new BusinessException("Role không hợp lệ. Chỉ cho phép STAFF hoặc TENANT_ADMIN",
+        if (!"MANAGER".equals(roleChoice) && !"TENANT_ADMIN".equals(roleChoice)) {
+            throw new BusinessException("Role không hợp lệ. Chỉ cho phép MANAGER hoặc TENANT_ADMIN",
                     HttpStatus.BAD_REQUEST, "INVALID_ROLE");
         }
-        boolean isStaff = "STAFF".equals(roleChoice);
+        boolean isStaff = "MANAGER".equals(roleChoice);
 
         if (isStaff) {
-            // Luồng Onboarding cho STAFF: kiểm tra Tenant đã tồn tại và liên kết tài khoản Staff vào Tenant đó ở trạng thái chờ kích hoạt / gán quyền
+            // Luồng Onboarding cho MANAGER: kiểm tra Tenant đã tồn tại và liên kết tài khoản Staff vào Tenant đó ở trạng thái chờ kích hoạt / gán quyền
             if (request.getSubdomain() == null || request.getSubdomain().trim().isEmpty()) {
                 throw new BusinessException("Subdomain không được để trống", HttpStatus.BAD_REQUEST, "INVALID_INPUT");
             }
@@ -176,7 +176,7 @@ public class TenantServiceImpl implements TenantService {
                     .passwordHash(passwordEncoder.encode(rawPassword))
                     .fullName(fullName)
                     .phone(request.getPhone())
-                    .role(TenantUser.UserRole.STAFF)
+                    .role(TenantUser.UserRole.MANAGER)
                     .status(TenantUser.UserStatus.DISABLED) // Trạng thái chờ kích hoạt / gán quyền
                     .failedLoginAttempts(0)
                     .build();

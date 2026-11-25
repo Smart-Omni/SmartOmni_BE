@@ -49,7 +49,7 @@ public class ShopeeReturnMessageConsumer {
         String orderSn = message.get("platformOrderId") != null ? String.valueOf(message.get("platformOrderId")) : null;
         String returnSn = String.valueOf(message.get("returnSn"));
 
-        try (var scope = TenantContext.openScope(tenantId, "staff", null)) {
+        try (var scope = TenantContext.openScope(tenantId, "manager", null)) {
             returnSyncService.syncReturn(tenantId, shopId, orderSn, returnSn);
             log.info("Successfully processed return message: tenantId={}, returnSn={}, orderSn={}",
                     tenantId, returnSn, orderSn);

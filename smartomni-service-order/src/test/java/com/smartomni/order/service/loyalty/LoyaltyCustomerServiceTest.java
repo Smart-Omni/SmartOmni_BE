@@ -67,7 +67,7 @@ class LoyaltyCustomerServiceTest {
     @Test
     void rejectsNonCustomerRole() {
         when(jdbcTemplate.query(contains("FROM users"), any(RowMapper.class), eq(1L), eq(10L)))
-                .thenReturn(List.of("staff"));
+                .thenReturn(List.of("manager"));
 
         assertThatThrownBy(() -> service.claimOrderPoints(10L, 1L, new ClaimPointsRequest(100L, BigDecimal.valueOf(250000))))
                 .isInstanceOf(BusinessException.class)

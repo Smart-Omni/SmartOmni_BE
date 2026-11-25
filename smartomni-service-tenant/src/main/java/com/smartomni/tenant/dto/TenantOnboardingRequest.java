@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * Request payload for Tenant Onboarding (UC-17, TEN-01.1).
- * Supports both TENANT_ADMIN (new tenant + admin) and STAFF (join existing tenant) flows.
+ * Supports both TENANT_ADMIN (new tenant + admin) and MANAGER (join existing tenant) flows.
  */
 @Data
 @Builder

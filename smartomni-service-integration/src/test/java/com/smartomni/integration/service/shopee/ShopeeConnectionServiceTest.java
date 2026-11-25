@@ -122,7 +122,7 @@ class ShopeeConnectionServiceTest {
 
     @Test
     void startRejectsNonAdmin() {
-        TenantContext.setCurrentRole("STAFF");
+        TenantContext.setCurrentRole("MANAGER");
         BusinessException ex = assertThrows(BusinessException.class, () -> service.start());
         assertEquals("TENANT_ADMIN_REQUIRED", ex.getErrorCode());
     }

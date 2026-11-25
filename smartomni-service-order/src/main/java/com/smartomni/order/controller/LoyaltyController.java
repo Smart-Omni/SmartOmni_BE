@@ -91,7 +91,7 @@ public class LoyaltyController {
     // -------------------------------------------------------------------------
 
     @GetMapping("/campaigns")
-    @PreAuthorize("hasAnyRole('CUSTOMER', 'TENANT_ADMIN', 'STAFF', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'TENANT_ADMIN', 'MANAGER', 'ADMIN')")
     public ResponseEntity<ApiResponse<List<LoyaltyCampaignDto>>> listCampaigns() {
         Long tenantId = requireTenantId();
         if (isCustomerRole()) {
@@ -103,7 +103,7 @@ public class LoyaltyController {
     }
 
     @PostMapping("/campaigns")
-    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER', 'ADMIN')")
     public ResponseEntity<ApiResponse<LoyaltyCampaignDto>> createCampaign(
             @Valid @RequestBody CreateCampaignRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -112,7 +112,7 @@ public class LoyaltyController {
     }
 
     @PatchMapping("/campaigns/{id}")
-    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER', 'ADMIN')")
     public ResponseEntity<ApiResponse<LoyaltyCampaignDto>> updateCampaign(
             @PathVariable Long id,
             @RequestBody UpdateCampaignRequest request) {
@@ -121,7 +121,7 @@ public class LoyaltyController {
     }
 
     @GetMapping("/reward-requests")
-    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER', 'ADMIN')")
     public ResponseEntity<ApiResponse<List<LoyaltyRewardRequestDto>>> listRewardRequests() {
         return ResponseEntity.ok(ApiResponse.success(
                 campaignService.listAdminRewardRequests(requireTenantId())));

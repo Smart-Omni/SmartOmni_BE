@@ -18,7 +18,7 @@ public final class AppConstants {
     public static final String ROLE_SUPER_ADMIN = "SUPER_ADMIN";
     public static final String ROLE_ADMIN = "ADMIN";
     public static final String ROLE_TENANT_ADMIN = "TENANT_ADMIN";
-    public static final String ROLE_STAFF = "STAFF";
+    public static final String ROLE_MANAGER = "MANAGER";
     public static final String ROLE_CUSTOMER = "CUSTOMER";
 
     // Feature flag keys (UC-29 / UC-41)

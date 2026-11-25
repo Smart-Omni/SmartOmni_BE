@@ -36,16 +36,16 @@ class ShopeeTenantConnectionsTest {
                 .thenReturn(Optional.of(connection));
         TenantContext.setTenantId(42L);
 
-        for (String role : new String[]{"STAFF", "TENANT_ADMIN", "ADMIN"}) {
+        for (String role : new String[]{"MANAGER", "TENANT_ADMIN", "ADMIN"}) {
             TenantContext.setCurrentRole(role);
             assertSame(connection, connections.requireConnected());
         }
     }
 
     @Test
-    void customerAndLegacyManagerAreForbidden() {
+    void customerAndLegacyStaffAreForbidden() {
         TenantContext.setTenantId(42L);
-        for (String role : new String[]{"CUSTOMER", "MANAGER"}) {
+        for (String role : new String[]{"CUSTOMER", "STAFF"}) {
             TenantContext.setCurrentRole(role);
             assertEquals("CATALOG_SYNC_FORBIDDEN",
                     assertThrows(BusinessException.class, connections::requireConnected).getErrorCode());

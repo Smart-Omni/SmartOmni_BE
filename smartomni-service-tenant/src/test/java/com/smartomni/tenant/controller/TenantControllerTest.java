@@ -229,13 +229,13 @@ class TenantControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/tenants/onboarding: Thành công cho luồng STAFF tham gia Tenant có sẵn")
+    @DisplayName("POST /api/v1/tenants/onboarding: Thành công cho luồng MANAGER tham gia Tenant có sẵn")
     void testOnboarding_StaffRole_Success() throws Exception {
         TenantOnboardingRequest request = TenantOnboardingRequest.builder()
                 .subdomain("smart-store")
                 .adminEmail("staff@smartstore.vn")
                 .adminFullName("Staff Nguyen")
-                .roleChoice("STAFF")
+                .roleChoice("MANAGER")
                 .build();
 
         TenantProfileResponse response = TenantProfileResponse.builder()
@@ -363,7 +363,7 @@ class TenantControllerTest {
     @Test
     @DisplayName("PUT /api/v1/tenants/storefront: Cập nhật thành công cấu hình Storefront")
     void testUpdateStorefront_Success() throws Exception {
-        TenantContext.openScope(10L, "STAFF", null);
+        TenantContext.openScope(10L, "MANAGER", null);
 
         StorefrontConfigRequest request = StorefrontConfigRequest.builder()
                 .storeName("Fashion Haven")
@@ -403,7 +403,7 @@ class TenantControllerTest {
     @Test
     @DisplayName("PUT /api/v1/tenants/storefront: Báo lỗi 400 khi storeName trống")
     void testUpdateStorefront_ValidationFailure() throws Exception {
-        TenantContext.openScope(10L, "STAFF", null);
+        TenantContext.openScope(10L, "MANAGER", null);
 
         StorefrontConfigRequest request = StorefrontConfigRequest.builder()
                 .storeName("") // Trống

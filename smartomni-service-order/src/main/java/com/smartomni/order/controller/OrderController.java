@@ -35,13 +35,13 @@ public class OrderController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('STAFF','ADMIN','TENANT_ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT_ADMIN')")
     public ApiResponse<OrderDetailDto> createManualOrder(@Valid @RequestBody CreateManualOrderRequest request) {
         return ApiResponse.success("Tạo đơn hàng thành công", orderService.createManualOrder(request));
     }
 
     @PatchMapping("/{orderId}/status")
-    @PreAuthorize("hasAnyRole('STAFF','ADMIN','TENANT_ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT_ADMIN')")
     public ApiResponse<Order> updateStatus(@PathVariable Long orderId, @RequestParam Order.OrderStatus status) {
         return ApiResponse.success(orderService.updateStatus(orderId, status));
     }

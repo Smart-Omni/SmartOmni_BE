@@ -29,7 +29,7 @@ public class ShopeeTenantConnections {
         String role = TenantContext.getCurrentRole();
         if (!AppConstants.ROLE_TENANT_ADMIN.equalsIgnoreCase(role)
                 && !AppConstants.ROLE_ADMIN.equalsIgnoreCase(role)
-                && !AppConstants.ROLE_STAFF.equalsIgnoreCase(role)) {
+                && !AppConstants.ROLE_MANAGER.equalsIgnoreCase(role)) {
             throw new BusinessException("Only a Tenant Admin or Staff can access Shopee catalog",
                     HttpStatus.FORBIDDEN, "CATALOG_SYNC_FORBIDDEN");
         }

@@ -36,7 +36,7 @@ public class StaffInvitation extends BaseTenantEntity {
 
     @Column(name = "role", nullable = false, length = 50)
     @Builder.Default
-    private String role = "STAFF";
+    private String role = "MANAGER";
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
