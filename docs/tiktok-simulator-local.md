@@ -9,8 +9,10 @@ Trong repo `Smartomni-Tiktok-Simulator`, copy `.env.example` thành `.env`, thay
 ```dotenv
 SEED_APP_KEY=smartomni-dev-app-key
 SEED_APP_SECRET=smartomni-dev-app-secret-fake
-SEED_APP_REDIRECT_URIS=smartomni://oauth/tiktok
+SEED_APP_REDIRECT_URIS=http://localhost:5174/merchant/channels/tiktok-shop/callback,smartomni://oauth/tiktok
 ```
+
+URI đầu tiên là trang callback của FE web, phải trùng chính xác với `TIKTOK_REDIRECT_URI` của SmartOmni (mặc định trong `docker-compose.yml`). URI thứ hai dành cho mobile và phải nằm trong `TIKTOK_ALLOWED_REDIRECT_URIS`. Nếu SmartOmni không gửi `redirect_uri`, Simulator dùng URI đầu tiên trong danh sách. Sau khi đổi danh sách, tạo lại container `api` của Simulator để seed cập nhật app.
 
 Trong repo `SmartOmni_Platform`, copy `.env.example` thành `.env`, thay các placeholder của database, RabbitMQ, JWT và AES key. Giữ các giá trị `TIKTOK_*` mẫu trong `.env.example`, hoặc đổi `TIKTOK_APP_KEY` / `TIKTOK_APP_SECRET` cùng với `SEED_APP_KEY` / `SEED_APP_SECRET` ở simulator. Không commit hai file `.env`.
 
@@ -38,7 +40,9 @@ Chờ `db`, `api`, `ui` của simulator và `integration-service`, `gateway` c�
 
 ## 3. Thử OAuth từ đầu đến cuối
 
-Đăng nhập SmartOmni bằng Tenant Admin và lấy access token. Dùng cùng token cho hai request sau:
+**Luồng web:** chạy FE (`npm run dev`, cổng 5174), bấm kết nối TikTok Shop. FE gọi API authorization mà không gửi `redirect_uri`, nên BE dùng `TIKTOK_REDIRECT_URI`. Sau khi chọn **Authorize**, Simulator chuyển về `http://localhost:5174/merchant/channels/tiktok-shop/callback?code=...&state=...`, và trang này tự gọi callback API.
+
+**Luồng mobile/thủ công:** đăng nhập SmartOmni bằng Tenant Admin và lấy access token. Dùng cùng token cho hai request sau:
 
 ```http
 POST http://localhost/api/v1/marketplace-connections/tiktok-shop/authorization
