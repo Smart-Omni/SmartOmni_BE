@@ -52,7 +52,7 @@ Content-Type: application/json
 {"redirect_uri":"smartomni://oauth/tiktok"}
 ```
 
-Mở `data.authorizationUrl` trong response. Đăng nhập shop ở simulator UI, chọn **Authorize**, rồi lấy `code` và `state` từ deep link `smartomni://oauth/tiktok?...` mà browser hoặc app nhận được. Gửi chúng về SmartOmni trước khi code hết hạn:
+Mở `data.authorizationUrl` trong response. Đăng nhập shop ở simulator UI (`http://localhost:3090`, ví dụ `phamgiahuy.ttsim@gmail.com` / `123`; danh sách tài khoản ở README của simulator), chọn **Authorize** (trang cấp quyền chỉ dùng shop đang đăng nhập; chưa đăng nhập thì nó chuyển sang `/login` rồi quay lại), rồi lấy `code` và `state` từ deep link `smartomni://oauth/tiktok?...` mà browser hoặc app nhận được. Gửi chúng về SmartOmni trước khi code hết hạn:
 
 ```http
 POST http://localhost/api/v1/marketplace-connections/tiktok-shop/callback

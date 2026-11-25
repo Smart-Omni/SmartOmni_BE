@@ -191,10 +191,12 @@ Lưu ý: `line_items[].quantity` luôn `null` (OAS của simulator không có qu
 
 ## 6. Cách chạy lại
 
+> Cập nhật 25/11/2026: bước 3 và 4 đã sửa theo simulator mới (từ commit `fbf921e`, cần database đã cập nhật): đăng nhập demo bằng email và mật khẩu, thanh toán xong đơn vào thẳng `AWAITING_SHIPMENT`. Kết quả test ở các mục khác giữ nguyên.
+
 1. Khởi động: `docker compose -f docker-compose.yml -f docker-compose.tiktok-simulator.yml up --build -d` (trong repo SmartOmni) và `docker compose up --build -d` (trong repo simulator). Sau khi tạo lại container, chạy `docker restart smartomni-gateway`.
 2. Tạo tenant: `POST /api/v1/tenants/onboarding` (`company_name`, `subdomain`, `admin_email`, `admin_full_name`, `admin_password`), đăng nhập `POST /api/v1/auth/login` kèm `subdomain`.
-3. Kết nối shop: gọi `authorization`, mở `authorizationUrl` ở UI simulator, chọn seller "Phạm Gia Huy - SmartOmni Official Flagship", Authorize; lấy `code` và `state` từ body response của `POST /demo/authorization/consent`; gọi `callback`.
-4. Tạo đơn: `POST /demo/sessions` (buyer Nguyễn Minh Khôi) → `POST /demo/shops/{shopId}/checkout` → `.../orders/{id}/pay` → `POST /test-admin/orders/{id}/transition {"to":"AWAITING_SHIPMENT"}` (cần `x-test-admin-token`).
+3. Kết nối shop: gọi `authorization`, mở `authorizationUrl` ở UI simulator, đăng nhập `phamgiahuy.ttsim@gmail.com` / `123` (seller "Phạm Gia Huy - SmartOmni Official Flagship"), rồi Authorize; lấy `code` và `state` từ body response của `POST /demo/authorization/consent`; gọi `callback`.
+4. Tạo đơn: `POST /demo/sessions` với body `{"role":"BUYER","email":"nguyenminhkhoi.ttsim@gmail.com","password":"123"}` (buyer Nguyễn Minh Khôi) → `POST /demo/shops/{shopId}/checkout` → `.../orders/{id}/pay` (đơn vào thẳng `AWAITING_SHIPMENT`).
 5. Aftersale: `POST /demo/shops/{shopId}/aftersale/returns` (đơn đã `DELIVERED`) và `.../aftersale/cancellations` (đơn đã thanh toán, chưa ship).
 
 ## 7. Cập nhật 23/11/2026: simulator thay đổi và kết quả chạy lại
