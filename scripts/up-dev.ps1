@@ -4,14 +4,18 @@
 #   .\scripts\up-dev.ps1                                      # whole stack
 #   .\scripts\up-dev.ps1 order-service integration-service    # only these services
 #   .\scripts\up-dev.ps1 -EnvFile D:\secrets\smartomni.env
+#   .\scripts\up-dev.ps1 -TikTok                              # also docker-compose.tiktok-simulator.yml
 #
 # The Compose project is always "smartomni_platform" (-ProjectName to change it), so running from a git worktree
 # reuses the same containers and database volume instead of starting an empty project named after the folder.
 # Without -EnvFile, the .env of this checkout is used, else the .env of the main checkout (worktrees have none).
+# -TikTok attaches Integration Service to the standalone TikTok simulator (start that stack first); leave it out and
+# a rebuilt integration-service loses the simulator.
 [CmdletBinding(PositionalBinding = $false)] # bare words are service names, never -ProjectName/-EnvFile
 param(
     [string]$ProjectName = "smartomni_platform",
     [string]$EnvFile,
+    [switch]$TikTok,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$Services = @()
 )
@@ -31,7 +35,17 @@ if ($EnvFile) {
         throw "No .env found (looked in: $($candidates -join ', ')). Copy .env.example to .env or pass -EnvFile."
     }
 }
-Write-Host "Compose project: $ProjectName | env file: $EnvFile"
+$composeFiles = @("-f", "docker-compose.yml", "-f", "docker-compose.prebuilt.yml")
+if ($TikTok) {
+    # The override joins this external network of the simulator stack; check it before spending a Maven build.
+    $simulatorNetwork = "smartomni-tiktok-simulator_sim_edge"
+    docker network inspect $simulatorNetwork *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker network $simulatorNetwork not found: start the TikTok simulator stack first (docker compose up -d in Smartomni-Tiktok-Simulator)."
+    }
+    $composeFiles += @("-f", "docker-compose.tiktok-simulator.yml")
+}
+Write-Host "Compose project: $ProjectName | env file: $EnvFile | TikTok simulator: $([bool]$TikTok)"
 
 Push-Location $repoRoot
 try {
@@ -39,8 +53,7 @@ try {
     mvn -B -DskipTests clean package
     if ($LASTEXITCODE -ne 0) { throw "Maven build failed; Docker images were not rebuilt." }
 
-    docker compose -p $ProjectName --env-file $EnvFile -f docker-compose.yml -f docker-compose.prebuilt.yml `
-        up -d --build @Services
+    docker compose -p $ProjectName --env-file $EnvFile @composeFiles up -d --build @Services
     if ($LASTEXITCODE -ne 0) { throw "docker compose up failed." }
 } finally {
     Pop-Location
