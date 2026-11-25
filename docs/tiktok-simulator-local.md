@@ -9,10 +9,10 @@ Trong repo `Smartomni-Tiktok-Simulator`, copy `.env.example` thành `.env`, thay
 ```dotenv
 SEED_APP_KEY=smartomni-dev-app-key
 SEED_APP_SECRET=smartomni-dev-app-secret-fake
-SEED_APP_REDIRECT_URIS=http://localhost:5174/merchant/channels/tiktok-shop/callback,smartomni://oauth/tiktok
+SEED_APP_REDIRECT_URIS=http://localhost:5174/merchant/channels/tiktok-shop/callback,smartomni://oauth/tiktok,http://127.0.0.1:5174/merchant/channels/tiktok-shop/callback
 ```
 
-URI đầu tiên là trang callback của FE web, phải trùng chính xác với `TIKTOK_REDIRECT_URI` của SmartOmni (mặc định trong `docker-compose.yml`). URI thứ hai dành cho mobile và phải nằm trong `TIKTOK_ALLOWED_REDIRECT_URIS`. Nếu SmartOmni không gửi `redirect_uri`, Simulator dùng URI đầu tiên trong danh sách. Sau khi đổi danh sách, tạo lại container `api` của Simulator để seed cập nhật app.
+URI đầu tiên là trang callback của FE web, phải trùng chính xác với `TIKTOK_REDIRECT_URI` của SmartOmni (mặc định trong `docker-compose.yml`). Hai URI còn lại phải nằm trong `TIKTOK_ALLOWED_REDIRECT_URIS`: `smartomni://oauth/tiktok` cho mobile, và bản `127.0.0.1` cho trường hợp FE được mở ở `http://127.0.0.1:5174`. Nếu SmartOmni không gửi `redirect_uri`, Simulator dùng URI đầu tiên trong danh sách. Sau khi đổi danh sách, tạo lại container `api` của Simulator để seed cập nhật app.
 
 Trong repo `SmartOmni_Platform`, copy `.env.example` thành `.env`, thay các placeholder của database, RabbitMQ, JWT và AES key. Giữ các giá trị `TIKTOK_*` mẫu trong `.env.example`, hoặc đổi `TIKTOK_APP_KEY` / `TIKTOK_APP_SECRET` cùng với `SEED_APP_KEY` / `SEED_APP_SECRET` ở simulator. Không commit hai file `.env`.
 
@@ -40,7 +40,7 @@ Chờ `db`, `api`, `ui` của simulator và `integration-service`, `gateway` c�
 
 ## 3. Thử OAuth từ đầu đến cuối
 
-**Luồng web:** chạy FE (`npm run dev`, cổng 5174), bấm kết nối TikTok Shop. FE gọi API authorization mà không gửi `redirect_uri`, nên BE dùng `TIKTOK_REDIRECT_URI`. Sau khi chọn **Authorize**, Simulator chuyển về `http://localhost:5174/merchant/channels/tiktok-shop/callback?code=...&state=...`, và trang này tự gọi callback API.
+**Luồng web:** chạy FE (`npm run dev`, cổng 5174), bấm kết nối TikTok Shop. Khi chạy local, FE gửi `redirect_uri` là trang callback trên chính origin đang mở (`http://localhost:5174/...` hoặc `http://127.0.0.1:5174/...`), vì phiên đăng nhập được lưu theo từng origin. Nếu FE không gửi `redirect_uri`, BE dùng `TIKTOK_REDIRECT_URI`. Sau khi chọn **Authorize**, Simulator chuyển về `<origin>/merchant/channels/tiktok-shop/callback?code=...&state=...`, và trang này tự gọi callback API. Mở FE ở `localhost`/`127.0.0.1` với cổng khác 5174 sẽ bị BE trả `INVALID_REDIRECT_URI`, trừ khi URI đó được thêm vào cả hai danh sách. Với subdomain `*.lvh.me`, FE không gửi `redirect_uri` và sẽ chặn với thông báo "Open SmartOmni at http://localhost:5174…"; hãy mở FE ở `localhost:5174` để kết nối TikTok.
 
 **Luồng mobile/thủ công:** đăng nhập SmartOmni bằng Tenant Admin và lấy access token. Dùng cùng token cho hai request sau:
 
