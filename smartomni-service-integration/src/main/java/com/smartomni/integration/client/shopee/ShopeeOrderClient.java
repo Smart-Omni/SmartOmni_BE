@@ -3,6 +3,7 @@ package com.smartomni.integration.client.shopee;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.smartomni.integration.service.shopee.ShopeePiiMasker;
 import com.smartomni.integration.service.shopee.ShopeeShopApiExecutor;
 import org.springframework.stereotype.Component;
 
@@ -159,8 +160,8 @@ public class ShopeeOrderClient {
         JsonNode addrNode = o.path("recipient_address");
         RecipientAddress address = new RecipientAddress(
                 addrNode.path("name").asText(null),
-                addrNode.path("phone").asText(null),
-                addrNode.path("full_address").asText(null),
+                ShopeePiiMasker.maskPhone(addrNode.path("phone").asText(null)),
+                ShopeePiiMasker.maskAddress(addrNode.path("full_address").asText(null)),
                 addrNode.path("city").asText(null),
                 addrNode.path("district").asText(null),
                 addrNode.path("state").asText(null),

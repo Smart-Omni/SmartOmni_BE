@@ -147,8 +147,8 @@ class ShopeeOrderClientTest {
         assertEquals(BigDecimal.valueOf(450000.0), order.totalAmount());
         assertEquals("nguyen_buyer", order.buyerUsername());
         assertEquals("Nguyen Van A", order.recipientAddress().name());
-        assertEquals("0901234567", order.recipientAddress().phone());
-        assertEquals("123 Le Loi, District 1, HCMC", order.recipientAddress().fullAddress());
+        assertEquals("090****567", order.recipientAddress().phone());
+        assertEquals("******, District 1, HCMC", order.recipientAddress().fullAddress());
         assertEquals("SPX_VN_1042", order.trackingNo());
         assertEquals("SPX Express", order.shippingCarrier());
 
