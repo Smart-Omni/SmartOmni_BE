@@ -16,7 +16,7 @@ URI đầu tiên là trang callback của FE web, phải trùng chính xác vớ
 
 Trong repo `SmartOmni_Platform`, copy `.env.example` thành `.env`, thay các placeholder của database, RabbitMQ, JWT và AES key. Giữ các giá trị `TIKTOK_*` mẫu trong `.env.example`, hoặc đổi `TIKTOK_APP_KEY` / `TIKTOK_APP_SECRET` cùng với `SEED_APP_KEY` / `SEED_APP_SECRET` ở simulator. Không commit hai file `.env`.
 
-`TIKTOK_AUTHORIZATION_URL=http://localhost:3090/seller/authorize` là trang người bán mở trong browser. Khi dùng Compose, file override `docker-compose.tiktok-simulator.yml` nối Integration Service vào network của simulator và đặt hai URL API thành `http://api:8090`. Không dùng `host.docker.internal:8090` trong trường hợp này: simulator chỉ bind `127.0.0.1` trên host và SmartOmni dùng DNS container riêng. Nếu chạy Integration Service trực tiếp trên host, đặt hai URL API thành `http://localhost:8090` trong môi trường chạy Java.
+`TIKTOK_AUTHORIZATION_URL=http://localhost:3090/seller/authorize` là trang người bán mở trong browser. Khi dùng Compose, file override `docker-compose.tiktok-simulator.yml` nối Integration Service vào network của simulator và đặt hai URL API thành `http://api:8090`. Không dùng `host.docker.internal:8090`: các service SmartOmni hỏi DNS riêng `172.28.0.53` (dnsmasq, chuyển tiếp tới `8.8.8.8`), và DNS này không phân giải được `host.docker.internal` (trả NXDOMAIN). Nếu `.env` đang để hai URL API là `http://host.docker.internal:8090`, đổi về giá trị trong `.env.example`. Nếu chạy Integration Service trực tiếp trên host, đặt hai URL API thành `http://localhost:8090` trong môi trường chạy Java.
 
 ## 2. Khởi động
 
@@ -83,13 +83,39 @@ Nếu chưa có app bắt deep link, dùng browser devtools hoặc chức năng 
 - **Simulator không còn `ON_HOLD`** (từ `7f721af`). SmartOmni cũng đã bỏ nhánh này: `ON_HOLD` từ TikTok bị coi là trạng thái lạ.
 - **Reset DB local sau khi đổi tên migration.** DB đã chạy `V24__tiktok_inventory_snapshots` trước khi file được đổi thành `V25`, nên Flyway báo lệch. Chạy `docker compose -f docker-compose.yml -f docker-compose.tiktok-simulator.yml down -v`, rồi `up --build -d`, sau đó tạo lại tenant bằng `POST /api/v1/tenants/onboarding`. Lệnh `down -v` xóa toàn bộ dữ liệu local.
 
-## 5. Lỗi thường gặp
+## 5. Dùng simulator đã deploy
+
+Thay vì chạy simulator ở máy, SmartOmni local có thể trỏ sang bản đã deploy. Các bước đầy đủ (tunnel, reconnect, nghiệm thu, quay lại local) nằm trong [plan dùng simulator đã deploy](plans/tiktok-simulator-deployed-plan.md).
+
+| Thành phần | Địa chỉ |
+| --- | --- |
+| API (Render) | `https://smartomni-tiktok-simulator-api.onrender.com` |
+| UI (Vercel) | `https://smartomni-tiktok-simulator-ten.vercel.app` |
+
+Đặt trong `.env` của SmartOmni:
+
+| Biến | Giá trị |
+| --- | --- |
+| `TIKTOK_TOKEN_BASE_URL`, `TIKTOK_OPEN_API_BASE_URL` | URL API trên Render |
+| `TIKTOK_AUTHORIZATION_URL` | `https://smartomni-tiktok-simulator-ten.vercel.app/seller/authorize` |
+| `TIKTOK_APP_KEY` | `smartomni-dev-app-key` |
+| `TIKTOK_APP_SECRET` | `SEED_APP_SECRET` của service trên Render (Render tự sinh, khác giá trị local) |
+| `TIKTOK_WEBHOOK_URL` | `<địa chỉ công khai>/api/v1/integrations/tiktok/webhooks` |
+| `TIKTOK_PRODUCT_URL_TEMPLATE` | `https://smartomni-tiktok-simulator-ten.vercel.app/product/{productId}` |
+
+- Chạy `docker compose up -d --build` **không** kèm `docker-compose.tiktok-simulator.yml`: file này ghi đè hai URL API về simulator local.
+- Webhook: Render không gọi được `localhost`. Khi SmartOmni chạy ở máy, mở tunnel (ví dụ `cloudflared tunnel --url http://localhost:80`) và dùng URL của tunnel. Khi BE đã deploy, dùng thẳng domain HTTPS của BE. Proxy phải giữ nguyên path, vì chữ ký HMAC tính cả path.
+- Đổi qua lại giữa simulator local và bản deploy: bấm **Reconnect** cho shop, không cần disconnect. Token cũ do simulator kia cấp nên không dùng được.
+- Render free ngủ khi không có request. Mở `/health/ready` trên Render trước mỗi phiên test, vì SmartOmni chỉ chờ 10 giây.
+- Mở FE đúng ở `http://localhost:5174` hoặc `http://127.0.0.1:5174`; các redirect URI này đã có sẵn trong simulator.
+
+## 6. Lỗi thường gặp
 
 | Hiện tượng | Kiểm tra |
 | --- | --- |
 | `TIKTOK_NOT_CONFIGURED` | Ba biến app key, app secret, authorization URL đã vào container Integration Service chưa? Chạy `docker compose config` và tạo lại container. |
 | Simulator báo app/redirect không hợp lệ | Hai cặp key/secret phải trùng; URI callback phải khớp chính xác `SEED_APP_REDIRECT_URIS`. |
-| Token exchange không kết nối được | Từ container SmartOmni, API simulator dùng `host.docker.internal:8090`; simulator phải đang chạy. |
+| Token exchange không kết nối được | Đã chạy SmartOmni kèm `-f docker-compose.tiktok-simulator.yml` chưa? Simulator phải chạy trước để network `smartomni-tiktok-simulator_sim_edge` tồn tại. `docker compose -f docker-compose.yml -f docker-compose.tiktok-simulator.yml config` phải cho thấy hai URL API là `http://api:8090`, không phải `host.docker.internal`. |
 | `TIKTOK_STATE_EXPIRED` hoặc `TIKTOK_STATE_REUSED` | Bắt đầu OAuth lại để lấy state và code mới. |
 
 Simulator và các giá trị mẫu này chỉ phục vụ dev, không dùng với TikTok thật.

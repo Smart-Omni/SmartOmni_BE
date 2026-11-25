@@ -216,7 +216,7 @@ Giá trị thật của biến được đặt ở **plan 2, bước 2**, không
 
 ## Phase 3: tài liệu `docs/tiktok-simulator-local.md`
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** Xong, chưa push
 
 ### Sửa mâu thuẫn `host.docker.internal`
 
