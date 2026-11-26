@@ -243,6 +243,19 @@ public class JdbcCatalogMappingStore implements CatalogMappingStore {
     }
 
     @Override
+    public int deleteWarehousesNotIn(long connectionId, java.util.Collection<String> keepExternalIds) {
+        String[] keep = keepExternalIds.toArray(String[]::new);
+        return jdbc.update(con -> {
+            var ps = con.prepareStatement("DELETE FROM marketplace_warehouses WHERE tenant_id = ? AND connection_id = ? "
+                    + "AND NOT (external_warehouse_id = ANY (?))");
+            ps.setLong(1, tenant());
+            ps.setLong(2, connectionId);
+            ps.setArray(3, con.createArrayOf("varchar", keep));
+            return ps;
+        });
+    }
+
+    @Override
     public Optional<Long> openRun(long connectionId, int staleAfterMinutes) {
         long tenantId = tenant();
         jdbc.update("UPDATE marketplace_import_runs SET status = 'failed', finished_at = now(), updated_at = now(), "
