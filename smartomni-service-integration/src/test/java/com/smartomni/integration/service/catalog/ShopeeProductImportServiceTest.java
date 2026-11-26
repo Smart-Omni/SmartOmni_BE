@@ -241,5 +241,15 @@ class ShopeeProductImportServiceTest {
 
         assertEquals(2, count);
         verify(store, times(2)).upsertWarehouse(eq(88L), any());
+        verify(store).deleteWarehousesNotIn(88L, List.of("WH-1", "WH-2"));
+    }
+
+    @Test
+    void syncWarehousesKeepsRowsWhenPlatformReturnsNone() {
+        when(catalog.listWarehouses(88L)).thenReturn(List.of());
+
+        assertEquals(0, service.syncWarehouses(connection));
+
+        verify(store, never()).deleteWarehousesNotIn(anyLong(), any());
     }
 }

@@ -100,6 +100,9 @@ public interface CatalogMappingStore {
 
     void upsertWarehouse(long connectionId, WarehouseRow row);
 
+    /** Deletes the connection's warehouses whose external id is not in {@code keepExternalIds}; returns the number removed. */
+    int deleteWarehousesNotIn(long connectionId, java.util.Collection<String> keepExternalIds);
+
     // ---- import runs
 
     /** Marks runs left "running" for longer than {@code staleAfterMinutes} as failed, then opens a run. Empty when one is already running. */
