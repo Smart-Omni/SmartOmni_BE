@@ -39,6 +39,8 @@ smartomni:
       - localhost
   services:
     tenant-url: http://localhost:8082
+  tiktok:
+    product-url-template: ${TIKTOK_PRODUCT_URL_TEMPLATE:}  # buyer page with {productId}; empty = no TikTok product link
 
 logging:
   level:

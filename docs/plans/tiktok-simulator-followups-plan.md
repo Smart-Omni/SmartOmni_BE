@@ -159,7 +159,7 @@ Ba chỗ tra connection theo định danh shop mà không lọc trạng thái ha
 
 ## Phase 2: link sản phẩm TikTok theo cấu hình
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** Xong, chưa push
 
 ### Hiện trạng
 

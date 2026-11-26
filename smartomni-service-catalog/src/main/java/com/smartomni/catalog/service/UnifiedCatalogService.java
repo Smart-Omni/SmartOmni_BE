@@ -11,6 +11,7 @@ import com.smartomni.common.exception.BusinessException;
 import com.smartomni.common.exception.ResourceNotFoundException;
 import com.smartomni.common.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -31,7 +32,9 @@ import java.util.stream.Collectors;
 public class UnifiedCatalogService {
 
     private static final String SHOPEE_SIMULATOR_BASE_URL = "https://shopiz-kappa.vercel.app/product/";
-    private static final String TIKTOK_SIMULATOR_BASE_URL = "https://tiktok-simulator.onrender.com/product/";
+    /** Buyer product page with {@code {productId}} ({@code TIKTOK_PRODUCT_URL_TEMPLATE}); empty means no link. */
+    @Value("${smartomni.tiktok.product-url-template:}")
+    private String tiktokProductUrlTemplate = "";
 
     private final ProductRepository productRepository;
     private final ProductSkuRepository skuRepository;
@@ -150,7 +153,7 @@ public class UnifiedCatalogService {
                 if (tiktokUrl == null && tiktokLink != null && tiktokLink.getPlatformItemId() != null) {
                     tiktokUrl = tiktokLink.getPlatformProductUrl() != null && !tiktokLink.getPlatformProductUrl().isBlank()
                             ? tiktokLink.getPlatformProductUrl()
-                            : TIKTOK_SIMULATOR_BASE_URL + tiktokLink.getPlatformItemId();
+                            : tiktokProductUrl(tiktokLink.getPlatformItemId());
                 }
 
                 MarketplaceMappingDto shopeeDto = shopeeLink == null ? null : MarketplaceMappingDto.builder()
@@ -265,7 +268,7 @@ public class UnifiedCatalogService {
                     .variant(variantName)
                     .price(price)
                     .image(img)
-                    .productUrl(pUrl != null ? (pUrl.contains("shopee-simulator.onrender.com/product/") ? pUrl.replace("https://shopee-simulator.onrender.com/product/", SHOPEE_SIMULATOR_BASE_URL) : pUrl) : (platform == ProductMarketplaceLink.Platform.SHOPEE ? SHOPEE_SIMULATOR_BASE_URL : TIKTOK_SIMULATOR_BASE_URL) + pItemId)
+                    .productUrl(pUrl != null ? (pUrl.contains("shopee-simulator.onrender.com/product/") ? pUrl.replace("https://shopee-simulator.onrender.com/product/", SHOPEE_SIMULATOR_BASE_URL) : pUrl) : (platform == ProductMarketplaceLink.Platform.SHOPEE ? SHOPEE_SIMULATOR_BASE_URL + pItemId : tiktokProductUrl(pItemId)))
                     .build());
         }, tenantId, platform.name().toLowerCase());
 
@@ -310,8 +313,9 @@ public class UnifiedCatalogService {
 
         String canonicalUrl = req.getProductUrl();
         if (canonicalUrl == null || canonicalUrl.isBlank()) {
-            canonicalUrl = (platform == ProductMarketplaceLink.Platform.SHOPEE ? SHOPEE_SIMULATOR_BASE_URL : TIKTOK_SIMULATOR_BASE_URL)
-                    + (req.getPlatformItemId() != null ? req.getPlatformItemId() : "");
+            canonicalUrl = platform == ProductMarketplaceLink.Platform.SHOPEE
+                    ? SHOPEE_SIMULATOR_BASE_URL + (req.getPlatformItemId() != null ? req.getPlatformItemId() : "")
+                    : tiktokProductUrl(req.getPlatformItemId());
         }
         link.setPlatformProductUrl(canonicalUrl);
 
@@ -373,6 +377,16 @@ public class UnifiedCatalogService {
         linkRepository.save(link);
     }
 
+    private String tiktokProductUrl(String itemId) {
+        return tiktokProductUrl(tiktokProductUrlTemplate, itemId);
+    }
+
+    /** {@code template} with {@code {productId}} replaced; null when either is blank, so no link to a wrong site is stored. */
+    static String tiktokProductUrl(String template, String itemId) {
+        if (template == null || template.isBlank() || itemId == null || itemId.isBlank()) return null;
+        return template.trim().replace("{productId}", itemId.trim());
+    }
+
     private SuggestedMappingDto computeSmartSuggestion(ProductSku sku, ProductMarketplaceLink shopeeLink, ProductMarketplaceLink tiktokLink, boolean isShopeeConnected, boolean isTiktokConnected) {
         // Only suggest TikTok if TikTok is connected!
         if (isTiktokConnected && shopeeLink != null && tiktokLink == null) {
@@ -385,7 +399,7 @@ public class UnifiedCatalogService {
                         .name("SmartOmni 4K Webcam Pro AI Stream")
                         .price(new BigDecimal("650000"))
                         .confidence(96)
-                        .productUrl(TIKTOK_SIMULATOR_BASE_URL + "TT-PROD-4")
+                        .productUrl(tiktokProductUrl("TT-PROD-4"))
                         .build();
             }
             if ("SO-KB-BROWN".equalsIgnoreCase(sku.getSkuCode())) {
@@ -397,7 +411,7 @@ public class UnifiedCatalogService {
                         .name("RGB Mechanical Keyboard (Brown Switch)")
                         .price(new BigDecimal("820000"))
                         .confidence(94)
-                        .productUrl(TIKTOK_SIMULATOR_BASE_URL + "TT-PROD-2")
+                        .productUrl(tiktokProductUrl("TT-PROD-2"))
                         .build();
             }
         } else if (isShopeeConnected && tiktokLink != null && shopeeLink == null) {
