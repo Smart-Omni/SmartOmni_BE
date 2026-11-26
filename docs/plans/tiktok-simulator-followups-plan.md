@@ -94,7 +94,7 @@ Nếu `develop` thay đổi trong lúc PR đang review: `git merge origin/develo
 
 ## Phase 1: chọn đúng connection theo định danh shop
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** Xong, chưa push
 
 ### Hiện trạng
 
