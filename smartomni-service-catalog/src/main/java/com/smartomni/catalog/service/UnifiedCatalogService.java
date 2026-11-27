@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class UnifiedCatalogService {
 
-    private static final String SHOPEE_SIMULATOR_BASE_URL = "https://shopiz-kappa.vercel.app/product/";
+    private static final String SHOPEE_SIMULATOR_BASE_URL = MarketplaceProductUrls.SHOPEE_SIMULATOR_BASE_URL;
     /** Buyer product page with {@code {productId}} ({@code TIKTOK_PRODUCT_URL_TEMPLATE}); empty means no link. */
     @Value("${smartomni.tiktok.product-url-template:}")
     private String tiktokProductUrlTemplate = "";
@@ -146,19 +146,11 @@ public class UnifiedCatalogService {
 
                 // Parent simulator URLs (per user decision: show on product level only)
                 if (shopeeUrl == null && shopeeLink != null && shopeeLink.getPlatformItemId() != null) {
-                    String pUrl = shopeeLink.getPlatformProductUrl();
-                    if (pUrl != null && !pUrl.isBlank()) {
-                        shopeeUrl = pUrl.contains("shopee-simulator.onrender.com/product/")
-                                ? pUrl.replace("https://shopee-simulator.onrender.com/product/", SHOPEE_SIMULATOR_BASE_URL)
-                                : pUrl;
-                    } else {
-                        shopeeUrl = SHOPEE_SIMULATOR_BASE_URL + shopeeLink.getPlatformItemId();
-                    }
+                    shopeeUrl = MarketplaceProductUrls.shopee(shopeeLink.getPlatformProductUrl(), shopeeLink.getPlatformItemId());
                 }
                 if (tiktokUrl == null && tiktokLink != null && tiktokLink.getPlatformItemId() != null) {
-                    tiktokUrl = tiktokLink.getPlatformProductUrl() != null && !tiktokLink.getPlatformProductUrl().isBlank()
-                            ? tiktokLink.getPlatformProductUrl()
-                            : tiktokProductUrl(tiktokLink.getPlatformItemId());
+                    tiktokUrl = MarketplaceProductUrls.tiktok(tiktokLink.getPlatformProductUrl(),
+                            tiktokLink.getPlatformItemId(), tiktokProductUrlTemplate);
                 }
 
                 MarketplaceMappingDto shopeeDto = shopeeLink == null ? null : MarketplaceMappingDto.builder()
@@ -480,8 +472,7 @@ public class UnifiedCatalogService {
 
     /** {@code template} with {@code {productId}} replaced; null when either is blank, so no link to a wrong site is stored. */
     static String tiktokProductUrl(String template, String itemId) {
-        if (template == null || template.isBlank() || itemId == null || itemId.isBlank()) return null;
-        return template.trim().replace("{productId}", itemId.trim());
+        return MarketplaceProductUrls.tiktokFromTemplate(template, itemId);
     }
 
     record SuggestionCandidate(
