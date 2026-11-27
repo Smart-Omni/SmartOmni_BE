@@ -49,7 +49,8 @@ public class ShopeeConnectionController {
     }
 
     @PostMapping("/disconnect")
-    public ApiResponse<ShopeeConnectionDto> disconnect() {
-        return ApiResponse.success("Shopee disconnected", service.disconnect());
+    public ApiResponse<ShopeeConnectionDto> disconnect(
+            @RequestParam(defaultValue = "false") boolean wipeCatalog) {
+        return ApiResponse.success("Shopee disconnected", service.disconnect(wipeCatalog));
     }
 }

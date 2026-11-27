@@ -8,5 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 @org.springframework.transaction.annotation.Transactional(readOnly = true)
 public interface ProductRepository extends JpaRepository<Product, Long> {
     Page<Product> findByTenantId(Long tenantId, Pageable pageable);
+    Page<Product> findByTenantIdAndStatusNot(Long tenantId, Product.ProductStatus status, Pageable pageable);
     long countByTenantId(Long tenantId);
 }

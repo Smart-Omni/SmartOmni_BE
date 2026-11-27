@@ -59,6 +59,9 @@ public interface CatalogMappingStore {
     default void initInventoryIfAbsent(long skuId, int quantity) {
     }
 
+    default void purgeConnectionCatalog(long connectionId) {
+    }
+
     long countSkus();
 
     /** Plan SKU limit of the current tenant, or null when the tenant has no plan / the plan is unlimited. */

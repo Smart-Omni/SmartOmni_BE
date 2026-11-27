@@ -288,4 +288,41 @@ public class JdbcCatalogMappingStore implements CatalogMappingStore {
                         (Integer) rs.getObject("sku_limit"), rs.getBoolean("sku_limit_reached"), rs.getString("error_message"), rs.getString("items")),
                 tenant(), connectionId, limit);
     }
+
+    @Override
+    @org.springframework.transaction.annotation.Transactional
+    public void purgeConnectionCatalog(long connectionId) {
+        long t = tenant();
+        // 1. Remove marketplace links belonging to this shop connection
+        jdbc.update("DELETE FROM product_marketplace_links WHERE tenant_id = ? AND connection_id = ?", t, connectionId);
+
+        // 2. Delete inventory for SKUs that have no remaining marketplace links and no order history
+        jdbc.update("DELETE FROM inventory i WHERE i.tenant_id = ? AND NOT EXISTS ("
+                        + "SELECT 1 FROM product_marketplace_links l WHERE l.tenant_id = i.tenant_id AND l.sku_id = i.sku_id"
+                        + ") AND NOT EXISTS ("
+                        + "SELECT 1 FROM order_items oi WHERE oi.sku_id = i.sku_id"
+                        + ")", t);
+
+        // 3. Delete orphaned SKUs (no remaining marketplace links and no order history)
+        jdbc.update("DELETE FROM product_skus s WHERE s.tenant_id = ? AND NOT EXISTS ("
+                        + "SELECT 1 FROM product_marketplace_links l WHERE l.tenant_id = s.tenant_id AND l.sku_id = s.id"
+                        + ") AND NOT EXISTS ("
+                        + "SELECT 1 FROM order_items oi WHERE oi.sku_id = s.id"
+                        + ")", t);
+
+        // 4. Delete images and products that have no remaining SKUs
+        jdbc.update("DELETE FROM product_images pi WHERE pi.tenant_id = ? AND NOT EXISTS ("
+                        + "SELECT 1 FROM product_skus s WHERE s.tenant_id = pi.tenant_id AND s.product_id = pi.product_id"
+                        + ")", t);
+        jdbc.update("DELETE FROM products p WHERE p.tenant_id = ? AND NOT EXISTS ("
+                        + "SELECT 1 FROM product_skus s WHERE s.tenant_id = p.tenant_id AND s.product_id = p.id"
+                        + ")", t);
+
+        // 5. Hide any remaining products that still have order history but zero marketplace links
+        jdbc.update("UPDATE products p SET status = 'hidden'::product_status, updated_at = now() "
+                        + "WHERE p.tenant_id = ? AND NOT EXISTS ("
+                        + "SELECT 1 FROM product_skus s JOIN product_marketplace_links l ON l.sku_id = s.id AND l.tenant_id = s.tenant_id "
+                        + "WHERE s.tenant_id = p.tenant_id AND s.product_id = p.id"
+                        + ")", t);
+    }
 }

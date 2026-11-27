@@ -59,7 +59,7 @@ public class UnifiedCatalogService {
         boolean isShopeeConnected = connectedPlatforms.contains("shopee");
         boolean isTiktokConnected = connectedPlatforms.contains("tiktok_shop");
 
-        Page<Product> productPage = productRepository.findByTenantId(tenantId, pageable);
+        Page<Product> productPage = productRepository.findByTenantIdAndStatusNot(tenantId, Product.ProductStatus.HIDDEN, pageable);
         List<Product> products = productPage.getContent();
         if (products.isEmpty()) {
             return Page.empty(pageable);
