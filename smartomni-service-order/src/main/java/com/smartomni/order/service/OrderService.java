@@ -96,6 +96,7 @@ public class OrderService {
                 order.setReconciliationReason(payload.getReconciliationReason());
             }
             applyMilestones(order, payload);
+            applyTracking(order, payload);
 
             if (payload.getOrderStatus() != null && !payload.getOrderStatus().isBlank()) {
                 Order.OrderStatus incomingStatus = policy.mapStatus(payload.getOrderStatus());
@@ -120,6 +121,7 @@ public class OrderService {
         order.setPlatformUpdatedAt(incomingUpdate);
         order.setReconciliationReason(payload.getReconciliationReason());
         applyMilestones(order, payload);
+        applyTracking(order, payload);
 
         Order.OrderStatus initialStatus = payload.getOrderStatus() != null && !payload.getOrderStatus().isBlank()
                 ? policy.mapStatus(payload.getOrderStatus())
@@ -250,6 +252,16 @@ public class OrderService {
         }
         if (cancelled != null) {
             order.setPlatformCancelledAt(cancelled);
+        }
+    }
+
+    /** Stores the shipment data of a non-stale message; a missing field never clears a stored value. */
+    private static void applyTracking(Order order, WebhookOrderPayload payload) {
+        if (payload.getTrackingNumber() != null && !payload.getTrackingNumber().isBlank()) {
+            order.setTrackingNumber(payload.getTrackingNumber());
+        }
+        if (payload.getShippingProvider() != null && !payload.getShippingProvider().isBlank()) {
+            order.setShippingMethod(payload.getShippingProvider());
         }
     }
 

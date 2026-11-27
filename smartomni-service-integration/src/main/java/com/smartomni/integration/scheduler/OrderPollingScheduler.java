@@ -9,6 +9,7 @@ import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
 import com.smartomni.integration.service.tiktok.TiktokOrderIngestionService;
 import com.smartomni.integration.service.tiktok.TiktokSyncCheckpointStore;
+import com.smartomni.integration.service.tiktok.TiktokTrackingEnricher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -40,6 +41,7 @@ public class OrderPollingScheduler {
     private final TiktokOrderIngestionService ingestionService;
     private final TransactionTemplate transactionTemplate;
     private final TiktokSyncCheckpointStore checkpoints;
+    private final TiktokTrackingEnricher trackingEnricher;
 
     /**
      * Seconds re-read before the checkpoint on every run. update_time comes from the platform clock and a platform
@@ -151,6 +153,7 @@ public class OrderPollingScheduler {
 
                     for (TiktokOrderDetailResponse order : response.getOrders()) {
                         try {
+                            trackingEnricher.enrich(connection, order);
                             ingestionService.ingestOrder(connection.getTenantId(), order,
                                     TiktokOrderIngestionService.SOURCE_POLLING);
                             connectionSyncedCount++;

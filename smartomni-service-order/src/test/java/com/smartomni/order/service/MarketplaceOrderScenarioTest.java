@@ -288,6 +288,35 @@ class MarketplaceOrderScenarioTest {
             assertEquals(Instant.ofEpochSecond(400), order("T6").getPlatformDeliveredAt());
         }
 
+        private void tiktokWithTracking(String id, String status, long time, String tracking, String carrier) {
+            service.processIncomingOrder(WebhookOrderPayload.builder()
+                    .tenantId(TENANT).platform("TIKTOK_SHOP").platformOrderId(id)
+                    .orderStatus(status).platformUpdateTime(time)
+                    .trackingNumber(tracking).shippingProvider(carrier)
+                    .totalAmount(new BigDecimal("100000")).build(), Order.OrderSource.POLLING);
+        }
+
+        @Test
+        void polledTrackingIsStoredAndNeverClearedOrReplacedByStaleData() {
+            tiktokWithTracking("T7", "AWAITING_SHIPMENT", 100, null, null);
+            assertNull(order("T7").getTrackingNumber());
+
+            tiktokWithTracking("T7", "AWAITING_COLLECTION", 200, "SIM1", "Express");
+            tiktokWithTracking("T7", "IN_TRANSIT", 300, null, null);       // not read this time: kept
+            tiktokWithTracking("T7", "AWAITING_COLLECTION", 250, "OLD", "Old"); // stale: ignored
+
+            assertEquals("SIM1", order("T7").getTrackingNumber());
+            assertEquals("Express", order("T7").getShippingMethod());
+        }
+
+        @Test
+        void firstSeenShippedOrderKeepsItsTracking() {
+            tiktokWithTracking("T8", "DELIVERED", 100, "SIM2", "Express");
+
+            assertEquals("SIM2", order("T8").getTrackingNumber());
+            assertEquals("Express", order("T8").getShippingMethod());
+        }
+
         @Test
         void manualSyncOfDeliveredOrderIsDeliveringAndReplayIsIdempotent() {
             // Plan 4.4: TiktokOrderSyncService publishes the raw status with source POLLING to the same queue.
