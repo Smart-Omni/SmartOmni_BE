@@ -66,8 +66,18 @@ public class ShopeeOrderClient {
             String cancelBy,
             String cancelReason,
             String shippingCarrier,
-            String trackingNo
-    ) {}
+            String trackingNo,
+            String logisticsStatus
+    ) {
+        public ShopeeOrderDetail(
+                String orderSn, String orderStatus, String currency, BigDecimal totalAmount,
+                String buyerUsername, Long buyerUserId, RecipientAddress recipientAddress,
+                List<OrderItemDetail> items, Long shipByDate, Long createTime, Long updateTime,
+                String cancelBy, String cancelReason, String shippingCarrier, String trackingNo) {
+            this(orderSn, orderStatus, currency, totalAmount, buyerUsername, buyerUserId, recipientAddress,
+                    items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo, null);
+        }
+    }
 
     /**
      * Retrieves paginated order list (GET /api/v2/order/get_order_list).
@@ -149,6 +159,18 @@ public class ShopeeOrderClient {
         return data != null;
     }
 
+    /**
+     * Marks a PROCESSED order as handed over to the carrier on Shopee Simulator
+     * (POST /api/v2/simulator/order/handover).
+     */
+    public boolean handoverOrder(Long connectionId, String orderSn) {
+        ObjectNode body = mapper.createObjectNode();
+        body.put("order_sn", orderSn);
+
+        JsonNode data = executor.call(connectionId, "POST", "/api/v2/simulator/order/handover", Collections.emptyMap(), body.toString());
+        return data != null;
+    }
+
     private ShopeeOrderDetail parseOrderDetail(JsonNode o) {
         String sn = o.path("order_sn").asText("");
         String status = o.path("order_status").asText("");
@@ -195,9 +217,11 @@ public class ShopeeOrderClient {
         String shippingCarrier = o.path("shipping_carrier").asText(null);
 
         String trackingNo = null;
+        String logisticsStatus = null;
         JsonNode pkgArr = o.path("package_list");
         if (pkgArr.isArray() && !pkgArr.isEmpty()) {
             trackingNo = pkgArr.get(0).path("tracking_number").asText(null);
+            logisticsStatus = pkgArr.get(0).path("logistics_status").asText(null);
             if (shippingCarrier == null) {
                 shippingCarrier = pkgArr.get(0).path("shipping_carrier").asText(null);
             }
@@ -205,7 +229,7 @@ public class ShopeeOrderClient {
 
         return new ShopeeOrderDetail(
                 sn, status, currency, totalAmount, buyerUsername, buyerUserId, address,
-                items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo
+                items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo, logisticsStatus
         );
     }
 }
