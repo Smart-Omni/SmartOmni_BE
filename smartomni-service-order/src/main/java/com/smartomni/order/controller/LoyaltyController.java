@@ -40,6 +40,8 @@ import java.util.List;
 public class LoyaltyController {
 
     private final LoyaltyCustomerService customerService;
+    private final com.smartomni.order.service.loyalty.LoyaltyClaimService claimService;
+    private final com.smartomni.order.service.loyalty.LoyaltyTierService tierService;
     private final LoyaltyCampaignService campaignService;
     private final LoyaltyRewardService rewardService;
 
@@ -50,9 +52,9 @@ public class LoyaltyController {
     @PostMapping("/claims")
     @PreAuthorize("hasRole('CUSTOMER')")
     public ResponseEntity<ApiResponse<LoyaltyClaimDto>> claimOrderPoints(
-            @Valid @RequestBody ClaimPointsRequest request) {
+            @RequestBody ClaimPointsRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(customerService.claimOrderPoints(
+                .body(ApiResponse.success(claimService.claim(
                         requireUserId(), requireTenantId(), request)));
     }
 
@@ -118,6 +120,19 @@ public class LoyaltyController {
             @RequestBody UpdateCampaignRequest request) {
         return ResponseEntity.ok(ApiResponse.success(
                 campaignService.updateCampaign(requireTenantId(), id, request)));
+    }
+
+    @GetMapping("/tiers")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<List<com.smartomni.order.dto.loyalty.LoyaltyTierSetupDto>>> getTiers() {
+        return ResponseEntity.ok(ApiResponse.success(tierService.getSetup(requireTenantId())));
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/tiers")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<com.smartomni.order.dto.loyalty.LoyaltyTierSetupDto>> saveTiers(
+            @RequestBody com.smartomni.order.dto.loyalty.SaveLoyaltyTiersRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(tierService.saveTiers(requireUserId(), requireTenantId(), request)));
     }
 
     @GetMapping("/reward-requests")

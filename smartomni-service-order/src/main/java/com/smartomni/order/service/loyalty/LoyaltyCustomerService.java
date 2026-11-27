@@ -16,7 +16,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Handles customer manual order claims, cumulative point balance, and tier calculation (WF-02).
@@ -26,15 +28,21 @@ import java.util.List;
 @RequiredArgsConstructor
 public class LoyaltyCustomerService {
 
+    /** Vietnam calendar date shown to the shopper. */
+    private static final java.time.format.DateTimeFormatter ELIGIBLE_DATE =
+            java.time.format.DateTimeFormatter.ISO_LOCAL_DATE.withZone(java.time.ZoneId.of("Asia/Ho_Chi_Minh"));
+
     private final JdbcTemplate jdbcTemplate;
 
     @Transactional
     public LoyaltyClaimDto claimOrderPoints(Long customerId, Long tenantId, ClaimPointsRequest request) {
         requireCustomerTenantContext(customerId, tenantId);
-        if (request == null || request.getOrderId() == null) {
-            throw new BusinessException("orderId is required", HttpStatus.BAD_REQUEST, "INVALID_CLAIM_REQUEST");
+        boolean byPlatformOrderId = request != null && request.byPlatformOrderId();
+        if (request == null || (request.getOrderId() == null && !byPlatformOrderId)) {
+            throw new BusinessException("platformOrderId (or orderId) is required", HttpStatus.BAD_REQUEST, "INVALID_CLAIM_REQUEST");
         }
-        if (request.getTotalAmount() == null || request.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
+        if (!byPlatformOrderId
+                && (request.getTotalAmount() == null || request.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0)) {
             throw new BusinessException("totalAmount is required and must be greater than 0",
                     HttpStatus.BAD_REQUEST, "INVALID_TOTAL_AMOUNT");
         }
@@ -49,6 +57,11 @@ public class LoyaltyCustomerService {
                     HttpStatus.FORBIDDEN, "FORBIDDEN_CUSTOMER_ROLE");
         }
 
+        // The shopper pastes the marketplace order id; who bought the order is not checked, only that it is unclaimed.
+        Long orderId = byPlatformOrderId
+                ? resolvePlatformOrder(tenantId, request.getPlatformOrderId(), request.getPlatform())
+                : request.getOrderId();
+
         // Lock and verify order eligibility
         List<OrderEligibilityRow> orders = jdbcTemplate.query(
                 "SELECT id, status::text AS status, total_amount, eligible_for_points_at "
@@ -58,7 +71,7 @@ public class LoyaltyCustomerService {
                         rs.getString("status"),
                         rs.getBigDecimal("total_amount"),
                         toInstant(rs.getTimestamp("eligible_for_points_at"))),
-                tenantId, request.getOrderId());
+                tenantId, orderId);
 
         if (orders.isEmpty()) {
             throw new BusinessException("Order not found in tenant", HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND");
@@ -70,14 +83,16 @@ public class LoyaltyCustomerService {
                     HttpStatus.BAD_REQUEST, "ORDER_NOT_COMPLETED");
         }
         if (order.eligibleForPointsAt() == null || order.eligibleForPointsAt().isAfter(Instant.now())) {
-            throw new BusinessException("Order has not reached the 15-day eligibility date yet",
+            String when = order.eligibleForPointsAt() == null ? ""
+                    : " (eligible from " + ELIGIBLE_DATE.format(order.eligibleForPointsAt()) + ")";
+            throw new BusinessException("Order has not reached the 15-day eligibility date yet" + when,
                     HttpStatus.BAD_REQUEST, "ORDER_NOT_ELIGIBLE_YET");
         }
         if (order.totalAmount() == null || order.totalAmount().compareTo(BigDecimal.valueOf(1000)) < 0) {
             throw new BusinessException("Order total amount must be at least 1,000 VND",
                     HttpStatus.BAD_REQUEST, "ORDER_AMOUNT_TOO_LOW");
         }
-        if (order.totalAmount().compareTo(request.getTotalAmount()) != 0) {
+        if (!byPlatformOrderId && order.totalAmount().compareTo(request.getTotalAmount()) != 0) {
             throw new BusinessException("Order total amount does not match",
                     HttpStatus.BAD_REQUEST, "ORDER_AMOUNT_MISMATCH");
         }
@@ -133,7 +148,101 @@ public class LoyaltyCustomerService {
                 (rs, rowNum) -> rs.getLong("total_points"),
                 tenantId, customerId);
         long totalPoints = balances.isEmpty() ? 0L : balances.get(0);
-        return LoyaltyTierCalculator.buildProfile(customerId, tenantId, totalPoints);
+        LoyaltyProfileDto profile = LoyaltyTierCalculator.buildProfile(customerId, tenantId, totalPoints);
+        List<LoyaltyProfileDto.PlatformProgress> platforms = loadPlatformProgress(customerId, tenantId, totalPoints);
+        profile.setPlatforms(platforms);
+        applyConfiguredTiers(profile, platforms);
+        return profile;
+    }
+
+    /**
+     * Milestones = ACTIVE, running reward campaigns of each CONNECTED Shopee/TikTok shop (one campaign per tier),
+     * with the customer's latest reward request for each.
+     */
+    private List<LoyaltyProfileDto.PlatformProgress> loadPlatformProgress(Long customerId, Long tenantId, long points) {
+        Map<Long, LoyaltyProfileDto.Reward> rewards = new java.util.HashMap<>();
+        jdbcTemplate.query(
+                "SELECT DISTINCT ON (campaign_id) campaign_id, id, status, code, failure_reason "
+                        + "FROM loyalty_reward_requests WHERE tenant_id = ? AND customer_id = ? "
+                        + "ORDER BY campaign_id, requested_at DESC, id DESC",
+                (java.sql.ResultSet rs) -> {
+                    rewards.put(rs.getLong("campaign_id"), LoyaltyProfileDto.Reward.builder()
+                            .requestId(rs.getLong("id"))
+                            .status(rs.getString("status"))
+                            .code(rs.getString("code"))
+                            .failureReason(rs.getString("failure_reason"))
+                            .build());
+                },
+                tenantId, customerId);
+
+        Map<Long, LoyaltyProfileDto.PlatformProgress> byConnection = new java.util.LinkedHashMap<>();
+        jdbcTemplate.query(
+                "SELECT c.id, c.connection_id, mc.platform::text AS platform, mc.shop_name, c.name, c.required_points, "
+                        + "c.discount_percent, c.quantity - c.reserved_count AS available "
+                        + "FROM loyalty_reward_campaigns c "
+                        + "JOIN marketplace_connections mc ON mc.tenant_id = c.tenant_id AND mc.id = c.connection_id "
+                        + "WHERE c.tenant_id = ? AND c.status = 'active' AND mc.status = 'connected' "
+                        + "AND mc.platform::text IN ('shopee', 'tiktok_shop') "
+                        + "AND c.starts_at <= now() AND c.ends_at > now() "
+                        + "ORDER BY mc.platform, c.connection_id, c.required_points, c.id",
+                (java.sql.ResultSet rs) -> {
+                    long campaignId = rs.getLong("id");
+                    long required = rs.getLong("required_points");
+                    LoyaltyProfileDto.PlatformProgress progress = byConnection.computeIfAbsent(rs.getLong("connection_id"),
+                            id -> LoyaltyProfileDto.PlatformProgress.builder()
+                                    .platform(stringOf(rs, "platform"))
+                                    .connectionId(id)
+                                    .shopName(stringOf(rs, "shop_name"))
+                                    .milestones(new ArrayList<>())
+                                    .build());
+                    progress.getMilestones().add(LoyaltyProfileDto.Milestone.builder()
+                            .campaignId(campaignId)
+                            .name(rs.getString("name"))
+                            .requiredPoints(required)
+                            .discountPercent(rs.getBigDecimal("discount_percent"))
+                            .reached(points >= required)
+                            .availableQuantity(Math.max(0, rs.getInt("available")))
+                            .reward(rewards.get(campaignId))
+                            .build());
+                },
+                tenantId);
+
+        for (LoyaltyProfileDto.PlatformProgress progress : byConnection.values()) {
+            for (LoyaltyProfileDto.Milestone m : progress.getMilestones()) {
+                if (m.isReached()) {
+                    progress.setCurrentTier(m.getName());
+                } else if (progress.getNextTier() == null) {
+                    progress.setNextTier(m.getName());
+                    progress.setNextTierThreshold(m.getRequiredPoints());
+                    progress.setPointsToNextTier(m.getRequiredPoints() - points);
+                }
+            }
+        }
+        return new ArrayList<>(byConnection.values());
+    }
+
+    /** When the shop configured tiers, the summary tier follows them instead of the built-in defaults. */
+    private static void applyConfiguredTiers(LoyaltyProfileDto profile, List<LoyaltyProfileDto.PlatformProgress> platforms) {
+        List<LoyaltyProfileDto.Milestone> all = platforms.stream().flatMap(p -> p.getMilestones().stream()).toList();
+        if (all.isEmpty()) {
+            return;
+        }
+        LoyaltyProfileDto.Milestone current = all.stream().filter(LoyaltyProfileDto.Milestone::isReached)
+                .max(java.util.Comparator.comparingLong(LoyaltyProfileDto.Milestone::getRequiredPoints)).orElse(null);
+        LoyaltyProfileDto.Milestone next = all.stream().filter(m -> !m.isReached())
+                .min(java.util.Comparator.comparingLong(LoyaltyProfileDto.Milestone::getRequiredPoints)).orElse(null);
+        profile.setTier(current == null ? "Standard" : current.getName());
+        profile.setNextTier(next == null ? null : next.getName());
+        profile.setNextTierThreshold(next == null ? null : next.getRequiredPoints());
+        profile.setPointsToNextTier(next == null ? 0L : next.getRequiredPoints() - profile.getTotalPoints());
+    }
+
+    private static String stringOf(java.sql.ResultSet rs, String column) {
+        try {
+            return rs.getString(column);
+        } catch (java.sql.SQLException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -152,6 +261,41 @@ public class LoyaltyCustomerService {
                         .claimedAt(toInstant(rs.getTimestamp("claimed_at")))
                         .build(),
                 tenantId, customerId);
+    }
+
+    /**
+     * Internal id of the tenant's order with this marketplace id. 404 when unknown, 409 PLATFORM_REQUIRED when the id
+     * exists on more than one marketplace (or shop) and the request did not say which.
+     */
+    private Long resolvePlatformOrder(Long tenantId, String platformOrderId, String platform) {
+        String normalizedPlatform = normalizePlatform(platform);
+        List<Long> ids = normalizedPlatform == null
+                ? jdbcTemplate.query("SELECT id FROM orders WHERE tenant_id = ? AND platform_order_id = ? ORDER BY id",
+                        (rs, i) -> rs.getLong("id"), tenantId, platformOrderId.trim())
+                : jdbcTemplate.query("SELECT id FROM orders WHERE tenant_id = ? AND platform_order_id = ? "
+                                + "AND platform::text = ? ORDER BY id",
+                        (rs, i) -> rs.getLong("id"), tenantId, platformOrderId.trim(), normalizedPlatform);
+        if (ids.isEmpty()) {
+            throw new BusinessException("Order not found in tenant", HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND");
+        }
+        if (ids.size() > 1) {
+            throw new BusinessException("This order id exists on more than one marketplace; choose the marketplace",
+                    HttpStatus.CONFLICT, "PLATFORM_REQUIRED");
+        }
+        return ids.get(0);
+    }
+
+    static String normalizePlatform(String platform) {
+        if (platform == null || platform.isBlank()) {
+            return null;
+        }
+        String p = platform.trim().toLowerCase(java.util.Locale.ROOT).replace('-', '_');
+        return switch (p) {
+            case "shopee" -> "shopee";
+            case "tiktok", "tiktok_shop" -> "tiktok_shop";
+            default -> throw new BusinessException("platform must be shopee or tiktok_shop",
+                    HttpStatus.BAD_REQUEST, "INVALID_PLATFORM");
+        };
     }
 
     private static void requireCustomerTenantContext(Long customerId, Long tenantId) {

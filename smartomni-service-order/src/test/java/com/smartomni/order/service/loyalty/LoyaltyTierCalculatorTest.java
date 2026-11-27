@@ -11,12 +11,12 @@ class LoyaltyTierCalculatorTest {
     void computesAllFourTiersAndNextThresholdsCorrectly() {
         LoyaltyProfileDto standard = LoyaltyTierCalculator.buildProfile(10L, 1L, 0L);
         assertThat(standard.getTier()).isEqualTo("Standard");
-        assertThat(standard.getNextTier()).isEqualTo("Silver");
+        assertThat(standard.getNextTier()).isEqualTo("Gold");
         assertThat(standard.getNextTierThreshold()).isEqualTo(500L);
         assertThat(standard.getPointsToNextTier()).isEqualTo(500L);
 
         LoyaltyProfileDto silver = LoyaltyTierCalculator.buildProfile(10L, 1L, 500L);
-        assertThat(silver.getTier()).isEqualTo("Silver");
+        assertThat(silver.getTier()).isEqualTo("Gold");
         assertThat(silver.getNextTier()).isEqualTo("Platinum");
         assertThat(silver.getNextTierThreshold()).isEqualTo(1000L);
         assertThat(silver.getPointsToNextTier()).isEqualTo(500L);

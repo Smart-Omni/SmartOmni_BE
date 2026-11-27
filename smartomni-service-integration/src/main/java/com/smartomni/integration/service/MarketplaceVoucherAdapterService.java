@@ -1,6 +1,8 @@
 package com.smartomni.integration.service;
 
 import com.smartomni.common.tenant.TenantContext;
+import com.smartomni.integration.client.shopee.ShopeeApiException;
+import com.smartomni.integration.client.shopee.ShopeeVoucherClient;
 import com.smartomni.integration.client.tiktok.TiktokApiException;
 import com.smartomni.integration.client.tiktok.TiktokVoucherClient;
 import com.smartomni.integration.dto.InternalIssueVoucherRequest;
@@ -13,6 +15,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -32,6 +36,12 @@ public class MarketplaceVoucherAdapterService {
     private final TiktokVoucherClient tiktokVoucherClient;
     private final com.smartomni.integration.service.tiktok.TiktokVoucherStore voucherStore;
     private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+    private final ShopeeVoucherClient shopeeVoucherClient;
+
+    static final String SHOPEE_DUPLICATE_CODE = "voucher.voucher_code_duplicate_error";
+    private static final int SHOPEE_CODE_ATTEMPTS = 3;
+    /** Shopee caps a voucher's validity at about three months. */
+    private static final java.time.Duration SHOPEE_VOUCHER_VALIDITY = java.time.Duration.ofDays(90);
 
     public InternalIssueVoucherResponse issueVoucher(InternalIssueVoucherRequest request) {
         Long tenantId = TenantContext.getTenantId();
@@ -125,12 +135,77 @@ public class MarketplaceVoucherAdapterService {
         }
     }
 
+    /**
+     * Shopee vouchers: {@code api} mode creates a single-use shop voucher through v2.voucher.add_voucher.
+     * The worker retries PENDING outcomes, so creation must be idempotent: the code is derived from the requestKey and
+     * the requestKey is written into the voucher name. A duplicate code whose name carries our key is ours already.
+     */
     private InternalIssueVoucherResponse handleShopee(MarketplaceConnection connection, InternalIssueVoucherRequest req) {
-        String mode = req.getProvisioningMode() != null ? req.getProvisioningMode().trim().toLowerCase() : "import";
-        if ("import".equals(mode) && hasText(req.getExternalCouponId())) {
-            return failed("Shopee voucher import verification is not configured for shop " + connection.getShopId());
+        String mode = req.getProvisioningMode() != null ? req.getProvisioningMode().trim().toLowerCase() : "api";
+        if (!"api".equals(mode)) {
+            return failed("Shopee loyalty vouchers use api mode (SmartOmni creates each voucher on Shopee)");
         }
-        return failed("Shopee voucher creation API is not enabled for this app; configure a verified Shopee voucher");
+        if (!hasText(req.getRequestKey()) || req.getDiscountPercent() == null
+                || req.getDiscountPercent().signum() <= 0 || req.getDiscountPercent().compareTo(BigDecimal.valueOf(100)) > 0) {
+            return failed("Shopee voucher needs a requestKey and a discount percent between 1 and 100");
+        }
+        long start = Instant.now().getEpochSecond();
+        long end = start + SHOPEE_VOUCHER_VALIDITY.toSeconds();
+        if (req.getEndsAt() != null && req.getEndsAt().getEpochSecond() > start) {
+            end = Math.min(end, req.getEndsAt().getEpochSecond());
+        }
+        String name = shopeeVoucherName(req);
+        try {
+            for (int attempt = 0; attempt < SHOPEE_CODE_ATTEMPTS; attempt++) {
+                String code = shopeeVoucherCode(req.getRequestKey(), attempt);
+                try {
+                    long voucherId = shopeeVoucherClient.addPercentVoucher(connection.getId(), name, code,
+                            req.getDiscountPercent(), start, end);
+                    return issued(String.valueOf(voucherId), code);
+                } catch (ShopeeApiException e) {
+                    if (!SHOPEE_DUPLICATE_CODE.equalsIgnoreCase(e.getErrorCode())) {
+                        throw e;
+                    }
+                    var existing = shopeeVoucherClient.findByCode(connection.getId(), code);
+                    if (existing.isPresent() && existing.get().name().contains(req.getRequestKey())) {
+                        return issued(String.valueOf(existing.get().voucherId()), existing.get().code());
+                    }
+                    // Someone else's voucher uses this code: try the next code derived from the same key.
+                }
+            }
+            return failed("Could not find a free Shopee voucher code");
+        } catch (ShopeeApiException ex) {
+            if (ex.isTransientFailure() || ex.getHttpStatus() >= 500) {
+                log.warn("Transient Shopee error provisioning voucher for requestKey={}: {}", req.getRequestKey(), ex.getMessage());
+                return pending(ex.getMessage());
+            }
+            log.warn("Shopee rejected voucher for requestKey={}: {}", req.getRequestKey(), ex.getMessage());
+            return failed("Shopee rejected voucher provisioning: " + ex.getMessage());
+        } catch (Exception ex) {
+            log.warn("Ambiguous error provisioning Shopee voucher for requestKey={}: {}", req.getRequestKey(), ex.getMessage());
+            return pending(ex.getMessage());
+        }
+    }
+
+    static String shopeeVoucherName(InternalIssueVoucherRequest req) {
+        String title = hasText(req.getTitle()) ? req.getTitle().trim() : "Loyalty";
+        return "SmartOmni " + title + " #" + req.getRequestKey();
+    }
+
+    /** 5 characters [A-Z0-9] (the simulator's and Shopee's code limit), stable for a requestKey and attempt. */
+    static String shopeeVoucherCode(String requestKey, int attempt) {
+        try {
+            byte[] hash = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest((requestKey + ":" + attempt).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            String alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            StringBuilder code = new StringBuilder(5);
+            for (int i = 0; i < 5; i++) {
+                code.append(alphabet.charAt((hash[i] & 0xff) % alphabet.length()));
+            }
+            return code.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static boolean hasText(String s) {
