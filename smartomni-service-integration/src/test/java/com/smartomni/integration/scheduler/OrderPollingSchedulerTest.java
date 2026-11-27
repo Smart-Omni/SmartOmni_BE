@@ -10,6 +10,7 @@ import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
 import com.smartomni.integration.service.tiktok.TiktokOrderIngestionService;
 import com.smartomni.integration.service.tiktok.TiktokSyncCheckpointStore;
+import com.smartomni.integration.service.tiktok.TiktokTrackingEnricher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -47,6 +48,9 @@ class OrderPollingSchedulerTest {
     @Mock
     private TiktokSyncCheckpointStore checkpoints;
 
+    @Mock
+    private TiktokTrackingEnricher trackingEnricher;
+
     private TransactionTemplate transactionTemplate;
     private OrderPollingScheduler scheduler;
 
@@ -61,7 +65,8 @@ class OrderPollingSchedulerTest {
                 tiktokOrderClient,
                 ingestionService,
                 transactionTemplate,
-                checkpoints
+                checkpoints,
+                trackingEnricher
         );
         TenantContext.clear();
     }
@@ -104,6 +109,8 @@ class OrderPollingSchedulerTest {
         assertEquals(2, synced);
         verify(ingestionService).ingestOrder(100L, order1, POLLING);
         verify(ingestionService).ingestOrder(100L, order2, POLLING);
+        verify(trackingEnricher).enrich(conn, order1);
+        verify(trackingEnricher).enrich(conn, order2);
         verify(tiktokOrderClient, times(1)).searchOrders(eq("SHOP-CIPHER-100"), any(OrderSearchRequest.class));
     }
 

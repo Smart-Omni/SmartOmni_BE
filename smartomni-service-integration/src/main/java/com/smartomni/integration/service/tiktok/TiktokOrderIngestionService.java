@@ -222,6 +222,8 @@ public class TiktokOrderIngestionService {
                 .totalAmount(totalAmount)
                 .createTime(createTime)
                 .createdAt(createdAt)
+                .trackingNumber(order.getTrackingNumber())
+                .shippingProvider(order.getShippingProvider())
                 .platformUpdateTime(epochSeconds(order.getUpdateTime()))
                 .reconciliationReason(unmappedSku ? RECONCILIATION_SKU_UNMAPPED : null)
                 .source(source)

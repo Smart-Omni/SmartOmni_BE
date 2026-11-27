@@ -2,7 +2,9 @@ package com.smartomni.integration.service.tiktok;
 
 import com.smartomni.common.dto.WebhookOrderPayload;
 import com.smartomni.common.exception.BusinessException;
+import com.smartomni.integration.client.tiktok.TiktokFulfillmentClient;
 import com.smartomni.integration.client.tiktok.TiktokOrderClient;
+import com.smartomni.integration.dto.tiktok.TiktokPackageResponse;
 import com.smartomni.integration.dto.tiktok.OrderSearchRequest;
 import com.smartomni.integration.dto.tiktok.OrderSearchResponse;
 import com.smartomni.integration.dto.tiktok.TiktokOrderDetailResponse;
@@ -33,6 +35,7 @@ class TiktokOrderSyncServiceTest {
     private RabbitTemplate rabbitTemplate;
     private TiktokOrderSyncService syncService;
     private MarketplaceConnection connection;
+    private TiktokFulfillmentClient fulfillmentClient;
 
     @BeforeEach
     void setUp() {
@@ -41,7 +44,8 @@ class TiktokOrderSyncServiceTest {
         CatalogMappingService catalogMappingService = mock(CatalogMappingService.class);
         TiktokOrderIngestionService ingestion = new TiktokOrderIngestionService(
                 catalogMappingService, rabbitTemplate, new ObjectMapper(), orderClient);
-        syncService = new TiktokOrderSyncService(orderClient, ingestion);
+        fulfillmentClient = mock(TiktokFulfillmentClient.class);
+        syncService = new TiktokOrderSyncService(orderClient, ingestion, new TiktokTrackingEnricher(fulfillmentClient));
 
         connection = new MarketplaceConnection();
         connection.setId(77L);
@@ -86,6 +90,23 @@ class TiktokOrderSyncServiceTest {
         assertEquals("DELIVERED", payload.getOrderStatus());
         assertEquals(1700000500L, payload.getPlatformUpdateTime());
         assertEquals("POLLING", payload.getSource());
+    }
+
+    @Test
+    @DisplayName("A shipped order is published with the tracking number read from its package")
+    void shippedOrderCarriesPackageTracking() {
+        TiktokOrderDetailResponse shipped = order("ORD-7", "AWAITING_COLLECTION", 1700000800L);
+        shipped.setPackageList(List.of(TiktokOrderDetailResponse.OrderPackage.builder().packageId("PKG-7").build()));
+        when(orderClient.searchOrders(eq(77L), any(OrderSearchRequest.class)))
+                .thenReturn(OrderSearchResponse.builder().orders(List.of(shipped)).build());
+        when(fulfillmentClient.getPackageDetail(77L, "PKG-7")).thenReturn(TiktokPackageResponse.builder()
+                .trackingNumber("SIM7").shippingProviderName("Express").build());
+
+        syncService.syncOrders(connection, null, null);
+
+        WebhookOrderPayload payload = published(1).get(0);
+        assertEquals("SIM7", payload.getTrackingNumber());
+        assertEquals("Express", payload.getShippingProvider());
     }
 
     @Test

@@ -36,6 +36,7 @@ public class TiktokOrderSyncService {
 
     private final TiktokOrderClient orderClient;
     private final TiktokOrderIngestionService ingestionService;
+    private final TiktokTrackingEnricher trackingEnricher;
 
     public TiktokOrderSyncResponse syncOrders(MarketplaceConnection connection, Long fromDate, Long toDate) {
         if (connection == null || connection.getId() == null || connection.getTenantId() == null) {
@@ -49,6 +50,7 @@ public class TiktokOrderSyncService {
         int failed = 0;
         for (TiktokOrderDetailResponse order : enrichedOrders) {
             try {
+                trackingEnricher.enrich(connection, order);
                 ingestionService.ingestOrder(connection.getTenantId(), order, SOURCE_POLLING);
                 enqueued++;
             } catch (Exception ex) {

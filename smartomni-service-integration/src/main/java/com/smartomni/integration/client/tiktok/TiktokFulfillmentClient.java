@@ -91,6 +91,12 @@ public class TiktokFulfillmentClient {
         return convert(data, TiktokPackageResponse.class);
     }
 
+    /** Get Package Detail by shop cipher, for callers that run outside a tenant request (order polling). */
+    public TiktokPackageResponse getPackageDetailByShopCipher(String shopCipher, String packageId) {
+        JsonNode data = executor.callByShopCipher(shopCipher, "GET", PACKAGES_BASE_PATH + packageId, Map.of(), null);
+        return convert(data, TiktokPackageResponse.class);
+    }
+
     /**
      * Lấy tài liệu nhãn vận đơn (Shipping Documents / Waybill) theo shopCipher.
      */

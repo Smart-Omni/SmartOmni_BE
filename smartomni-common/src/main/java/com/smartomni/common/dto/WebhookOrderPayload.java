@@ -87,6 +87,14 @@ public class WebhookOrderPayload {
     @JsonProperty("platform_cancel_time")
     private Long platformCancelTime;
 
+    /** Tracking number of the shipment, when the producer already knows it (TikTok polling); null otherwise. */
+    @JsonProperty("tracking_number")
+    private String trackingNumber;
+
+    /** Carrier of that shipment; null when unknown. */
+    @JsonProperty("shipping_provider")
+    private String shippingProvider;
+
     /** Why the order needs manual reconciliation, e.g. {@code SKU_UNMAPPED}; null when nothing is wrong. */
     @JsonProperty("reconciliation_reason")
     private String reconciliationReason;
