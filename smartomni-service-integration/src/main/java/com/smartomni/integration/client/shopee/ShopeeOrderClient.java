@@ -67,7 +67,11 @@ public class ShopeeOrderClient {
             String cancelReason,
             String shippingCarrier,
             String trackingNo,
-            String logisticsStatus
+            String logisticsStatus,
+            Boolean cod,
+            String paymentMethod,
+            Long cancelRespondBy,
+            String buyerCancelReason
     ) {
         public ShopeeOrderDetail(
                 String orderSn, String orderStatus, String currency, BigDecimal totalAmount,
@@ -75,7 +79,19 @@ public class ShopeeOrderClient {
                 List<OrderItemDetail> items, Long shipByDate, Long createTime, Long updateTime,
                 String cancelBy, String cancelReason, String shippingCarrier, String trackingNo) {
             this(orderSn, orderStatus, currency, totalAmount, buyerUsername, buyerUserId, recipientAddress,
-                    items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo, null);
+                    items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo,
+                    null, null, null, null, null);
+        }
+
+        public ShopeeOrderDetail(
+                String orderSn, String orderStatus, String currency, BigDecimal totalAmount,
+                String buyerUsername, Long buyerUserId, RecipientAddress recipientAddress,
+                List<OrderItemDetail> items, Long shipByDate, Long createTime, Long updateTime,
+                String cancelBy, String cancelReason, String shippingCarrier, String trackingNo,
+                String logisticsStatus) {
+            this(orderSn, orderStatus, currency, totalAmount, buyerUsername, buyerUserId, recipientAddress,
+                    items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo,
+                    logisticsStatus, null, null, null, null);
         }
     }
 
@@ -215,6 +231,10 @@ public class ShopeeOrderClient {
         String cancelBy = o.path("cancel_by").asText(null);
         String cancelReason = o.path("cancel_reason").asText(null);
         String shippingCarrier = o.path("shipping_carrier").asText(null);
+        Boolean cod = o.hasNonNull("cod") ? o.path("cod").asBoolean() : null;
+        String paymentMethod = o.hasNonNull("payment_method") ? o.path("payment_method").asText(null) : null;
+        Long cancelRespondBy = o.hasNonNull("cancel_respond_by") ? o.path("cancel_respond_by").asLong() : null;
+        String buyerCancelReason = o.hasNonNull("buyer_cancel_reason") ? o.path("buyer_cancel_reason").asText(null) : null;
 
         String trackingNo = null;
         String logisticsStatus = null;
@@ -229,7 +249,8 @@ public class ShopeeOrderClient {
 
         return new ShopeeOrderDetail(
                 sn, status, currency, totalAmount, buyerUsername, buyerUserId, address,
-                items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo, logisticsStatus
+                items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo,
+                logisticsStatus, cod, paymentMethod, cancelRespondBy, buyerCancelReason
         );
     }
 }
