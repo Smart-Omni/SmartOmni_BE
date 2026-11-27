@@ -118,6 +118,14 @@ CREATE POLICY tenant_isolation_policy ON products
   cache ket qua qua Redis (`@Cacheable`), va PHAI duoc `@CacheEvict` ngay khi
   Tenant doi goi dich vu (FR-079).
 
+- **Vai tro van hanh `MANAGER`**: role van hanh cua tenant la `MANAGER`
+  (Flyway V29 doi ten tu `STAFF`). API/JWT dung chu hoa `MANAGER`, PostgreSQL
+  `user_role` dung `manager`; `order_change_source` van giu nhan `staff` vi do
+  la nguon thay doi trang thai don, khong phai role. MANAGER chua lien ket
+  tenant bi chan khoi API du lieu tenant (403 `MANAGER_NO_TENANT`). JWT cu mang
+  role `STAFF` nhan 401 `TOKEN_REVOKED`, client can dang nhap lai; request gan
+  role `STAFF` bi tu choi 400 `INVALID_ROLE`.
+
 ## 6. Danh sach cong (port) mac dinh
 
 | Service | Port |

@@ -152,7 +152,7 @@ class TiktokCatalogDatabaseTest {
     }
 
     private static <T> T as(long tenantId, Supplier<T> action) {
-        try (var scope = TenantContext.openScope(tenantId, "staff", null)) {
+        try (var scope = TenantContext.openScope(tenantId, "manager", null)) {
             return action.get();
         }
     }
@@ -421,6 +421,26 @@ class TiktokCatalogDatabaseTest {
         assertEquals("Kho HN", text("SELECT name FROM marketplace_warehouses WHERE tenant_id=1 AND external_warehouse_id='W1'"));
     }
 
+    @Test
+    void warehouseSyncRemovesWarehousesThePlatformNoLongerReports() throws Exception {
+        PLATFORM.addWarehouse(1, "W1", "Kho HN", true);
+        PLATFORM.addWarehouse(1, "W2", "Kho HCM", false);
+        PLATFORM.addWarehouse(2, "W2", "Kho B", true);
+        as(1, importer::syncWarehousesForCurrentTenant);
+        as(2, importer::syncWarehousesForCurrentTenant);
+
+        PLATFORM.removeWarehouse(1, "W2");
+        assertEquals(1, as(1, importer::syncWarehousesForCurrentTenant));
+
+        assertEquals("W1", text("SELECT string_agg(external_warehouse_id, ',') FROM marketplace_warehouses WHERE tenant_id=1"));
+        assertEquals(1, count("SELECT count(*) FROM marketplace_warehouses WHERE tenant_id=2 AND external_warehouse_id='W2'"),
+                "another tenant's warehouse with the same id is untouched");
+
+        PLATFORM.removeWarehouse(1, "W1");
+        assertEquals(0, as(1, importer::syncWarehousesForCurrentTenant));
+        assertEquals(1, count("SELECT count(*) FROM marketplace_warehouses WHERE tenant_id=1"), "an empty list does not wipe warehouses");
+    }
+
     // ---- prices
 
     @Test
@@ -525,7 +545,7 @@ class TiktokCatalogDatabaseTest {
         as(1, importer::syncWarehousesForCurrentTenant);
         as(2, importer::syncWarehousesForCurrentTenant);
         try (Connection app = DriverManager.getConnection(url, "smartomni_app", PASSWORD)) {
-            execute(app, "SELECT set_config('app.tenant_id','2',false), set_config('app.user_role','staff',false)");
+            execute(app, "SELECT set_config('app.tenant_id','2',false), set_config('app.user_role','manager',false)");
             try (var s = app.createStatement(); ResultSet r = s.executeQuery("SELECT count(*), min(tenant_id), max(tenant_id) FROM marketplace_import_runs")) {
                 assertTrue(r.next());
                 assertEquals(1, r.getLong(1));

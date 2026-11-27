@@ -87,6 +87,10 @@ public class FakeTiktokPlatform extends TiktokShopApiExecutor {
         warehouses.computeIfAbsent(connectionId, k -> new ArrayList<>()).add(w);
     }
 
+    public void removeWarehouse(long connectionId, String id) {
+        warehouses.getOrDefault(connectionId, new ArrayList<>()).removeIf(w -> id.equals(w.path("id").asText()));
+    }
+
     public long searchRequests() {
         return requests.stream().filter(r -> r.path().contains("/products/search")).count();
     }

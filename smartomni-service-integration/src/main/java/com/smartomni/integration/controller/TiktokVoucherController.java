@@ -17,7 +17,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/tiktok/vouchers")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF')")
+@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER')")
 public class TiktokVoucherController {
 
     private final TiktokVoucherService voucherService;

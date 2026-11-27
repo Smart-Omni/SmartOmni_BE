@@ -446,13 +446,13 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("Đăng ký tài khoản STAFF (Guest) không cần cửa hàng -> tenantId = null, role = STAFF")
+    @DisplayName("Đăng ký tài khoản MANAGER (Guest) không cần cửa hàng -> tenantId = null, role = MANAGER")
     void testRegister_WithStaffRole_Success() {
         com.smartomni.auth.dto.RegisterRequest request = com.smartomni.auth.dto.RegisterRequest.builder()
                 .email("staff.guest@smartshop.vn")
                 .password("Password123@")
                 .fullName("Staff Guest")
-                .role("STAFF")
+                .role("MANAGER")
                 .build();
 
         when(userRepository.findByEmail("staff.guest@smartshop.vn")).thenReturn(Optional.empty());
@@ -462,7 +462,7 @@ class AuthServiceTest {
                 .email("staff.guest@smartshop.vn")
                 .passwordHash("$2a$10$encodedPassword")
                 .fullName("Staff Guest")
-                .role(User.UserRole.STAFF)
+                .role(User.UserRole.MANAGER)
                 .status(User.UserStatus.ACTIVE)
                 .build();
         savedUser.setId(7L);
@@ -470,16 +470,16 @@ class AuthServiceTest {
 
         when(userRepository.save(any(User.class))).thenAnswer(inv -> {
             User u = inv.getArgument(0);
-            assertEquals(User.UserRole.STAFF, u.getRole());
+            assertEquals(User.UserRole.MANAGER, u.getRole());
             assertNull(u.getTenantId());
             return savedUser;
         });
-        when(jwtTokenProvider.generateToken(7L, "STAFF", null, null, 0L)).thenReturn("jwt.token.staff");
+        when(jwtTokenProvider.generateToken(7L, "MANAGER", null, null, 0L)).thenReturn("jwt.token.staff");
 
         AuthResponse response = authService.register(request);
 
         assertEquals("jwt.token.staff", response.getAccessToken());
-        assertEquals("STAFF", response.getUserInfo().getRole());
+        assertEquals("MANAGER", response.getUserInfo().getRole());
         assertNull(response.getUserInfo().getTenantId());
         assertNull(response.getUserInfo().getSubdomain());
     }

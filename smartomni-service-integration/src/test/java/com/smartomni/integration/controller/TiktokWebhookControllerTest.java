@@ -83,8 +83,32 @@ class TiktokWebhookControllerTest {
         connection.setShopCipher(SHOP_CIPHER);
         connection.setPlatform(MarketplaceConnection.Platform.TIKTOK_SHOP);
         connection.setStatus(MarketplaceConnection.ConnectionStatus.CONNECTED);
+        // The controller resolves the shop through the repository's default method: run its real lookup order.
+        when(connectionRepository.findTiktokByShopIdentifier(any())).thenCallRealMethod();
         when(connectionRepository.findFirstByShopCipher(SHOP_CIPHER)).thenReturn(Optional.of(connection));
         when(eventRecorder.claim(anyLong(), anyString(), anyString(), anyString())).thenReturn(Claim.NEW);
+    }
+
+    @Test
+    @DisplayName("Shop có cả dòng đã disconnect (tenant cũ) và dòng CONNECTED: webhook vào dòng CONNECTED")
+    void activeConnectionWinsOverDisconnectedRowOfSameShop() throws Exception {
+        MarketplaceConnection stale = new MarketplaceConnection();
+        stale.setId(5L);
+        stale.setTenantId(7L);
+        stale.setShopCipher(SHOP_CIPHER);
+        stale.setPlatform(MarketplaceConnection.Platform.TIKTOK_SHOP);
+        stale.setStatus(MarketplaceConnection.ConnectionStatus.DISCONNECTED);
+        when(connectionRepository.findFirstByShopCipher(SHOP_CIPHER)).thenReturn(Optional.of(stale));
+        when(connectionRepository.findFirstByPlatformAndShopCipherAndStatusNotOrderByIdAsc(
+                MarketplaceConnection.Platform.TIKTOK_SHOP, SHOP_CIPHER, MarketplaceConnection.ConnectionStatus.DISCONNECTED))
+                .thenReturn(Optional.of(connection));
+
+        String body = body(1, "notif-dup", "{\"order_id\":\"ORD-1\"}");
+        send(body).andExpect(status().isOk());
+
+        verify(eventRecorder).claim(TENANT_ID, "notif-dup", "ORDER_STATUS_CHANGE", body);
+        verify(orderIngestionService).processOrderEvent(eq(TENANT_ID), eq(connection), any(JsonNode.class));
+        verify(eventRecorder, never()).claim(eq(7L), any(), any(), any());
     }
 
     private static String body(int type, String notificationId, String data) {

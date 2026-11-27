@@ -77,14 +77,20 @@ public class ShopeeProductImportService {
     public int syncWarehouses(MarketplaceConnection connection) {
         List<ShopeeWarehouseDetail> warehouses = catalog.listWarehouses(connection.getId());
         tx.executeWithoutResult(s -> {
+            List<String> seen = new java.util.ArrayList<>();
             for (ShopeeWarehouseDetail w : warehouses) {
                 if (w.warehouseId() == null || w.warehouseId().isBlank()) {
                     continue;
                 }
+                seen.add(w.warehouseId());
                 store.upsertWarehouse(connection.getId(), new CatalogMappingStore.WarehouseRow(
                         w.warehouseId(), w.name(), "NORMAL", "SELLER_WAREHOUSE", "ACTIVE",
                         false, w.city(), w.region()
                 ));
+            }
+            // Drop warehouses the platform no longer reports; an empty list is not trusted enough to wipe them all.
+            if (!seen.isEmpty()) {
+                store.deleteWarehousesNotIn(connection.getId(), seen);
             }
         });
         return warehouses.size();

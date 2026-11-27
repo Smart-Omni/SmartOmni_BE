@@ -25,7 +25,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/tiktok/cancellations")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF')")
+@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER')")
 public class TiktokCancellationController {
 
     /** TikTok lets a seller cancel only these order statuses. */

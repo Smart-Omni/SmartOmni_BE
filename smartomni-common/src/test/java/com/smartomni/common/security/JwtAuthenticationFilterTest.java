@@ -41,6 +41,29 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    @DisplayName("JWT mang role STAFF cũ bị 401 TOKEN_REVOKED dù Redis vẫn ghi ACTIVE")
+    void legacyStaffTokenIsRevokedEvenWhenRedisSaysActive() throws Exception {
+        String token = "legacy-staff-token";
+        MockHttpServletRequest request = new MockHttpServletRequest("PATCH", "/api/v1/orders/1/status");
+        request.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
+        when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
+        when(jwtTokenProvider.getRole(token)).thenReturn("STAFF");
+        when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
+
+        new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate)
+                .doFilter(request, response, filterChain);
+
+        assertEquals(401, response.getStatus());
+        assertTrue(response.getContentAsString().contains("TOKEN_REVOKED"));
+        verifyNoInteractions(filterChain);
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        assertNull(TenantContext.getTenantId());
+        assertNull(TenantContext.getCurrentRole());
+    }
+
+    @Test
     @DisplayName("Từ chối xác thực khi Token nằm trong Blacklist (sau khi logout)")
     void testDoFilter_TokenIsBlacklisted_RejectsAuthentication() throws Exception {
         String token = "blacklisted.jwt.token";
@@ -86,7 +109,7 @@ class JwtAuthenticationFilterTest {
         org.springframework.test.util.ReflectionTestUtils.setField(realProvider, "jwtSecret",
                 "1234567890123456789012345678901234567890123456789012345678901234");
         org.springframework.test.util.ReflectionTestUtils.setField(realProvider, "expirationMs", -1000L);
-        String token = realProvider.generateToken(42L, "STAFF", 7L);
+        String token = realProvider.generateToken(42L, "MANAGER", 7L);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/orders");
         request.addHeader("Authorization", "Bearer " + token);
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -186,7 +209,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
-        when(jwtTokenProvider.getRole(token)).thenReturn("STAFF");
+        when(jwtTokenProvider.getRole(token)).thenReturn("MANAGER");
         when(jwtTokenProvider.getTokenVersion(token)).thenReturn(0L);
         when(stringRedisTemplate.opsForValue()).thenReturn(values);
         when(values.get(UserAccessState.key(10L))).thenReturn("DISABLED:1");
@@ -200,30 +223,7 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    @DisplayName("JWT mang role MANAGER cũ bị 401 TOKEN_REVOKED dù Redis vẫn ghi ACTIVE")
-    void legacyManagerTokenIsRevokedEvenWhenRedisSaysActive() throws Exception {
-        String token = "legacy-manager-token";
-        MockHttpServletRequest request = new MockHttpServletRequest("PATCH", "/api/v1/orders/1/status");
-        request.addHeader("Authorization", "Bearer " + token);
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
-        when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
-        when(jwtTokenProvider.getRole(token)).thenReturn("MANAGER");
-        when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
-
-        new JwtAuthenticationFilter(jwtTokenProvider, tokenBlacklistValidator, stringRedisTemplate)
-                .doFilter(request, response, filterChain);
-
-        assertEquals(401, response.getStatus());
-        assertTrue(response.getContentAsString().contains("TOKEN_REVOKED"));
-        verifyNoInteractions(filterChain);
-        assertNull(SecurityContextHolder.getContext().getAuthentication());
-        assertNull(TenantContext.getTenantId());
-        assertNull(TenantContext.getCurrentRole());
-    }
-
-    @Test
-    @DisplayName("JWT STAFF hợp lệ thuộc tenant đi tiếp và nạp ROLE_STAFF")
+    @DisplayName("JWT MANAGER hợp lệ thuộc tenant đi tiếp và nạp ROLE_MANAGER")
     void staffTokenWithTenantAuthenticates() throws Exception {
         String token = "staff-token";
         MockHttpServletRequest request = new MockHttpServletRequest("PATCH", "/api/v1/orders/1/status");
@@ -231,7 +231,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(10L);
-        when(jwtTokenProvider.getRole(token)).thenReturn("STAFF");
+        when(jwtTokenProvider.getRole(token)).thenReturn("MANAGER");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(100L);
         when(jwtTokenProvider.getTokenVersion(token)).thenReturn(0L);
         when(stringRedisTemplate.opsForValue()).thenReturn(values);
@@ -241,10 +241,10 @@ class JwtAuthenticationFilterTest {
                 .doFilter(request, response, filterChain);
 
         verify(filterChain).doFilter(request, response);
-        assertEquals("STAFF", TenantContext.getCurrentRole());
+        assertEquals("MANAGER", TenantContext.getCurrentRole());
         assertEquals(100L, TenantContext.getTenantId());
         assertTrue(SecurityContextHolder.getContext().getAuthentication().getAuthorities()
-                .stream().anyMatch(a -> "ROLE_STAFF".equals(a.getAuthority())));
+                .stream().anyMatch(a -> "ROLE_MANAGER".equals(a.getAuthority())));
     }
 
     @Test
@@ -273,13 +273,13 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    @DisplayName("STAFF chưa thuộc cửa hàng (tenantId=null) bị chặn ở API tenant nhưng được gọi /users/me và /users/me/invitations")
+    @DisplayName("MANAGER chưa thuộc cửa hàng (tenantId=null) bị chặn ở API tenant nhưng được gọi /users/me và /users/me/invitations")
     void unassignedStaffBlockedFromTenantApisButAllowedOnSelfEndpoints() throws Exception {
         String token = "staff.unassigned.token";
         when(tokenBlacklistValidator.isBlacklisted(token)).thenReturn(false);
         when(jwtTokenProvider.parseClaims(token)).thenReturn(mock(io.jsonwebtoken.Claims.class));
         when(jwtTokenProvider.getUserId(token)).thenReturn(20L);
-        when(jwtTokenProvider.getRole(token)).thenReturn("STAFF");
+        when(jwtTokenProvider.getRole(token)).thenReturn("MANAGER");
         when(jwtTokenProvider.getTenantId(token)).thenReturn(null);
         when(jwtTokenProvider.getSubdomain(token)).thenReturn(null);
         when(jwtTokenProvider.getTokenVersion(token)).thenReturn(0L);
@@ -293,7 +293,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletResponse tenantApiRes = new MockHttpServletResponse();
         filter.doFilter(tenantApiReq, tenantApiRes, filterChain);
         assertEquals(403, tenantApiRes.getStatus());
-        assertTrue(tenantApiRes.getContentAsString().contains("STAFF_NO_TENANT"));
+        assertTrue(tenantApiRes.getContentAsString().contains("MANAGER_NO_TENANT"));
         verify(filterChain, never()).doFilter(tenantApiReq, tenantApiRes);
 
         MockHttpServletRequest selfInvitationsReq = new MockHttpServletRequest("GET", "/api/v1/users/me/invitations");

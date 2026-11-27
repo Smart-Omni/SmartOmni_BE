@@ -294,10 +294,7 @@ public class TiktokWebhookController {
      */
     private MarketplaceConnection findConnectionByShop(String shopId) {
         try (var scope = TenantContext.openScope(null, CONNECTION_LOOKUP_ROLE, null)) {
-            return connectionRepository.findFirstByShopCipher(shopId)
-                    .or(() -> connectionRepository.findFirstByShopId(shopId))
-                    .or(() -> connectionRepository.findFirstBySellerOpenId(shopId))
-                    .orElse(null);
+            return connectionRepository.findTiktokByShopIdentifier(shopId).orElse(null);
         }
     }
 

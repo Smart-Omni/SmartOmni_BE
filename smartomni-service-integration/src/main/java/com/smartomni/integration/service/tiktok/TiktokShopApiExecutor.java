@@ -78,7 +78,7 @@ public class TiktokShopApiExecutor {
         if (connectionRepository == null) {
             throw new IllegalStateException("MarketplaceConnectionRepository is required for callByShopCipher");
         }
-        MarketplaceConnection connection = connectionRepository.findFirstByShopCipher(shopCipher)
+        MarketplaceConnection connection = connectionRepository.findTiktokByShopCipher(shopCipher)
                 .orElseThrow(() -> new BusinessException("TikTok connection not found for shopCipher: " + shopCipher,
                         HttpStatus.NOT_FOUND, "TIKTOK_CONNECTION_NOT_FOUND"));
 

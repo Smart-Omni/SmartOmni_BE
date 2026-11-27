@@ -37,7 +37,7 @@ public class OrderMessageConsumer {
         Order.OrderSource source = "POLLING".equalsIgnoreCase(payload.getSource())
                 ? Order.OrderSource.POLLING
                 : Order.OrderSource.WEBHOOK;
-        try (var scope = TenantContext.openScope(payload.getTenantId(), "staff", null)) {
+        try (var scope = TenantContext.openScope(payload.getTenantId(), "manager", null)) {
             orderService.processIncomingOrder(payload, source);
         } catch (Exception ex) {
             log.error("Xu ly order message that bai, se duoc retry/DLQ: {}", ex.getMessage());

@@ -84,11 +84,11 @@ public class StaffInvitationServiceImpl implements StaffInvitationService {
                     "USER_ALREADY_IN_TENANT");
         }
 
-        if (targetUser.getRole() != User.UserRole.STAFF) {
+        if (targetUser.getRole() != User.UserRole.MANAGER) {
             throw new BusinessException(
-                    "Tài khoản được mời phải là tài khoản nhân viên (STAFF)",
+                    "Tài khoản được mời phải là tài khoản nhân viên (MANAGER)",
                     HttpStatus.BAD_REQUEST,
-                    "USER_NOT_STAFF");
+                    "USER_NOT_MANAGER");
         }
 
         if (staffInvitationRepository.existsByTenantIdAndInvitedEmailIgnoreCaseAndStatus(
@@ -296,13 +296,13 @@ public class StaffInvitationServiceImpl implements StaffInvitationService {
 
     private String resolveInvitationRole(String rawRole) {
         if (rawRole == null || rawRole.trim().isEmpty()) {
-            return "STAFF";
+            return "MANAGER";
         }
         String normalized = rawRole.trim().toUpperCase(Locale.ROOT);
-        if ("STAFF".equals(normalized)) {
+        if ("MANAGER".equals(normalized)) {
             return normalized;
         }
-        throw new BusinessException("Vai trò lời mời không hợp lệ. Chỉ cho phép STAFF",
+        throw new BusinessException("Vai trò lời mời không hợp lệ. Chỉ cho phép MANAGER",
                 HttpStatus.BAD_REQUEST, "INVALID_ROLE");
     }
 

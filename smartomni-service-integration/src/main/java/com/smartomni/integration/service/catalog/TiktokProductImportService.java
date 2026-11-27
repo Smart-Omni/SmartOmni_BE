@@ -84,13 +84,19 @@ public class TiktokProductImportService {
     public int syncWarehouses(MarketplaceConnection connection) {
         List<Warehouse> warehouses = catalog.listWarehouses(connection.getId());
         tx.executeWithoutResult(s -> {
+            List<String> seen = new java.util.ArrayList<>();
             for (Warehouse w : warehouses) {
                 if (w.id() == null || w.id().isBlank()) {
                     continue;
                 }
+                seen.add(w.id());
                 store.upsertWarehouse(connection.getId(), new CatalogMappingStore.WarehouseRow(w.id(), w.name(), w.type(), w.subType(),
                         w.effectStatus(), Boolean.TRUE.equals(w.isDefault()), w.address() == null ? null : w.address().city(),
                         w.address() == null ? null : w.address().regionCode()));
+            }
+            // Drop warehouses the platform no longer reports; an empty list is not trusted enough to wipe them all.
+            if (!seen.isEmpty()) {
+                store.deleteWarehousesNotIn(connection.getId(), seen);
             }
         });
         return warehouses.size();

@@ -24,7 +24,7 @@ import java.util.List;
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/tiktok/orders")
-@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'STAFF')")
+@PreAuthorize("hasAnyRole('TENANT_ADMIN', 'MANAGER')")
 public class TiktokOrderController {
 
     private final TiktokTenantConnections tenantConnections;
