@@ -62,6 +62,12 @@ public class ShopeeShopApiExecutor {
 
     public JsonNode callMultipart(Long connectionId, String path, String fieldName,
                                   byte[] fileBytes, String filename, String contentType) {
+        return callMultipart(connectionId, path, fieldName, fileBytes, filename, contentType, Map.of());
+    }
+
+    public JsonNode callMultipart(Long connectionId, String path, String fieldName,
+                                  byte[] fileBytes, String filename, String contentType,
+                                  Map<String, String> extraParts) {
         ShopeeTokenService.Credentials creds = tokens.credentials(connectionId);
         Instant now = clock.instant();
         long timestamp = now.getEpochSecond();
@@ -76,6 +82,13 @@ public class ShopeeShopApiExecutor {
         query.put("sign", sign);
 
         org.springframework.http.client.MultipartBodyBuilder mb = new org.springframework.http.client.MultipartBodyBuilder();
+        if (extraParts != null) {
+            extraParts.forEach((k, v) -> {
+                if (v != null && !v.isBlank()) {
+                    mb.part(k, v);
+                }
+            });
+        }
         mb.part(fieldName, new org.springframework.core.io.ByteArrayResource(fileBytes) {
             @Override
             public String getFilename() {

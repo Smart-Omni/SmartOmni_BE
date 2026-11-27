@@ -77,7 +77,9 @@ public class ShopeeReturnsClient {
             Long expectedReturnDate,
             Long reverseDeliveredAt,
             Boolean isNfrExempt,
-            String trackingNumber
+            String trackingNumber,
+            String negotiationStatus,
+            BigDecimal offerAmount
     ) {
         public ShopeeReturnDetail(
                 String returnSn,
@@ -96,7 +98,7 @@ public class ShopeeReturnsClient {
         ) {
             this(returnSn, orderSn, status, refundAmount, currency, reason, textReason, buyerUsername,
                     items, buyerProofImages, sellerProofImages, reverseShippingFee, rulingNotes,
-                    null, null, null, null, null, null, false, "");
+                    null, null, null, null, null, null, false, "", null, null);
         }
     }
 
@@ -212,7 +214,9 @@ public class ShopeeReturnsClient {
                 nullableLong(data, "expected_return_date"),
                 nullableLong(data, "reverse_delivered_at"),
                 data.path("is_nfr_exempt").asBoolean(false),
-                data.path("tracking_number").asText("")
+                data.path("tracking_number").asText(""),
+                data.path("negotiation_status").asText(null),
+                data.hasNonNull("offer_amount") ? BigDecimal.valueOf(data.path("offer_amount").asDouble(0.0)) : null
         );
     }
 
@@ -271,11 +275,52 @@ public class ShopeeReturnsClient {
 
     public record ConvertedImage(String url, String thumbnail) {}
 
+    public record DisputeReasonOption(int disputeReasonId, String disputeName, String disputeRequirement) {}
+
     /**
-     * Uploads an image to Shopee Simulator (POST /api/v2/returns/convert_image) and returns its {url, thumbnail}.
+     * Fetches official Shopee dispute reasons for a return (GET /api/v2/returns/get_return_dispute_reason).
+     */
+    public List<DisputeReasonOption> getReturnDisputeReasons(Long connectionId, String returnSn) {
+        Map<String, String> query = Map.of("return_sn", returnSn);
+        JsonNode data = executor.call(connectionId, "GET", "/api/v2/returns/get_return_dispute_reason", query, null);
+
+        List<DisputeReasonOption> list = new ArrayList<>();
+        JsonNode arr = data.path("dispute_reason_list");
+        if (arr.isArray() && !arr.isEmpty()) {
+            for (JsonNode d : arr) {
+                list.add(new DisputeReasonOption(
+                        d.path("dispute_reason").asInt(),
+                        d.path("dispute_name").asText(""),
+                        d.path("dispute_requirement").asText("")
+                ));
+            }
+            return list;
+        }
+        JsonNode fallback = data.path("dispute_reason");
+        if (fallback.isArray()) {
+            for (JsonNode d : fallback) {
+                list.add(new DisputeReasonOption(
+                        d.path("dispute_reason_id").asInt(),
+                        d.path("dispute_reason_name").asText(""),
+                        ""
+                ));
+            }
+        }
+        return list;
+    }
+
+    /**
+     * Uploads an image to Shopee (POST /api/v2/returns/convert_image) and returns its {url, thumbnail}.
      */
     public ConvertedImage convertImage(Long connectionId, byte[] fileBytes, String filename, String contentType) {
-        JsonNode data = executor.callMultipart(connectionId, "/api/v2/returns/convert_image", "image", fileBytes, filename, contentType);
+        return convertImage(connectionId, null, fileBytes, filename, contentType);
+    }
+
+    public ConvertedImage convertImage(Long connectionId, String returnSn, byte[] fileBytes, String filename, String contentType) {
+        Map<String, String> extra = (returnSn != null && !returnSn.isBlank())
+                ? Map.of("return_sn", returnSn)
+                : Collections.emptyMap();
+        JsonNode data = executor.callMultipart(connectionId, "/api/v2/returns/convert_image", "upload_image", fileBytes, filename, contentType, extra);
         return new ConvertedImage(data.path("url").asText(null), data.path("thumbnail").asText(null));
     }
 

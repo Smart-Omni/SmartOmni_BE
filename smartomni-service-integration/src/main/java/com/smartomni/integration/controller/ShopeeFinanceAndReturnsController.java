@@ -98,12 +98,20 @@ public class ShopeeFinanceAndReturnsController {
         return ResponseEntity.ok(ApiResponse.success("Dispute submitted successfully", Map.of("returnSn", returnSn, "disputed", success)));
     }
 
+    @GetMapping("/returns/{returnSn}/dispute-reasons")
+    public ResponseEntity<ApiResponse<java.util.List<com.smartomni.integration.client.shopee.ShopeeReturnsClient.DisputeReasonOption>>> getReturnDisputeReasons(
+            @PathVariable String returnSn) {
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+        return ResponseEntity.ok(ApiResponse.success(financeAndReturnsService.getReturnDisputeReasons(connection, returnSn)));
+    }
+
     @PostMapping("/returns/convert-image")
     public ResponseEntity<ApiResponse<com.smartomni.integration.client.shopee.ShopeeReturnsClient.ConvertedImage>> convertReturnImage(
-            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) throws java.io.IOException {
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+            @RequestParam(value = "returnSn", required = false) String returnSn) throws java.io.IOException {
         MarketplaceConnection connection = tenantConnections.requireConnected();
         var converted = financeAndReturnsService.convertReturnImage(
-                connection, file.getBytes(), file.getOriginalFilename(), file.getContentType());
+                connection, returnSn, file.getBytes(), file.getOriginalFilename(), file.getContentType());
         return ResponseEntity.ok(ApiResponse.success(converted));
     }
 

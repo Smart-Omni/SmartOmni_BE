@@ -106,7 +106,18 @@ class ShopeeReturnsClientTest {
                       "expected_return_date": 1714459200,
                       "reverse_delivered_at": 1714200100,
                       "is_nfr_exempt": true,
-                      "tracking_number": "SPXRET001"
+                      "tracking_number": "SPXRET001",
+                      "negotiation_status": "PENDING_BUYER_RESPOND",
+                      "offer_amount": 150000
+                    }
+                    """);
+            }
+            if (path.contains("/returns/get_return_dispute_reason")) {
+                return FakeShopeeTransport.ok("""
+                    {
+                      "dispute_reason_list": [
+                        { "dispute_reason": 50, "dispute_name": "INCORRECT_CLAIM", "dispute_requirement": "Provide unboxing proof" }
+                      ]
                     }
                     """);
             }
@@ -178,6 +189,18 @@ class ShopeeReturnsClientTest {
         assertEquals(1714200100L, detail.reverseDeliveredAt());
         assertEquals(Boolean.TRUE, detail.isNfrExempt());
         assertEquals("SPXRET001", detail.trackingNumber());
+        assertEquals("PENDING_BUYER_RESPOND", detail.negotiationStatus());
+        assertEquals(BigDecimal.valueOf(150000.0), detail.offerAmount());
+    }
+
+    @Test
+    @DisplayName("getReturnDisputeReasons retrieves Shopee dispute reason options")
+    void getReturnDisputeReasons_Success() {
+        List<ShopeeReturnsClient.DisputeReasonOption> reasons = client.getReturnDisputeReasons(88L, "RET-241028-001");
+
+        assertEquals(1, reasons.size());
+        assertEquals(50, reasons.get(0).disputeReasonId());
+        assertEquals("INCORRECT_CLAIM", reasons.get(0).disputeName());
     }
 
     @Test

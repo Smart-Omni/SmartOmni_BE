@@ -88,8 +88,12 @@ public class ShopeeFinanceAndReturnsService {
         );
     }
 
-    public ShopeeReturnsClient.ConvertedImage convertReturnImage(MarketplaceConnection connection, byte[] fileBytes, String filename, String contentType) {
-        return returnsClient.convertImage(connection.getId(), fileBytes, filename, contentType);
+    public ShopeeReturnsClient.ConvertedImage convertReturnImage(MarketplaceConnection connection, String returnSn, byte[] fileBytes, String filename, String contentType) {
+        return returnsClient.convertImage(connection.getId(), returnSn, fileBytes, filename, contentType);
+    }
+
+    public List<ShopeeReturnsClient.DisputeReasonOption> getReturnDisputeReasons(MarketplaceConnection connection, String returnSn) {
+        return returnsClient.getReturnDisputeReasons(connection.getId(), returnSn);
     }
 
     public boolean uploadReturnProof(MarketplaceConnection connection, String returnSn, String description, List<ShopeeReturnsClient.ConvertedImage> photos) {
