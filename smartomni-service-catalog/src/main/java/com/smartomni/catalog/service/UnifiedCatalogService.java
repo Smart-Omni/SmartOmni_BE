@@ -123,6 +123,11 @@ public class UnifiedCatalogService {
             }, params.toArray());
         }
 
+        // 3b. Load candidate counterpart links for smart suggestions
+        List<SuggestionCandidate> suggestionCandidates = (isShopeeConnected || isTiktokConnected)
+                ? loadSuggestionCandidates(tenantId)
+                : List.of();
+
         // 4. Transform into UnifiedProductDto
         List<UnifiedProductDto> unifiedList = new ArrayList<>();
         for (Product p : products) {
@@ -181,7 +186,9 @@ public class UnifiedCatalogService {
                         .build();
 
                 // Compute smart AI suggestion only when BOTH channels are connected or relevant channel is connected
-                SuggestedMappingDto suggested = computeSmartSuggestion(sku, shopeeLink, tiktokLink, isShopeeConnected, isTiktokConnected);
+                SuggestedMappingDto suggested = computeSmartSuggestion(
+                        p.getName(), sku, shopeeLink, tiktokLink,
+                        isShopeeConnected, isTiktokConnected, suggestionCandidates);
 
                 skuDtos.add(UnifiedSkuDto.builder()
                         .id(sku.getId())
@@ -324,6 +331,96 @@ public class UnifiedCatalogService {
         // Immediate inventory sync upon linkage
         syncInventoryOnLink(tenantId, sku.getId(), platform);
 
+        return toMappingDto(link);
+    }
+
+    @Transactional
+    public MarketplaceMappingDto reconcileSkuMapping(ReconcileMappingRequest req) {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) {
+            throw new BusinessException("Tenant context required", HttpStatus.UNAUTHORIZED, "TENANT_REQUIRED");
+        }
+
+        ProductSku targetSku = skuRepository.findById(req.getTargetSkuId())
+                .orElseThrow(() -> new ResourceNotFoundException("Target SKU not found: " + req.getTargetSkuId()));
+
+        if (!Objects.equals(targetSku.getTenantId(), tenantId)) {
+            throw new BusinessException("Target SKU does not belong to the current tenant", HttpStatus.FORBIDDEN, "FORBIDDEN");
+        }
+
+        ProductMarketplaceLink.Platform platform = parsePlatform(req.getPlatform());
+
+        ProductMarketplaceLink link = null;
+        if (req.getSourceLinkId() != null) {
+            link = linkRepository.findByIdAndTenantId(req.getSourceLinkId(), tenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Source marketplace link not found: " + req.getSourceLinkId()));
+            if (link.getPlatform() != platform) {
+                throw new BusinessException("Source link platform mismatch", HttpStatus.BAD_REQUEST, "PLATFORM_MISMATCH");
+            }
+        } else {
+            link = linkRepository.findByTenantIdAndPlatformAndPlatformItemIdAndExternalSkuId(
+                            tenantId, platform, req.getPlatformItemId(), req.getExternalSkuId())
+                    .orElseGet(() -> linkRepository.findByTenantIdAndSkuIdAndPlatform(tenantId, targetSku.getId(), platform)
+                            .orElseGet(() -> {
+                                ProductMarketplaceLink newLink = new ProductMarketplaceLink();
+                                newLink.setTenantId(tenantId);
+                                newLink.setPlatform(platform);
+                                return newLink;
+                            }));
+        }
+
+        Long previousSkuId = link.getSkuId();
+
+        link.setSkuId(targetSku.getId());
+        if (req.getPlatformItemId() != null) link.setPlatformItemId(req.getPlatformItemId());
+        if (req.getExternalSkuId() != null) link.setExternalSkuId(req.getExternalSkuId());
+        if (req.getSellerSku() != null) link.setSellerSku(req.getSellerSku());
+        link.setPlatformPrice(req.getPlatformPrice() != null ? req.getPlatformPrice() : targetSku.getBasePrice());
+        if (link.getCurrency() == null) link.setCurrency("VND");
+        link.setExternalStatus("ACTIVE");
+        link.setLastSyncedAt(Instant.now());
+
+        String canonicalUrl = req.getProductUrl();
+        if (canonicalUrl == null || canonicalUrl.isBlank()) {
+            canonicalUrl = link.getPlatformProductUrl();
+        }
+        if (canonicalUrl == null || canonicalUrl.isBlank()) {
+            canonicalUrl = platform == ProductMarketplaceLink.Platform.SHOPEE
+                    ? SHOPEE_SIMULATOR_BASE_URL + (link.getPlatformItemId() != null ? link.getPlatformItemId() : "")
+                    : tiktokProductUrl(link.getPlatformItemId());
+        }
+        link.setPlatformProductUrl(canonicalUrl);
+
+        link = linkRepository.save(link);
+
+        // If the link moved from another single-channel SKU, hide its orphaned product if no active links remain
+        if (previousSkuId != null && !previousSkuId.equals(targetSku.getId())) {
+            hideOrphanedProductIfUnlinked(tenantId, previousSkuId);
+        }
+
+        syncInventoryOnLink(tenantId, targetSku.getId(), platform);
+        return toMappingDto(link);
+    }
+
+    private void hideOrphanedProductIfUnlinked(Long tenantId, Long oldSkuId) {
+        skuRepository.findById(oldSkuId).ifPresent(oldSku -> {
+            if (!Objects.equals(oldSku.getTenantId(), tenantId)) return;
+            List<ProductSku> siblingSkus = skuRepository.findByTenantIdAndProductIdIn(tenantId, List.of(oldSku.getProductId()));
+            List<Long> siblingIds = siblingSkus.stream().map(ProductSku::getId).toList();
+            if (siblingIds.isEmpty()) return;
+            List<ProductMarketplaceLink> remaining = linkRepository.findByTenantIdAndSkuIdIn(tenantId, siblingIds);
+            if (remaining.isEmpty()) {
+                productRepository.findById(oldSku.getProductId()).ifPresent(prod -> {
+                    if (Objects.equals(prod.getTenantId(), tenantId)) {
+                        prod.setStatus(Product.ProductStatus.HIDDEN);
+                        productRepository.save(prod);
+                    }
+                });
+            }
+        });
+    }
+
+    private MarketplaceMappingDto toMappingDto(ProductMarketplaceLink link) {
         return MarketplaceMappingDto.builder()
                 .id(link.getId())
                 .platform(link.getPlatform().name())
@@ -387,48 +484,190 @@ public class UnifiedCatalogService {
         return template.trim().replace("{productId}", itemId.trim());
     }
 
-    private SuggestedMappingDto computeSmartSuggestion(ProductSku sku, ProductMarketplaceLink shopeeLink, ProductMarketplaceLink tiktokLink, boolean isShopeeConnected, boolean isTiktokConnected) {
-        // Only suggest TikTok if TikTok is connected!
+    record SuggestionCandidate(
+            Long linkId,
+            Long skuId,
+            String platform,
+            String itemId,
+            String externalSkuId,
+            String sellerSku,
+            String displayName,
+            BigDecimal price,
+            String productUrl
+    ) {}
+
+    private List<SuggestionCandidate> loadSuggestionCandidates(Long tenantId) {
+        String sql = """
+            SELECT l.id AS link_id, l.sku_id, UPPER(l.platform::text) AS platform,
+                   l.platform_item_id, l.external_sku_id, l.seller_sku, l.platform_price, l.platform_product_url,
+                   p.name AS product_name, s.variant_name
+            FROM product_marketplace_links l
+            LEFT JOIN product_skus s ON s.id = l.sku_id AND s.tenant_id = l.tenant_id
+            LEFT JOIN products p ON p.id = s.product_id AND p.tenant_id = l.tenant_id
+            WHERE l.tenant_id = ?
+              AND (
+                l.sku_id IS NULL
+                OR (
+                  SELECT COUNT(DISTINCT l2.platform)
+                  FROM product_marketplace_links l2
+                  WHERE l2.tenant_id = l.tenant_id AND l2.sku_id = l.sku_id
+                ) = 1
+              )
+            ORDER BY l.id DESC
+            LIMIT 200
+            """;
+        List<SuggestionCandidate> candidates = new ArrayList<>();
+        try {
+            jdbcTemplate.query(sql, rs -> {
+                String pName = rs.getString("product_name");
+                String vName = rs.getString("variant_name");
+                String sSku = rs.getString("seller_sku");
+                String pItemId = rs.getString("platform_item_id");
+                String displayName = pName != null && !pName.isBlank()
+                        ? (vName != null && !vName.isBlank() && !"Standard".equalsIgnoreCase(vName) ? pName + " " + vName : pName)
+                        : (sSku != null ? sSku : "Marketplace Item " + pItemId);
+
+                String rawUrl = rs.getString("platform_product_url");
+                String platform = rs.getString("platform");
+                String url = rawUrl != null && !rawUrl.isBlank() ? rawUrl
+                        : ("SHOPEE".equalsIgnoreCase(platform) ? SHOPEE_SIMULATOR_BASE_URL + pItemId : tiktokProductUrl(pItemId));
+
+                Long skuIdObj = rs.getObject("sku_id") != null ? rs.getLong("sku_id") : null;
+                candidates.add(new SuggestionCandidate(
+                        rs.getLong("link_id"),
+                        skuIdObj,
+                        platform,
+                        pItemId,
+                        rs.getString("external_sku_id"),
+                        sSku,
+                        displayName,
+                        rs.getBigDecimal("platform_price"),
+                        url
+                ));
+            }, tenantId);
+        } catch (Exception ex) {
+            log.warn("[Catalog] Failed to load suggestion candidates: {}", ex.getMessage());
+        }
+        return candidates;
+    }
+
+    SuggestedMappingDto computeSmartSuggestion(
+            String productName,
+            ProductSku sku,
+            ProductMarketplaceLink shopeeLink,
+            ProductMarketplaceLink tiktokLink,
+            boolean isShopeeConnected,
+            boolean isTiktokConnected,
+            List<SuggestionCandidate> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        String targetPlatform = null;
+        BigDecimal sourcePrice = sku.getBasePrice();
         if (isTiktokConnected && shopeeLink != null && tiktokLink == null) {
-            if ("SO-CAM-4K".equalsIgnoreCase(sku.getSkuCode())) {
-                return SuggestedMappingDto.builder()
-                        .platform("TIKTOK_SHOP")
-                        .itemId("TT-PROD-4")
-                        .externalSkuId("TT-SKU-4")
-                        .sellerSku("SO-CAM-4K")
-                        .name("SmartOmni 4K Webcam Pro AI Stream")
-                        .price(new BigDecimal("650000"))
-                        .confidence(96)
-                        .productUrl(tiktokProductUrl("TT-PROD-4"))
-                        .build();
-            }
-            if ("SO-KB-BROWN".equalsIgnoreCase(sku.getSkuCode())) {
-                return SuggestedMappingDto.builder()
-                        .platform("TIKTOK_SHOP")
-                        .itemId("TT-PROD-2")
-                        .externalSkuId("TT-SKU-7")
-                        .sellerSku("TT-KB-BRN")
-                        .name("RGB Mechanical Keyboard (Brown Switch)")
-                        .price(new BigDecimal("820000"))
-                        .confidence(94)
-                        .productUrl(tiktokProductUrl("TT-PROD-2"))
-                        .build();
-            }
+            targetPlatform = "TIKTOK_SHOP";
+            if (shopeeLink.getPlatformPrice() != null) sourcePrice = shopeeLink.getPlatformPrice();
         } else if (isShopeeConnected && tiktokLink != null && shopeeLink == null) {
-            if ("SO-ANC-BLK-2Y".equalsIgnoreCase(sku.getSkuCode())) {
-                return SuggestedMappingDto.builder()
-                        .platform("SHOPEE")
-                        .itemId("1004")
-                        .externalSkuId("MOD-507")
-                        .sellerSku("SP-ANC-2Y")
-                        .name("ANC Headphones Matte Black (2Y Care Extended)")
-                        .price(new BigDecimal("550000"))
-                        .confidence(91)
-                        .productUrl(SHOPEE_SIMULATOR_BASE_URL + "1004")
-                        .build();
+            targetPlatform = "SHOPEE";
+            if (tiktokLink.getPlatformPrice() != null) sourcePrice = tiktokLink.getPlatformPrice();
+        } else {
+            return null;
+        }
+
+        String sourceLabel = ((productName != null ? productName : "") + " " + (sku.getVariantName() != null ? sku.getVariantName() : "")).trim();
+        Set<String> sourceTokens = tokenize(sourceLabel);
+        String sourceSkuNorm = normalizeCode(sku.getSkuCode());
+
+        SuggestionCandidate best = null;
+        int bestScore = 0;
+        String bestReason = null;
+
+        for (SuggestionCandidate c : candidates) {
+            if (!targetPlatform.equalsIgnoreCase(c.platform())) continue;
+            if (c.skuId() != null && c.skuId().equals(sku.getId())) continue;
+
+            List<String> reasons = new ArrayList<>();
+            int score = 0;
+
+            double jaccard = jaccardSimilarity(sourceTokens, tokenize(c.displayName()));
+            int namePts = (int) Math.round(jaccard * 55);
+            if (namePts > 0) {
+                score += namePts;
+                if (jaccard >= 0.4) {
+                    reasons.add("Name similarity (" + Math.round(jaccard * 100) + "%)");
+                }
+            }
+
+            if (sourcePrice != null && c.price() != null && sourcePrice.compareTo(BigDecimal.ZERO) > 0) {
+                double diffRatio = sourcePrice.subtract(c.price()).abs().doubleValue() / sourcePrice.doubleValue();
+                if (diffRatio <= 0.01) {
+                    score += 25;
+                    reasons.add("exact price");
+                } else if (diffRatio <= 0.10) {
+                    score += 15;
+                    reasons.add("close price");
+                } else if (diffRatio <= 0.20) {
+                    score += 5;
+                }
+            }
+
+            String candSkuNorm = normalizeCode(c.sellerSku());
+            if (!sourceSkuNorm.isEmpty() && !candSkuNorm.isEmpty()) {
+                if (sourceSkuNorm.equals(candSkuNorm)) {
+                    score += 25;
+                    reasons.add("matching SKU code");
+                } else if (sourceSkuNorm.contains(candSkuNorm) || candSkuNorm.contains(sourceSkuNorm)) {
+                    score += 15;
+                    reasons.add("partial SKU match");
+                }
+            }
+
+            int confidence = Math.min(99, score);
+            if (confidence >= 70 && confidence > bestScore) {
+                bestScore = confidence;
+                best = c;
+                bestReason = reasons.isEmpty() ? "Cross-channel attribute match" : String.join(" + ", reasons);
             }
         }
-        return null;
+
+        if (best == null) {
+            return null;
+        }
+        return SuggestedMappingDto.builder()
+                .platform(best.platform())
+                .itemId(best.itemId())
+                .externalSkuId(best.externalSkuId())
+                .sellerSku(best.sellerSku())
+                .name(best.displayName())
+                .price(best.price())
+                .confidence(bestScore)
+                .reason(bestReason)
+                .sourceSkuId(best.skuId())
+                .productUrl(best.productUrl())
+                .build();
+    }
+
+    private static Set<String> tokenize(String text) {
+        if (text == null || text.isBlank()) return Set.of();
+        String[] parts = text.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim().split("\\s+");
+        Set<String> tokens = new HashSet<>();
+        for (String p : parts) {
+            if (p.length() >= 2 && !"standard".equals(p) && !"default".equals(p)) {
+                tokens.add(p);
+            }
+        }
+        return tokens;
+    }
+
+    private static double jaccardSimilarity(Set<String> a, Set<String> b) {
+        if (a.isEmpty() || b.isEmpty()) return 0.0;
+        long intersection = a.stream().filter(b::contains).count();
+        long union = a.size() + b.size() - intersection;
+        return union == 0 ? 0.0 : (double) intersection / union;
+    }
+
+    private static String normalizeCode(String code) {
+        return code == null ? "" : code.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
     private ProductMarketplaceLink.Platform parsePlatform(String str) {

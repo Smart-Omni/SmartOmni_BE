@@ -46,6 +46,11 @@ public class ProductController {
         return ApiResponse.success("Linked SKU to marketplace listing successfully", unifiedCatalogService.bindSkuMapping(request));
     }
 
+    @PostMapping("/mappings/reconcile")
+    public ApiResponse<MarketplaceMappingDto> reconcileMapping(@Valid @RequestBody ReconcileMappingRequest request) {
+        return ApiResponse.success("Reconciled SKU mapping successfully", unifiedCatalogService.reconcileSkuMapping(request));
+    }
+
     @DeleteMapping("/mappings/{linkId}")
     public ApiResponse<Void> unbindMapping(@PathVariable Long linkId) {
         unifiedCatalogService.unbindSkuMapping(linkId);
