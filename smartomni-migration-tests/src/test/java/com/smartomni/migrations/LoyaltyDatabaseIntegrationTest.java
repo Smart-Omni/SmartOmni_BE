@@ -269,8 +269,13 @@ class LoyaltyDatabaseIntegrationTest {
                 JdbcTemplate jdbc = new JdbcTemplate(ds);
                 LoyaltyCustomerService customers = new LoyaltyCustomerService(jdbc);
                 LoyaltyCampaignService campaigns = new LoyaltyCampaignService(jdbc);
+                // TikTok tiers are checked against the shop's Seller Center code batches (read through the integration service).
+                IntegrationVoucherClient batchClient = mock(IntegrationVoucherClient.class);
+                when(batchClient.listTiktokBatches(tenantA, tiktokA)).thenReturn(List.of(
+                        batch("Loyalty Gold 10%", 10), batch("Loyalty Gold 12%", 12),
+                        batch("Loyalty Platinum 20%", 20), batch("Loyalty Diamond 30%", 30)));
                 com.smartomni.order.service.loyalty.LoyaltyTierService tiers =
-                        new com.smartomni.order.service.loyalty.LoyaltyTierService(jdbc, campaigns);
+                        new com.smartomni.order.service.loyalty.LoyaltyTierService(jdbc, campaigns, batchClient);
 
                 // Any customer may claim with the marketplace id; points come from the stored order total.
                 setRls(appConn, tenantA, "customer");
@@ -301,7 +306,12 @@ class LoyaltyDatabaseIntegrationTest {
                 // Shop sets up tiers per marketplace: the suggestion on TikTok, its own milestones on Shopee.
                 setRls(appConn, tenantA, "tenant_admin");
                 var tiktokSetup = tiers.saveTiers(adminA, tenantA, com.smartomni.order.dto.loyalty.SaveLoyaltyTiersRequest.builder()
-                        .connectionId(tiktokA).tiers(com.smartomni.order.service.loyalty.LoyaltyTierService.SUGGESTED).build());
+                        .connectionId(tiktokA).tiers(com.smartomni.order.service.loyalty.LoyaltyTierService.SUGGESTED.stream()
+                                .map(t -> t.toBuilder().tiktokBatchTitle("Loyalty " + t.getName() + " "
+                                        + t.getDiscountPercent().intValue() + "%").build()).toList()).build());
+                // each TikTok tier takes the free codes and the end of its batch
+                assertEquals(List.of(40), jdbc.queryForList("SELECT DISTINCT quantity FROM loyalty_reward_campaigns "
+                        + "WHERE tenant_id = ? AND connection_id = ?", Integer.class, tenantA, tiktokA));
                 assertEquals(List.of("Gold", "Platinum", "Diamond"),
                         tiktokSetup.getTiers().stream().map(com.smartomni.order.dto.loyalty.LoyaltyTierSetupDto.Tier::getName).toList());
                 assertEquals("import", jdbc.queryForObject("SELECT DISTINCT provisioning_mode FROM loyalty_reward_campaigns "
@@ -320,8 +330,11 @@ class LoyaltyDatabaseIntegrationTest {
                 var platinum = tiktokSetup.getTiers().get(1);
                 tiers.saveTiers(adminA, tenantA, com.smartomni.order.dto.loyalty.SaveLoyaltyTiersRequest.builder()
                         .connectionId(tiktokA).tiers(List.of(
-                                tier(gold.getCampaignId(), "Gold+", 500, 12),
-                                tier(platinum.getCampaignId(), "Platinum", 1000, 20))).build());
+                                tier(gold.getCampaignId(), "Gold+", 500, 12).toBuilder().tiktokBatchTitle("Loyalty Gold 12%").build(),
+                                tier(platinum.getCampaignId(), "Platinum", 1000, 20).toBuilder()
+                                        .tiktokBatchTitle("Loyalty Platinum 20%").build())).build());
+                assertEquals("Loyalty Gold 12%", jdbc.queryForObject("SELECT tiktok_batch_title FROM loyalty_reward_campaigns "
+                        + "WHERE tenant_id = ? AND id = ?", String.class, tenantA, gold.getCampaignId()));
                 assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM loyalty_reward_campaigns WHERE tenant_id = ? "
                         + "AND connection_id = ? AND status = 'closed'", Integer.class, tenantA, tiktokA));
                 assertEquals("draft", jdbc.queryForObject("SELECT status FROM loyalty_reward_campaigns WHERE tenant_id = ? AND id = ?",
@@ -351,6 +364,12 @@ class LoyaltyDatabaseIntegrationTest {
     private static com.smartomni.order.dto.loyalty.LoyaltyTierSetupDto.Tier tier(Long campaignId, String name, long points, int percent) {
         return com.smartomni.order.dto.loyalty.LoyaltyTierSetupDto.Tier.builder().campaignId(campaignId).name(name)
                 .requiredPoints(points).discountPercent(BigDecimal.valueOf(percent)).build();
+    }
+
+    private static com.smartomni.order.dto.loyalty.TiktokVoucherBatchDto batch(String title, int percent) {
+        return com.smartomni.order.dto.loyalty.TiktokVoucherBatchDto.builder().title(title).discountType("PERCENT_OFF")
+                .discountValue(BigDecimal.valueOf(percent)).ongoingCodes(40).freeCodes(40)
+                .endTime(Instant.now().plus(30, ChronoUnit.DAYS)).build();
     }
 
     private static void setRls(Connection conn, long tenantId, String role) throws Exception {

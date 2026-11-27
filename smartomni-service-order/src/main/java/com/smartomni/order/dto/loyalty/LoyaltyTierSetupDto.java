@@ -26,7 +26,7 @@ public class LoyaltyTierSetupDto {
     private List<Tier> suggested;
 
     @Data
-    @Builder
+    @Builder(toBuilder = true)
     @NoArgsConstructor
     @AllArgsConstructor
     public static class Tier {
