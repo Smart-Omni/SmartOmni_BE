@@ -30,6 +30,9 @@ public class ServiceSecurityAutoConfiguration {
     /** TikTok Shop webhook receiver (integration service). Authenticated by HMAC signature in the controller. */
     public static final String TIKTOK_WEBHOOK_PATH = "/api/v1/integrations/tiktok/webhooks";
 
+    /** Public storefront catalog (catalog service). Read-only; the tenant comes from the path, never from a JWT. */
+    public static final String PUBLIC_STOREFRONT_PRODUCTS_PATH = "/api/v1/products/public/**";
+
     @Bean
     @ConditionalOnMissingBean(TokenBlacklistValidator.class)
     public TokenBlacklistValidator tokenBlacklistValidator(ObjectProvider<StringRedisTemplate> stringRedisTemplateProvider) {
@@ -67,6 +70,8 @@ public class ServiceSecurityAutoConfiguration {
                         .requestMatchers("/actuator/health", "/webhook/**", "/internal/jobs/**").permitAll()
                         // TikTok webhooks carry an HMAC signature (verified by the controller), never a JWT.
                         .requestMatchers(HttpMethod.POST, TIKTOK_WEBHOOK_PATH).permitAll()
+                        // Shoppers browse a store's catalog without an account.
+                        .requestMatchers(HttpMethod.GET, PUBLIC_STOREFRONT_PRODUCTS_PATH).permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated())
                 .build();
