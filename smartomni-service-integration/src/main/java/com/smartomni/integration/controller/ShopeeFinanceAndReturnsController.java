@@ -83,4 +83,32 @@ public class ShopeeFinanceAndReturnsController {
         boolean success = financeAndReturnsService.disputeReturn(connection, returnSn, request);
         return ResponseEntity.ok(ApiResponse.success("Dispute submitted successfully", Map.of("returnSn", returnSn, "disputed", success)));
     }
+
+    @PostMapping("/returns/convert-image")
+    public ResponseEntity<ApiResponse<com.smartomni.integration.client.shopee.ShopeeReturnsClient.ConvertedImage>> convertReturnImage(
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) throws java.io.IOException {
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+        var converted = financeAndReturnsService.convertReturnImage(
+                connection, file.getBytes(), file.getOriginalFilename(), file.getContentType());
+        return ResponseEntity.ok(ApiResponse.success(converted));
+    }
+
+    @PostMapping("/returns/{returnSn}/upload-proof")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> uploadReturnProof(
+            @PathVariable String returnSn,
+            @RequestBody UploadProofRequest request) {
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+        boolean success = financeAndReturnsService.uploadReturnProof(
+                connection, returnSn, request != null ? request.description() : null,
+                request != null ? request.photos() : java.util.List.of());
+        return ResponseEntity.ok(ApiResponse.success("Proof uploaded successfully", Map.of("returnSn", returnSn, "uploaded", success)));
+    }
+
+    @GetMapping("/returns/{returnSn}/proof")
+    public ResponseEntity<ApiResponse<com.fasterxml.jackson.databind.JsonNode>> queryReturnProof(@PathVariable String returnSn) {
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+        return ResponseEntity.ok(ApiResponse.success(financeAndReturnsService.queryReturnProof(connection, returnSn)));
+    }
+
+    public record UploadProofRequest(String description, java.util.List<com.smartomni.integration.client.shopee.ShopeeReturnsClient.ConvertedImage> photos) {}
 }
