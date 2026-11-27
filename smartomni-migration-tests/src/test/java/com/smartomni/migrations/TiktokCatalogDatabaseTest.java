@@ -104,6 +104,7 @@ class TiktokCatalogDatabaseTest {
             execute(c, "DELETE FROM price_sync_configs");
             execute(c, "DELETE FROM product_marketplace_links");
             execute(c, "DELETE FROM inventory");
+            execute(c, "DELETE FROM product_images");
             execute(c, "DELETE FROM product_skus");
             execute(c, "DELETE FROM products");
             execute(c, "DELETE FROM marketplace_import_runs");
@@ -313,6 +314,55 @@ class TiktokCatalogDatabaseTest {
         assertEquals(5, count("SELECT count(*) FROM product_skus WHERE tenant_id=1"));
         assertEquals(3, count("SELECT count(*) FROM products WHERE tenant_id=1"));
         assertEquals(5, count("SELECT count(*) FROM product_marketplace_links WHERE tenant_id=1"));
+    }
+
+    @Test
+    void importStoresTheMainImageFromTheProductDetailOncePerProduct() throws Exception {
+        PLATFORM.addProduct(1, "P1", "Tee", "ACTIVATE", sku("S1", "TEE-M", "129000"), sku("S2", "TEE-L", "139000"));
+        PLATFORM.setMainImages(1, "P1", new String[]{"sim-media/abc", "https://cdn.example/p1-main.jpg"},
+                new String[]{"sim-media/def", "https://cdn.example/p1-second.jpg"});
+        PLATFORM.addProduct(1, "P2", "Cap", "ACTIVATE", sku("S3", "CAP", "50000"));
+        PLATFORM.setMainImages(1, "P2", new String[]{"https://cdn.example/p2-uri-only.jpg"});
+        PLATFORM.addProduct(1, "P3", "No image", "ACTIVATE", sku("S4", "NOIMG", "50000"));
+        PLATFORM.addProduct(2, "P1", "Tee B", "ACTIVATE", sku("S1", "B-1", "1000"));
+        PLATFORM.setMainImages(2, "P1", new String[]{"sim-media/b", "https://cdn.example/b.jpg"});
+
+        assertEquals("completed", importFor(1).status());
+        importFor(1);
+
+        String p1 = "(SELECT s.product_id FROM product_skus s WHERE s.sku_code='TEE-M')";
+        assertEquals(1, count("SELECT count(*) FROM product_images WHERE product_id=" + p1), "only the main image, and a re-run adds no duplicate");
+        assertEquals("https://cdn.example/p1-main.jpg", text("SELECT url FROM product_images WHERE product_id=" + p1));
+        assertEquals("1", text("SELECT tenant_id::text FROM product_images WHERE product_id=" + p1));
+        assertEquals("0", text("SELECT sort_order::text FROM product_images WHERE product_id=" + p1));
+        assertEquals("https://cdn.example/p2-uri-only.jpg",
+                text("SELECT url FROM product_images WHERE product_id=(SELECT product_id FROM product_skus WHERE sku_code='CAP')"));
+        assertEquals(0, count("SELECT count(*) FROM product_images WHERE product_id=(SELECT product_id FROM product_skus WHERE sku_code='NOIMG')"));
+        assertEquals(2, count("SELECT count(*) FROM product_images"), "tenant 2 was not imported");
+
+        importFor(2);
+        assertEquals("https://cdn.example/b.jpg", text("SELECT url FROM product_images WHERE tenant_id=2"));
+        assertEquals(2, count("SELECT count(*) FROM product_images WHERE tenant_id=1"));
+    }
+
+    @Test
+    void anExistingProductStoppedByTheSkuLimitStillGetsItsMainImage() throws Exception {
+        update("INSERT INTO subscription_plans (name, max_skus) VALUES ('small', 2)");
+        update("UPDATE tenants SET plan_id = (SELECT id FROM subscription_plans WHERE name='small') WHERE id = 1");
+        PLATFORM.addProduct(1, "P1", "Tee", "ACTIVATE", sku("S1", "TEE-M", "129000"));
+        assertEquals("completed", importFor(1).status());
+        assertEquals(0, count("SELECT count(*) FROM product_images"));
+
+        // The seller adds two variants and an image; the new variants exceed the plan limit, so the product's writes roll back.
+        PLATFORM.reset();
+        PLATFORM.addProduct(1, "P1", "Tee", "ACTIVATE", sku("S1", "TEE-M", "129000"), sku("S2", "TEE-L", "1000"), sku("S3", "TEE-XL", "1000"));
+        PLATFORM.setMainImages(1, "P1", new String[]{"sim-media/abc", "https://cdn.example/p1-main.jpg"});
+        ImportReport report = importFor(1);
+
+        assertEquals("stopped_sku_limit", report.status());
+        assertEquals(1, count("SELECT count(*) FROM product_skus WHERE tenant_id=1"), "no SKU is created past the limit");
+        assertEquals("https://cdn.example/p1-main.jpg",
+                text("SELECT url FROM product_images WHERE product_id=(SELECT product_id FROM product_skus WHERE sku_code='TEE-M')"));
     }
 
     @Test

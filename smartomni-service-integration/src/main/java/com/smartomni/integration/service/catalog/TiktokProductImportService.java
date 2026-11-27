@@ -180,6 +180,12 @@ public class TiktokProductImportService {
         } catch (SkuLimitReached stop) {
             run.limitReached = true;
             run.addItem(summary.id(), null, "SKU_LIMIT", stop.getMessage());
+            // The limit rolled back this product's writes; a product imported by an earlier run still gets its main image.
+            try {
+                tx.executeWithoutResult(s -> saveMainImage(connection.getId(), null, dto));
+            } catch (DataAccessException e) {
+                run.addItem(summary.id(), null, "PERSIST_FAILED", safe(e));
+            }
             throw stop;
         } catch (DataAccessException e) {
             // e.g. a concurrent writer hit the unique (connection, external sku) index: nothing of this product was kept.
@@ -271,11 +277,7 @@ public class TiktokProductImportService {
                 }
             }
         }
-        Long resolvedProductId = productId != null ? productId
-                : store.findProductIdByPlatformItemId(connectionId, dto.getPlatformItemId()).orElse(null);
-        if (resolvedProductId != null && dto.getImageUrls() != null && !dto.getImageUrls().isEmpty()) {
-            store.saveProductImage(resolvedProductId, dto.getImageUrls().get(0));
-        }
+        saveMainImage(connectionId, productId, dto);
         if (productCreated) {
             run.productsCreated++;
         } else if (changes > 0) {
@@ -284,6 +286,18 @@ public class TiktokProductImportService {
             run.productsSkipped++;
         }
         return run;
+    }
+
+    /** Stores the first platform image of the product (idempotent per url); productId null = resolve it from the existing links. */
+    private void saveMainImage(long connectionId, Long productId, MarketplaceProductDto dto) {
+        if (dto.getImageUrls() == null || dto.getImageUrls().isEmpty()) {
+            return;
+        }
+        Long resolved = productId != null ? productId
+                : store.findProductIdByPlatformItemId(connectionId, dto.getPlatformItemId()).orElse(null);
+        if (resolved != null) {
+            store.saveProductImage(resolved, dto.getImageUrls().get(0));
+        }
     }
 
     private void initStock(long skuId, MarketplaceProductDto dto, VariantDto variant, Run run) {
