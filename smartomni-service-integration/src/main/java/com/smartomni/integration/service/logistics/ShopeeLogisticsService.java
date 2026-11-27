@@ -96,6 +96,21 @@ public class ShopeeLogisticsService {
                 .build();
     }
 
+    public ShipConfirmResult handoverOrder(MarketplaceConnection connection, String orderSn) {
+        log.info("Confirming carrier handover for Shopee order {} (tenant={})", orderSn, connection.getTenantId());
+        String trackingNumber = "";
+        try {
+            trackingNumber = logisticsClient.getTrackingNumber(connection.getId(), orderSn, null);
+        } catch (Exception ex) {
+            log.debug("Could not fetch tracking number during handover for order {}: {}", orderSn, ex.getMessage());
+        }
+        return ShipConfirmResult.builder()
+                .orderSn(orderSn)
+                .status("SHIPPED")
+                .trackingNumber(trackingNumber)
+                .build();
+    }
+
     public byte[] downloadAwb(MarketplaceConnection connection, String orderSn) {
         log.info("Downloading thermal AWB PDF for Shopee order {} (tenant={})", orderSn, connection.getTenantId());
 

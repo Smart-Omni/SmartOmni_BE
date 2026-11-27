@@ -19,5 +19,7 @@ public class SuggestedMappingDto {
     private String name;
     private BigDecimal price;
     private Integer confidence;
+    private String reason;
+    private Long sourceSkuId;
     private String productUrl;
 }

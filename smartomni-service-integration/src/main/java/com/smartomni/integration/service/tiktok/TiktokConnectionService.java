@@ -235,10 +235,20 @@ public class TiktokConnectionService {
         return store.findCurrent(actor.tenantId()).map(TiktokConnectionDto::from);
     }
 
+    @Autowired(required = false)
+    private com.smartomni.integration.service.catalog.CatalogMappingStore catalogMappingStore;
+
     public TiktokConnectionDto disconnect() {
+        return disconnect(false);
+    }
+
+    public TiktokConnectionDto disconnect(boolean wipeCatalog) {
         Actor actor = requireTenantAdmin();
         MarketplaceConnection connection = store.findCurrent(actor.tenantId()).orElseThrow(() ->
                 error(HttpStatus.NOT_FOUND, "TIKTOK_CONNECTION_NOT_FOUND", "No TikTok connection"));
+        if (wipeCatalog && catalogMappingStore != null) {
+            catalogMappingStore.purgeConnectionCatalog(connection.getId());
+        }
         return TiktokConnectionDto.from(store.terminate(actor.tenantId(), connection.getId(),
                 ConnectionStatus.DISCONNECTED, null, clock.instant()).orElse(connection));
     }

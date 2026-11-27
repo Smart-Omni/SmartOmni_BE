@@ -40,4 +40,6 @@ public class ShopeeProperties {
     private Duration stateTtl = Duration.ofMinutes(10);
     private Duration accessTokenRefreshSkew = Duration.ofMinutes(5);
     private Duration requestTimeout = Duration.ofSeconds(10);
+    private int transientRetryMaxAttempts = 1;
+    private Duration transientRetryDelay = Duration.ofSeconds(120);
 }

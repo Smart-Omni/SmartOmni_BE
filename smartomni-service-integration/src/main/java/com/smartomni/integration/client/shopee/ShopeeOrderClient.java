@@ -66,8 +66,34 @@ public class ShopeeOrderClient {
             String cancelBy,
             String cancelReason,
             String shippingCarrier,
-            String trackingNo
-    ) {}
+            String trackingNo,
+            String logisticsStatus,
+            Boolean cod,
+            String paymentMethod,
+            Long cancelRespondBy,
+            String buyerCancelReason
+    ) {
+        public ShopeeOrderDetail(
+                String orderSn, String orderStatus, String currency, BigDecimal totalAmount,
+                String buyerUsername, Long buyerUserId, RecipientAddress recipientAddress,
+                List<OrderItemDetail> items, Long shipByDate, Long createTime, Long updateTime,
+                String cancelBy, String cancelReason, String shippingCarrier, String trackingNo) {
+            this(orderSn, orderStatus, currency, totalAmount, buyerUsername, buyerUserId, recipientAddress,
+                    items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo,
+                    null, null, null, null, null);
+        }
+
+        public ShopeeOrderDetail(
+                String orderSn, String orderStatus, String currency, BigDecimal totalAmount,
+                String buyerUsername, Long buyerUserId, RecipientAddress recipientAddress,
+                List<OrderItemDetail> items, Long shipByDate, Long createTime, Long updateTime,
+                String cancelBy, String cancelReason, String shippingCarrier, String trackingNo,
+                String logisticsStatus) {
+            this(orderSn, orderStatus, currency, totalAmount, buyerUsername, buyerUserId, recipientAddress,
+                    items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo,
+                    logisticsStatus, null, null, null, null);
+        }
+    }
 
     /**
      * Retrieves paginated order list (GET /api/v2/order/get_order_list).
@@ -149,6 +175,18 @@ public class ShopeeOrderClient {
         return data != null;
     }
 
+    /**
+     * Marks a PROCESSED order as handed over to the carrier on Shopee Simulator
+     * (POST /api/v2/simulator/order/handover).
+     */
+    public boolean handoverOrder(Long connectionId, String orderSn) {
+        ObjectNode body = mapper.createObjectNode();
+        body.put("order_sn", orderSn);
+
+        JsonNode data = executor.call(connectionId, "POST", "/api/v2/simulator/order/handover", Collections.emptyMap(), body.toString());
+        return data != null;
+    }
+
     private ShopeeOrderDetail parseOrderDetail(JsonNode o) {
         String sn = o.path("order_sn").asText("");
         String status = o.path("order_status").asText("");
@@ -193,11 +231,17 @@ public class ShopeeOrderClient {
         String cancelBy = o.path("cancel_by").asText(null);
         String cancelReason = o.path("cancel_reason").asText(null);
         String shippingCarrier = o.path("shipping_carrier").asText(null);
+        Boolean cod = o.hasNonNull("cod") ? o.path("cod").asBoolean() : null;
+        String paymentMethod = o.hasNonNull("payment_method") ? o.path("payment_method").asText(null) : null;
+        Long cancelRespondBy = o.hasNonNull("cancel_respond_by") ? o.path("cancel_respond_by").asLong() : null;
+        String buyerCancelReason = o.hasNonNull("buyer_cancel_reason") ? o.path("buyer_cancel_reason").asText(null) : null;
 
         String trackingNo = null;
+        String logisticsStatus = null;
         JsonNode pkgArr = o.path("package_list");
         if (pkgArr.isArray() && !pkgArr.isEmpty()) {
             trackingNo = pkgArr.get(0).path("tracking_number").asText(null);
+            logisticsStatus = pkgArr.get(0).path("logistics_status").asText(null);
             if (shippingCarrier == null) {
                 shippingCarrier = pkgArr.get(0).path("shipping_carrier").asText(null);
             }
@@ -205,7 +249,8 @@ public class ShopeeOrderClient {
 
         return new ShopeeOrderDetail(
                 sn, status, currency, totalAmount, buyerUsername, buyerUserId, address,
-                items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo
+                items, shipByDate, createTime, updateTime, cancelBy, cancelReason, shippingCarrier, trackingNo,
+                logisticsStatus, cod, paymentMethod, cancelRespondBy, buyerCancelReason
         );
     }
 }

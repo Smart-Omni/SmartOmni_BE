@@ -183,10 +183,20 @@ public class ShopeeConnectionService {
         return store.findCurrent(actor.tenantId()).map(ShopeeConnectionDto::from);
     }
 
+    @Autowired(required = false)
+    private com.smartomni.integration.service.catalog.CatalogMappingStore catalogMappingStore;
+
     public ShopeeConnectionDto disconnect() {
+        return disconnect(false);
+    }
+
+    public ShopeeConnectionDto disconnect(boolean wipeCatalog) {
         Actor actor = requireTenantAdmin();
         MarketplaceConnection connection = store.findCurrent(actor.tenantId()).orElseThrow(() ->
                 error(HttpStatus.NOT_FOUND, "SHOPEE_CONNECTION_NOT_FOUND", "No Shopee connection found"));
+        if (wipeCatalog && catalogMappingStore != null) {
+            catalogMappingStore.purgeConnectionCatalog(connection.getId());
+        }
         return ShopeeConnectionDto.from(store.terminate(actor.tenantId(), connection.getId(),
                 ConnectionStatus.DISCONNECTED, null, clock.instant()).orElse(connection));
     }

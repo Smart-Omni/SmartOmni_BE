@@ -69,4 +69,16 @@ public class ShopeeFinanceAndReturnsService {
                 request.getProofImages()
         );
     }
+
+    public ShopeeReturnsClient.ConvertedImage convertReturnImage(MarketplaceConnection connection, byte[] fileBytes, String filename, String contentType) {
+        return returnsClient.convertImage(connection.getId(), fileBytes, filename, contentType);
+    }
+
+    public boolean uploadReturnProof(MarketplaceConnection connection, String returnSn, String description, List<ShopeeReturnsClient.ConvertedImage> photos) {
+        return returnsClient.uploadProof(connection.getId(), returnSn, description, photos);
+    }
+
+    public com.fasterxml.jackson.databind.JsonNode queryReturnProof(MarketplaceConnection connection, String returnSn) {
+        return returnsClient.queryProof(connection.getId(), returnSn);
+    }
 }

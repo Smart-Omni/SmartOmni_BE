@@ -106,4 +106,14 @@ public class ShopeeOrderController {
         boolean success = orderSyncService.handleBuyerCancellation(connection, orderSn, operation);
         return ResponseEntity.ok(ApiResponse.success("Buyer cancellation handled", Map.of("orderSn", orderSn, "success", success)));
     }
+
+    /**
+     * Marks a PROCESSED order as handed over to the carrier on Shopee Simulator.
+     */
+    @PostMapping("/{orderSn}/handover")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handoverOrder(@PathVariable String orderSn) {
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+        boolean success = orderClient.handoverOrder(connection.getId(), orderSn);
+        return ResponseEntity.ok(ApiResponse.success("Order handed over to carrier", Map.of("orderSn", orderSn, "handedOver", success)));
+    }
 }

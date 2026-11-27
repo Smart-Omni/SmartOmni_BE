@@ -47,7 +47,8 @@ public class TiktokConnectionController {
     }
 
     @PostMapping("/disconnect")
-    public ApiResponse<TiktokConnectionDto> disconnect() {
-        return ApiResponse.success("TikTok Shop disconnected", service.disconnect());
+    public ApiResponse<TiktokConnectionDto> disconnect(
+            @RequestParam(defaultValue = "false") boolean wipeCatalog) {
+        return ApiResponse.success("TikTok Shop disconnected", service.disconnect(wipeCatalog));
     }
 }

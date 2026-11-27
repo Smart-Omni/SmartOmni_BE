@@ -194,4 +194,45 @@ public class ShopeeReturnsClient {
         JsonNode data = executor.call(connectionId, "POST", "/api/v2/returns/dispute", Collections.emptyMap(), body.toString());
         return data != null;
     }
+
+    public record ConvertedImage(String url, String thumbnail) {}
+
+    /**
+     * Uploads an image to Shopee Simulator (POST /api/v2/returns/convert_image) and returns its {url, thumbnail}.
+     */
+    public ConvertedImage convertImage(Long connectionId, byte[] fileBytes, String filename, String contentType) {
+        JsonNode data = executor.callMultipart(connectionId, "/api/v2/returns/convert_image", "image", fileBytes, filename, contentType);
+        return new ConvertedImage(data.path("url").asText(null), data.path("thumbnail").asText(null));
+    }
+
+    /**
+     * Uploads dispute proof (POST /api/v2/returns/upload_proof).
+     */
+    public boolean uploadProof(Long connectionId, String returnSn, String description, List<ConvertedImage> photos) {
+        ObjectNode body = mapper.createObjectNode();
+        body.put("return_sn", returnSn);
+        if (description != null && !description.isBlank()) {
+            body.put("description", description);
+        }
+        ArrayNode photoArr = body.putArray("photo");
+        if (photos != null) {
+            for (ConvertedImage p : photos) {
+                ObjectNode node = mapper.createObjectNode();
+                if (p.url() != null) node.put("url", p.url());
+                if (p.thumbnail() != null) node.put("thumbnail", p.thumbnail());
+                photoArr.add(node);
+            }
+        }
+        JsonNode data = executor.call(connectionId, "POST", "/api/v2/returns/upload_proof", Collections.emptyMap(), body.toString());
+        return data != null;
+    }
+
+    /**
+     * Queries uploaded return/dispute proof (POST /api/v2/returns/query_proof).
+     */
+    public JsonNode queryProof(Long connectionId, String returnSn) {
+        ObjectNode body = mapper.createObjectNode();
+        body.put("return_sn", returnSn);
+        return executor.call(connectionId, "POST", "/api/v2/returns/query_proof", Collections.emptyMap(), body.toString());
+    }
 }

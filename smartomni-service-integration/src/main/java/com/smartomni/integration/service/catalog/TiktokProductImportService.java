@@ -271,6 +271,11 @@ public class TiktokProductImportService {
                 }
             }
         }
+        Long resolvedProductId = productId != null ? productId
+                : store.findProductIdByPlatformItemId(connectionId, dto.getPlatformItemId()).orElse(null);
+        if (resolvedProductId != null && dto.getImageUrls() != null && !dto.getImageUrls().isEmpty()) {
+            store.saveProductImage(resolvedProductId, dto.getImageUrls().get(0));
+        }
         if (productCreated) {
             run.productsCreated++;
         } else if (changes > 0) {

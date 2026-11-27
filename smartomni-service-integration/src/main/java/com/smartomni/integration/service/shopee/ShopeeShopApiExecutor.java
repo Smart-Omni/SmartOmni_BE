@@ -60,6 +60,43 @@ public class ShopeeShopApiExecutor {
         return doCallRaw(method, path, extraQuery, body, creds.accessToken(), creds.shopId());
     }
 
+    public JsonNode callMultipart(Long connectionId, String path, String fieldName,
+                                  byte[] fileBytes, String filename, String contentType) {
+        ShopeeTokenService.Credentials creds = tokens.credentials(connectionId);
+        Instant now = clock.instant();
+        long timestamp = now.getEpochSecond();
+        String sign = ShopeeApiSigner.signShop(properties.getPartnerKey(), properties.getPartnerId(),
+                path, timestamp, creds.accessToken(), creds.shopId());
+
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("partner_id", String.valueOf(properties.getPartnerId()));
+        query.put("timestamp", String.valueOf(timestamp));
+        query.put("access_token", creds.accessToken());
+        query.put("shop_id", String.valueOf(creds.shopId()));
+        query.put("sign", sign);
+
+        org.springframework.http.client.MultipartBodyBuilder mb = new org.springframework.http.client.MultipartBodyBuilder();
+        mb.part(fieldName, new org.springframework.core.io.ByteArrayResource(fileBytes) {
+            @Override
+            public String getFilename() {
+                return filename != null ? filename : "proof.jpg";
+            }
+        }).contentType(contentType != null
+                ? org.springframework.http.MediaType.parseMediaType(contentType)
+                : org.springframework.http.MediaType.IMAGE_JPEG);
+
+        org.springframework.http.ResponseEntity<String> res = org.springframework.web.client.RestClient.create()
+                .post()
+                .uri(ShopeeEnvelope.buildUri(properties.getBaseUrl(), path, query))
+                .contentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA)
+                .body(mb.build())
+                .retrieve()
+                .toEntity(String.class);
+
+        return ShopeeEnvelope.decode(mapper, new ShopeeHttpTransport.Response(
+                res.getStatusCode().value(), res.getBody() != null ? res.getBody() : "{}"));
+    }
+
     private JsonNode doCall(String method, String path, Map<String, String> extraQuery, String body,
                             String accessToken, Long shopId) {
         ShopeeHttpTransport.Response response = doCallRaw(method, path, extraQuery, body, accessToken, shopId);

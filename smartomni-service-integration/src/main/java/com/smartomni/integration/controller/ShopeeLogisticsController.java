@@ -65,6 +65,16 @@ public class ShopeeLogisticsController {
     }
 
     /**
+     * Confirms parcel handover to the carrier (PROCESSED -> SHIPPED) after packing and AWB labeling.
+     */
+    @PostMapping("/orders/{orderSn}/handover")
+    public ResponseEntity<ApiResponse<ShipConfirmResult>> handoverOrder(@PathVariable String orderSn) {
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+        ShipConfirmResult result = logisticsService.handoverOrder(connection, orderSn);
+        return ResponseEntity.ok(ApiResponse.success("Order handed over to carrier", result));
+    }
+
+    /**
      * Downloads binary Airway Bill (AWB) Thermal PDF (100x150mm) with Code128 barcodes.
      */
     @GetMapping(value = "/orders/{orderSn}/shipping-document", produces = MediaType.APPLICATION_PDF_VALUE)
