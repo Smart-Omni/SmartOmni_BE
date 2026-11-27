@@ -62,6 +62,10 @@ public class TiktokOrderDetailResponse {
     @JsonProperty("paid_time")
     private Long paidTime;
 
+    /** Latest shipping time set by the platform (Unix seconds); the Order Hub counts its ship SLA from it. */
+    @JsonProperty("rts_sla_time")
+    private Long rtsSlaTime;
+
     // Delivery milestones of Get Order Detail/List (simulator order.mapper.ts @ a830fce). Each is omitted from the JSON
     // until it happens. There is no completion time field: completion is the update_time of the change to COMPLETED.
     /** Set when the order moves to AWAITING_COLLECTION. */
