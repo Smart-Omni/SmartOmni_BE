@@ -2,6 +2,7 @@ package com.smartomni.integration.controller;
 
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.integration.client.shopee.ShopeeFinanceClient.EscrowDetail;
+import com.smartomni.integration.client.shopee.ShopeeReturnsClient.EnrichedReturnListResult;
 import com.smartomni.integration.client.shopee.ShopeeReturnsClient.ReturnListResult;
 import com.smartomni.integration.client.shopee.ShopeeReturnsClient.ShopeeReturnDetail;
 import com.smartomni.integration.entity.MarketplaceConnection;
@@ -132,5 +133,18 @@ class ShopeeFinanceAndReturnsControllerTest {
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertNotNull(res.getBody());
         assertTrue((Boolean) res.getBody().getData().get("offered"));
+    }
+
+    @Test
+    @DisplayName("listEnrichedReturns returns enriched return list")
+    void listEnrichedReturns_Success() {
+        EnrichedReturnListResult enriched = new EnrichedReturnListResult(List.of(), false, 0);
+        when(service.listEnrichedReturns(connection, 1, 50, null)).thenReturn(enriched);
+
+        ResponseEntity<ApiResponse<EnrichedReturnListResult>> res = controller.listEnrichedReturns(1, 50, null);
+
+        assertEquals(HttpStatus.OK, res.getStatusCode());
+        assertNotNull(res.getBody());
+        assertNotNull(res.getBody().getData());
     }
 }

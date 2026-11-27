@@ -42,10 +42,55 @@ public class ShopeeReturnsClient {
             Long buyerReturnDueDate,
             Long expectedReturnDate,
             Long reverseDeliveredAt,
-            Boolean isNfrExempt
+            Boolean isNfrExempt,
+            Long createTime,
+            Long updateTime,
+            String trackingNumber,
+            List<String> disputeReason,
+            List<String> disputeTextReason,
+            String validationType,
+            String sellerProofStatus,
+            BigDecimal offerAmount,
+            String offerReason
     ) {}
 
     public record ReturnListResult(List<ReturnSummary> returnList, boolean more, int total) {}
+
+    public record EnrichedShopeeReturn(
+            String returnSn,
+            String orderSn,
+            String status,
+            BigDecimal refundAmount,
+            String currency,
+            String reason,
+            String textReason,
+            String buyerUsername,
+            Long createTime,
+            Long updateTime,
+            Long dueDate,
+            Long disputeDueDate,
+            Long buyerReturnDueDate,
+            Long expectedReturnDate,
+            Long reverseDeliveredAt,
+            Boolean isNfrExempt,
+            Boolean needsLogistics,
+            String validationType,
+            String trackingNumber,
+            BigDecimal reverseShippingFee,
+            String negotiationStatus,
+            BigDecimal offerAmount,
+            String offerReason,
+            String sellerProofStatus,
+            String compensationStatus,
+            List<String> disputeReason,
+            List<String> disputeTextReason,
+            String rulingNotes,
+            List<String> buyerProofImages,
+            List<String> sellerProofImages,
+            List<ReturnItem> items
+    ) {}
+
+    public record EnrichedReturnListResult(List<EnrichedShopeeReturn> returnList, boolean more, int total) {}
 
     public record ReturnItem(
             long itemId,
@@ -53,8 +98,13 @@ public class ShopeeReturnsClient {
             String name,
             int quantity,
             BigDecimal itemPrice,
-            BigDecimal refundAmount
-    ) {}
+            BigDecimal refundAmount,
+            String variationSku
+    ) {
+        public ReturnItem(long itemId, long modelId, String name, int quantity, BigDecimal itemPrice, BigDecimal refundAmount) {
+            this(itemId, modelId, name, quantity, itemPrice, refundAmount, "");
+        }
+    }
 
     public record ShopeeReturnDetail(
             String returnSn,
@@ -79,7 +129,14 @@ public class ShopeeReturnsClient {
             Boolean isNfrExempt,
             String trackingNumber,
             String negotiationStatus,
-            BigDecimal offerAmount
+            BigDecimal offerAmount,
+            String offerReason,
+            Long createTime,
+            Long updateTime,
+            String validationType,
+            String sellerProofStatus,
+            List<String> disputeReason,
+            List<String> disputeTextReason
     ) {
         public ShopeeReturnDetail(
                 String returnSn,
@@ -98,7 +155,7 @@ public class ShopeeReturnsClient {
         ) {
             this(returnSn, orderSn, status, refundAmount, currency, reason, textReason, buyerUsername,
                     items, buyerProofImages, sellerProofImages, reverseShippingFee, rulingNotes,
-                    null, null, null, null, null, null, false, "", null, null);
+                    null, null, null, null, null, null, false, "", null, null, "", null, null, null, null, List.of(), List.of());
         }
     }
 
@@ -147,7 +204,16 @@ public class ShopeeReturnsClient {
                         nullableLong(r, "buyer_return_due_date"),
                         nullableLong(r, "expected_return_date"),
                         nullableLong(r, "reverse_delivered_at"),
-                        r.path("is_nfr_exempt").asBoolean(false)
+                        r.path("is_nfr_exempt").asBoolean(false),
+                        nullableLong(r, "create_time"),
+                        nullableLong(r, "update_time"),
+                        r.path("tracking_number").asText(""),
+                        stringList(r.path("dispute_reason")),
+                        stringList(r.path("dispute_text_reason")),
+                        r.path("validation_type").asText(null),
+                        r.path("seller_proof_status").asText(null),
+                        r.hasNonNull("offer_amount") ? BigDecimal.valueOf(r.path("offer_amount").asDouble(0.0)) : null,
+                        r.path("offer_reason").asText("")
                 ));
             }
         }
@@ -174,22 +240,14 @@ public class ShopeeReturnsClient {
                         it.path("name").asText(""),
                         it.path("amount").asInt(1),
                         BigDecimal.valueOf(it.path("item_price").asDouble(0.0)),
-                        BigDecimal.valueOf(it.path("refund_amount").asDouble(0.0))
+                        BigDecimal.valueOf(it.path("refund_amount").asDouble(0.0)),
+                        it.path("variation_sku").asText("")
                 ));
             }
         }
 
-        List<String> buyerProofs = new ArrayList<>();
-        JsonNode bProofArr = data.path("proof_images");
-        if (bProofArr.isArray()) {
-            for (JsonNode p : bProofArr) buyerProofs.add(p.asText());
-        }
-
-        List<String> sellerProofs = new ArrayList<>();
-        JsonNode sProofArr = data.path("seller_proof_images");
-        if (sProofArr.isArray()) {
-            for (JsonNode p : sProofArr) sellerProofs.add(p.asText());
-        }
+        List<String> buyerProofs = stringList(data.path("proof_images"));
+        List<String> sellerProofs = stringList(data.path("seller_proof_images"));
 
         return new ShopeeReturnDetail(
                 data.path("return_sn").asText(returnSn),
@@ -216,8 +274,24 @@ public class ShopeeReturnsClient {
                 data.path("is_nfr_exempt").asBoolean(false),
                 data.path("tracking_number").asText(""),
                 data.path("negotiation_status").asText(null),
-                data.hasNonNull("offer_amount") ? BigDecimal.valueOf(data.path("offer_amount").asDouble(0.0)) : null
+                data.hasNonNull("offer_amount") ? BigDecimal.valueOf(data.path("offer_amount").asDouble(0.0)) : null,
+                data.path("offer_reason").asText(""),
+                nullableLong(data, "create_time"),
+                nullableLong(data, "update_time"),
+                data.path("validation_type").asText(null),
+                data.path("seller_proof_status").asText(null),
+                stringList(data.path("dispute_reason")),
+                stringList(data.path("dispute_text_reason"))
         );
+    }
+
+    private static List<String> stringList(JsonNode arr) {
+        if (arr == null || !arr.isArray()) return List.of();
+        List<String> out = new ArrayList<>();
+        for (JsonNode n : arr) {
+            if (!n.isNull()) out.add(n.asText(""));
+        }
+        return out;
     }
 
     private static Long nullableLong(JsonNode node, String field) {

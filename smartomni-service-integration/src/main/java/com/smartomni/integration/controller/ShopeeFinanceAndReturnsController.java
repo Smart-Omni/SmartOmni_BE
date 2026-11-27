@@ -2,6 +2,7 @@ package com.smartomni.integration.controller;
 
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.integration.client.shopee.ShopeeFinanceClient.EscrowDetail;
+import com.smartomni.integration.client.shopee.ShopeeReturnsClient.EnrichedReturnListResult;
 import com.smartomni.integration.client.shopee.ShopeeReturnsClient.ReturnListResult;
 import com.smartomni.integration.client.shopee.ShopeeReturnsClient.ShopeeReturnDetail;
 import com.smartomni.integration.entity.MarketplaceConnection;
@@ -49,6 +50,20 @@ public class ShopeeFinanceAndReturnsController {
 
         MarketplaceConnection connection = tenantConnections.requireConnected();
         ReturnListResult result = financeAndReturnsService.listReturns(connection, pageNo, pageSize, status);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /**
+     * Lists buyer returns enriched with detail fields (items, buyer username, proofs, ruling notes).
+     */
+    @GetMapping("/returns/enriched")
+    public ResponseEntity<ApiResponse<EnrichedReturnListResult>> listEnrichedReturns(
+            @RequestParam(defaultValue = "1") int pageNo,
+            @RequestParam(defaultValue = "50") int pageSize,
+            @RequestParam(required = false) String status) {
+
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+        EnrichedReturnListResult result = financeAndReturnsService.listEnrichedReturns(connection, pageNo, pageSize, status);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

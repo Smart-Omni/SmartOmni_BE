@@ -3,6 +3,8 @@ package com.smartomni.integration.service.finance;
 import com.smartomni.integration.client.shopee.ShopeeFinanceClient;
 import com.smartomni.integration.client.shopee.ShopeeFinanceClient.EscrowDetail;
 import com.smartomni.integration.client.shopee.ShopeeReturnsClient;
+import com.smartomni.integration.client.shopee.ShopeeReturnsClient.EnrichedReturnListResult;
+import com.smartomni.integration.client.shopee.ShopeeReturnsClient.ReturnItem;
 import com.smartomni.integration.client.shopee.ShopeeReturnsClient.ReturnListResult;
 import com.smartomni.integration.client.shopee.ShopeeReturnsClient.ReturnSummary;
 import com.smartomni.integration.client.shopee.ShopeeReturnsClient.ShopeeReturnDetail;
@@ -124,5 +126,32 @@ class ShopeeFinanceAndReturnsServiceTest {
 
         assertTrue(service.offerReturn(connection, "RET-01", req));
         verify(returnsClient).offerReturn(88L, "RET-01", BigDecimal.valueOf(100000), "Partial");
+    }
+
+    @Test
+    @DisplayName("listEnrichedReturns merges summary and detail fields")
+    void listEnrichedReturns_Success() {
+        ReturnSummary summary = new ReturnSummary(
+                "RET-01", "SP01", "REQUESTED", BigDecimal.valueOf(300000), "VND",
+                "CHANGE_OF_MIND", "Đổi ý", null, List.of(), true, "PENDING_BUYER_RESPOND",
+                "COMPENSATION_NOT_APPLICABLE", BigDecimal.ZERO, null, null, null, null, true,
+                1714100000L, 1714100500L, "SPX01", List.of(), List.of(), "seller_validation",
+                null, BigDecimal.valueOf(150000), "Giảm 150k"
+        );
+        ShopeeReturnDetail detail = new ShopeeReturnDetail(
+                "RET-01", "SP01", "REQUESTED", BigDecimal.valueOf(300000), "VND", "CHANGE_OF_MIND", "Đổi ý",
+                "buyer_01", List.of(new ReturnItem(1L, 2L, "Áo thun", 1, BigDecimal.valueOf(300000), BigDecimal.valueOf(300000), "SKU-1")),
+                List.of("https://img/1.jpg"), List.of(), BigDecimal.ZERO, "Chờ phản hồi"
+        );
+        when(returnsClient.getReturnList(88L, 1, 50, null)).thenReturn(new ReturnListResult(List.of(summary), false, 1));
+        when(returnsClient.getReturnDetail(88L, "RET-01")).thenReturn(detail);
+
+        EnrichedReturnListResult res = service.listEnrichedReturns(connection, 1, 50, null);
+
+        assertEquals(1, res.returnList().size());
+        assertEquals("buyer_01", res.returnList().get(0).buyerUsername());
+        assertEquals("PENDING_BUYER_RESPOND", res.returnList().get(0).negotiationStatus());
+        assertEquals(BigDecimal.valueOf(150000), res.returnList().get(0).offerAmount());
+        assertEquals(1, res.returnList().get(0).items().size());
     }
 }
