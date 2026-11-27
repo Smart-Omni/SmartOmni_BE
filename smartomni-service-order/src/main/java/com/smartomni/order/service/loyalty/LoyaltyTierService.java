@@ -84,7 +84,7 @@ public class LoyaltyTierService {
 
         Set<Long> existing = jdbcTemplate.query(
                 "SELECT id FROM loyalty_reward_campaigns WHERE tenant_id = ? AND connection_id = ? "
-                        + "AND status IN ('draft', 'active', 'paused')",
+                        + "AND status = 'active'",
                 (rs, i) -> rs.getLong("id"), tenantId, connection.id()).stream().collect(Collectors.toSet());
         Set<Long> kept = new HashSet<>();
         Instant now = Instant.now();

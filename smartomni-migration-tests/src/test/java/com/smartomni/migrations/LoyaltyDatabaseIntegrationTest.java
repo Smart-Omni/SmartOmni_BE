@@ -310,6 +310,11 @@ class LoyaltyDatabaseIntegrationTest {
                 tiers.saveTiers(adminA, tenantA, com.smartomni.order.dto.loyalty.SaveLoyaltyTiersRequest.builder()
                         .connectionId(shopeeA).tiers(List.of(
                                 tier(null, "Bạc", 300, 5), tier(null, "Vàng", 2000, 25))).build());
+                // A draft campaign made in the Campaigns panel is not a tier the editor shows: saving tiers leaves it alone.
+                long draft = campaigns.createCampaign(adminA, tenantA, CreateCampaignRequest.builder()
+                        .connectionId(tiktokA).name("Draft promo").discountPercent(BigDecimal.TEN).quantity(5)
+                        .requiredPoints(50L).provisioningMode("import").status("draft")
+                        .startsAt(Instant.now()).endsAt(Instant.now().plus(7, ChronoUnit.DAYS)).build()).getId();
                 // Re-saving TikTok: rename Gold and drop Diamond -> Diamond is closed, Gold keeps its campaign id.
                 var gold = tiktokSetup.getTiers().get(0);
                 var platinum = tiktokSetup.getTiers().get(1);
@@ -319,6 +324,8 @@ class LoyaltyDatabaseIntegrationTest {
                                 tier(platinum.getCampaignId(), "Platinum", 1000, 20))).build());
                 assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM loyalty_reward_campaigns WHERE tenant_id = ? "
                         + "AND connection_id = ? AND status = 'closed'", Integer.class, tenantA, tiktokA));
+                assertEquals("draft", jdbc.queryForObject("SELECT status FROM loyalty_reward_campaigns WHERE tenant_id = ? AND id = ?",
+                        String.class, tenantA, draft));
 
                 // Profile: one wallet (184 + 900 = 1084), progress per marketplace.
                 setRls(appConn, tenantA, "customer");
