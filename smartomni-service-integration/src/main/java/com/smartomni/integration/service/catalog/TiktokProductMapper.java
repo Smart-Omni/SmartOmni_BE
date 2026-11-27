@@ -21,7 +21,17 @@ public final class TiktokProductMapper {
         dto.setName(product.title());
         dto.setDescription(product.description());
         dto.setPlatformStatus(product.status() != null ? product.status() : fallbackStatus);
-        dto.setImageUrls(product.mainImages().stream().flatMap(i -> i.urls().stream()).toList());
+        dto.setImageUrls(product.mainImages().stream()
+                .flatMap(i -> {
+                    if (i.urls() != null && !i.urls().isEmpty()) {
+                        return i.urls().stream();
+                    }
+                    if (i.uri() != null && (i.uri().startsWith("http://") || i.uri().startsWith("https://"))) {
+                        return java.util.stream.Stream.of(i.uri());
+                    }
+                    return java.util.stream.Stream.empty();
+                })
+                .toList());
         List<MarketplaceProductDto.VariantDto> variants = new ArrayList<>();
         for (Sku sku : product.skus()) {
             MarketplaceProductDto.VariantDto v = new MarketplaceProductDto.VariantDto();
