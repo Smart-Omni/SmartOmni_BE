@@ -117,4 +117,20 @@ class ShopeeFinanceAndReturnsControllerTest {
         assertNotNull(res.getBody());
         assertTrue((Boolean) res.getBody().getData().get("disputed"));
     }
+
+    @Test
+    @DisplayName("offerReturn returns success map")
+    void offerReturn_Success() {
+        ShopeeFinanceAndReturnsService.OfferReturnRequest req = ShopeeFinanceAndReturnsService.OfferReturnRequest.builder()
+                .offerAmount(BigDecimal.valueOf(100000))
+                .offerReason("Partial refund")
+                .build();
+        when(service.offerReturn(eq(connection), eq("RET-01"), any())).thenReturn(true);
+
+        ResponseEntity<ApiResponse<Map<String, Object>>> res = controller.offerReturn("RET-01", req);
+
+        assertEquals(HttpStatus.OK, res.getStatusCode());
+        assertNotNull(res.getBody());
+        assertTrue((Boolean) res.getBody().getData().get("offered"));
+    }
 }

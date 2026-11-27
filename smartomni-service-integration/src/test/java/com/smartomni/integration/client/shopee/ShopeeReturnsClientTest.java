@@ -59,6 +59,15 @@ class ShopeeReturnsClientTest {
                           "reason": "DEFECTIVE_PRODUCT",
                           "text_reason": "Mouse scroll wheel broken",
                           "due_date": 1714200000,
+                          "needs_logistics": true,
+                          "negotiation_status": "PENDING_BUYER_RESPOND",
+                          "seller_compensation_status": "COMPENSATION_NOT_APPLICABLE",
+                          "reverse_shipping_fee": 25000,
+                          "dispute_due_date": 1714372800,
+                          "buyer_return_due_date": 1714718400,
+                          "expected_return_date": 1714459200,
+                          "reverse_delivered_at": 1714200100,
+                          "is_nfr_exempt": true,
                           "image": ["http://img.shopee.vn/proof1.jpg"]
                         }
                       ]
@@ -89,9 +98,20 @@ class ShopeeReturnsClientTest {
                       "proof_images": ["http://img.shopee.vn/proof1.jpg"],
                       "seller_proof_images": [],
                       "reverse_shipping_fee": 0,
-                      "ruling_notes": ""
+                      "ruling_notes": "",
+                      "needs_logistics": true,
+                      "compensation_status": "COMPENSATION_NOT_APPLICABLE",
+                      "dispute_due_date": 1714372800,
+                      "buyer_return_due_date": 1714718400,
+                      "expected_return_date": 1714459200,
+                      "reverse_delivered_at": 1714200100,
+                      "is_nfr_exempt": true,
+                      "tracking_number": "SPXRET001"
                     }
                     """);
+            }
+            if (path.contains("/returns/offer")) {
+                return FakeShopeeTransport.ok("{\"return_sn\":\"RET-241028-001\",\"offer_amount\":100000}");
             }
             if (path.contains("/returns/confirm")) {
                 return FakeShopeeTransport.ok("{\"return_sn\":\"RET-241028-001\"}");
@@ -123,6 +143,14 @@ class ShopeeReturnsClientTest {
         assertEquals("DEFECTIVE_PRODUCT", r.reason());
         assertEquals(1, r.proofImages().size());
         assertEquals("http://img.shopee.vn/proof1.jpg", r.proofImages().get(0));
+        assertEquals(Boolean.TRUE, r.needsLogistics());
+        assertEquals("PENDING_BUYER_RESPOND", r.negotiationStatus());
+        assertEquals("COMPENSATION_NOT_APPLICABLE", r.sellerCompensationStatus());
+        assertEquals(1714372800L, r.disputeDueDate());
+        assertEquals(1714718400L, r.buyerReturnDueDate());
+        assertEquals(1714459200L, r.expectedReturnDate());
+        assertEquals(1714200100L, r.reverseDeliveredAt());
+        assertEquals(Boolean.TRUE, r.isNfrExempt());
 
         FakeShopeeTransport.Sent sent = transport.sent.get(0);
         assertEquals("/api/v2/returns/get_return_list", sent.uri().getPath());
@@ -142,6 +170,27 @@ class ShopeeReturnsClientTest {
         assertEquals(1, detail.items().size());
         assertEquals("Wireless Mouse Black", detail.items().get(0).name());
         assertEquals(1, detail.buyerProofImages().size());
+        assertEquals(Boolean.TRUE, detail.needsLogistics());
+        assertEquals("COMPENSATION_NOT_APPLICABLE", detail.compensationStatus());
+        assertEquals(1714372800L, detail.disputeDueDate());
+        assertEquals(1714718400L, detail.buyerReturnDueDate());
+        assertEquals(1714459200L, detail.expectedReturnDate());
+        assertEquals(1714200100L, detail.reverseDeliveredAt());
+        assertEquals(Boolean.TRUE, detail.isNfrExempt());
+        assertEquals("SPXRET001", detail.trackingNumber());
+    }
+
+    @Test
+    @DisplayName("offerReturn sends POST with return_sn, offer_amount, and offer_reason")
+    void offerReturn_Success() {
+        boolean ok = client.offerReturn(88L, "RET-241028-001", BigDecimal.valueOf(100000), "Partial refund 100k");
+
+        assertTrue(ok);
+        FakeShopeeTransport.Sent sent = transport.sent.get(0);
+        assertEquals("/api/v2/returns/offer", sent.uri().getPath());
+        assertTrue(sent.body().contains("\"return_sn\":\"RET-241028-001\""));
+        assertTrue(sent.body().contains("\"offer_amount\":100000"));
+        assertTrue(sent.body().contains("\"offer_reason\":\"Partial refund 100k\""));
     }
 
     @Test

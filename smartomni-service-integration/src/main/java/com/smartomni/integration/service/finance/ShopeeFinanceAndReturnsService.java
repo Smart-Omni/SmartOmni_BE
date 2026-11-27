@@ -32,6 +32,13 @@ public class ShopeeFinanceAndReturnsService {
         List<String> proofImages;
     }
 
+    @Value
+    @Builder
+    public static class OfferReturnRequest {
+        java.math.BigDecimal offerAmount;
+        String offerReason;
+    }
+
     private final ShopeeFinanceClient financeClient;
     private final ShopeeReturnsClient returnsClient;
 
@@ -54,6 +61,17 @@ public class ShopeeFinanceAndReturnsService {
     public boolean confirmReturn(MarketplaceConnection connection, String returnSn) {
         log.info("Accepting/confirming return refund {} (tenant={})", returnSn, connection.getTenantId());
         return returnsClient.confirmReturn(connection.getId(), returnSn);
+    }
+
+    public boolean offerReturn(MarketplaceConnection connection, String returnSn, OfferReturnRequest request) {
+        log.info("Proposing partial refund offer for return {} (tenant={}): amount={}",
+                returnSn, connection.getTenantId(), request.getOfferAmount());
+        return returnsClient.offerReturn(
+                connection.getId(),
+                returnSn,
+                request.getOfferAmount(),
+                request.getOfferReason()
+        );
     }
 
     public boolean disputeReturn(MarketplaceConnection connection, String returnSn, DisputeReturnRequest request) {

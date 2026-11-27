@@ -33,7 +33,16 @@ public class ShopeeReturnsClient {
             String reason,
             String textReason,
             Long dueDate,
-            List<String> proofImages
+            List<String> proofImages,
+            Boolean needsLogistics,
+            String negotiationStatus,
+            String sellerCompensationStatus,
+            BigDecimal reverseShippingFee,
+            Long disputeDueDate,
+            Long buyerReturnDueDate,
+            Long expectedReturnDate,
+            Long reverseDeliveredAt,
+            Boolean isNfrExempt
     ) {}
 
     public record ReturnListResult(List<ReturnSummary> returnList, boolean more, int total) {}
@@ -60,8 +69,36 @@ public class ShopeeReturnsClient {
             List<String> buyerProofImages,
             List<String> sellerProofImages,
             BigDecimal reverseShippingFee,
-            String rulingNotes
-    ) {}
+            String rulingNotes,
+            Boolean needsLogistics,
+            String compensationStatus,
+            Long disputeDueDate,
+            Long buyerReturnDueDate,
+            Long expectedReturnDate,
+            Long reverseDeliveredAt,
+            Boolean isNfrExempt,
+            String trackingNumber
+    ) {
+        public ShopeeReturnDetail(
+                String returnSn,
+                String orderSn,
+                String status,
+                BigDecimal refundAmount,
+                String currency,
+                String reason,
+                String textReason,
+                String buyerUsername,
+                List<ReturnItem> items,
+                List<String> buyerProofImages,
+                List<String> sellerProofImages,
+                BigDecimal reverseShippingFee,
+                String rulingNotes
+        ) {
+            this(returnSn, orderSn, status, refundAmount, currency, reason, textReason, buyerUsername,
+                    items, buyerProofImages, sellerProofImages, reverseShippingFee, rulingNotes,
+                    null, null, null, null, null, null, false, "");
+        }
+    }
 
     /**
      * Retrieves paginated return requests (GET /api/v2/returns/get_return_list).
@@ -98,8 +135,17 @@ public class ShopeeReturnsClient {
                         r.path("currency").asText("VND"),
                         r.path("reason").asText(""),
                         r.path("text_reason").asText(""),
-                        r.hasNonNull("due_date") ? r.path("due_date").asLong() : null,
-                        imgs
+                        nullableLong(r, "due_date"),
+                        imgs,
+                        r.hasNonNull("needs_logistics") ? r.path("needs_logistics").asBoolean() : null,
+                        r.path("negotiation_status").asText(null),
+                        r.path("seller_compensation_status").asText(null),
+                        BigDecimal.valueOf(r.path("reverse_shipping_fee").asDouble(0.0)),
+                        nullableLong(r, "dispute_due_date"),
+                        nullableLong(r, "buyer_return_due_date"),
+                        nullableLong(r, "expected_return_date"),
+                        nullableLong(r, "reverse_delivered_at"),
+                        r.path("is_nfr_exempt").asBoolean(false)
                 ));
             }
         }
@@ -156,8 +202,36 @@ public class ShopeeReturnsClient {
                 buyerProofs,
                 sellerProofs,
                 BigDecimal.valueOf(data.path("reverse_shipping_fee").asDouble(0.0)),
-                data.path("ruling_notes").asText("")
+                data.path("ruling_notes").asText(""),
+                data.hasNonNull("needs_logistics") ? data.path("needs_logistics").asBoolean() : null,
+                data.hasNonNull("compensation_status")
+                        ? data.path("compensation_status").asText(null)
+                        : data.path("seller_compensation_status").asText(null),
+                nullableLong(data, "dispute_due_date"),
+                nullableLong(data, "buyer_return_due_date"),
+                nullableLong(data, "expected_return_date"),
+                nullableLong(data, "reverse_delivered_at"),
+                data.path("is_nfr_exempt").asBoolean(false),
+                data.path("tracking_number").asText("")
         );
+    }
+
+    private static Long nullableLong(JsonNode node, String field) {
+        return node.hasNonNull(field) ? node.path(field).asLong() : null;
+    }
+
+    /**
+     * Merchant proposes a partial refund counter-offer (POST /api/v2/returns/offer).
+     */
+    public boolean offerReturn(Long connectionId, String returnSn, BigDecimal offerAmount, String offerReason) {
+        ObjectNode body = mapper.createObjectNode();
+        body.put("return_sn", returnSn);
+        body.put("offer_amount", offerAmount != null ? offerAmount.doubleValue() : 0);
+        if (offerReason != null && !offerReason.isBlank()) {
+            body.put("offer_reason", offerReason);
+        }
+        JsonNode data = executor.call(connectionId, "POST", "/api/v2/returns/offer", Collections.emptyMap(), body.toString());
+        return data != null;
     }
 
     /**

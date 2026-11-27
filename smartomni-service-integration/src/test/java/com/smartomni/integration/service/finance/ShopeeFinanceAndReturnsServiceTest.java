@@ -111,4 +111,18 @@ class ShopeeFinanceAndReturnsServiceTest {
         assertTrue(ok);
         verify(returnsClient).disputeReturn(88L, "RET-01", 1, "Text", "email@test.com", List.of("http://img.jpg"));
     }
+
+    @Test
+    @DisplayName("offerReturn forwards to ShopeeReturnsClient")
+    void offerReturn_Success() {
+        when(returnsClient.offerReturn(88L, "RET-01", BigDecimal.valueOf(100000), "Partial")).thenReturn(true);
+
+        ShopeeFinanceAndReturnsService.OfferReturnRequest req = ShopeeFinanceAndReturnsService.OfferReturnRequest.builder()
+                .offerAmount(BigDecimal.valueOf(100000))
+                .offerReason("Partial")
+                .build();
+
+        assertTrue(service.offerReturn(connection, "RET-01", req));
+        verify(returnsClient).offerReturn(88L, "RET-01", BigDecimal.valueOf(100000), "Partial");
+    }
 }

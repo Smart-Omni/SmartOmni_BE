@@ -7,6 +7,7 @@ import com.smartomni.integration.client.shopee.ShopeeReturnsClient.ShopeeReturnD
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.service.finance.ShopeeFinanceAndReturnsService;
 import com.smartomni.integration.service.finance.ShopeeFinanceAndReturnsService.DisputeReturnRequest;
+import com.smartomni.integration.service.finance.ShopeeFinanceAndReturnsService.OfferReturnRequest;
 import com.smartomni.integration.service.shopee.ShopeeTenantConnections;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -69,6 +70,19 @@ public class ShopeeFinanceAndReturnsController {
         MarketplaceConnection connection = tenantConnections.requireConnected();
         boolean success = financeAndReturnsService.confirmReturn(connection, returnSn);
         return ResponseEntity.ok(ApiResponse.success("Return confirmed successfully", Map.of("returnSn", returnSn, "confirmed", success)));
+    }
+
+    /**
+     * Proposes a partial refund counter-offer for a Shopee return request.
+     */
+    @PostMapping("/returns/{returnSn}/offer")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> offerReturn(
+            @PathVariable String returnSn,
+            @RequestBody OfferReturnRequest request) {
+
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+        boolean success = financeAndReturnsService.offerReturn(connection, returnSn, request);
+        return ResponseEntity.ok(ApiResponse.success("Counter-offer submitted successfully", Map.of("returnSn", returnSn, "offered", success)));
     }
 
     /**
