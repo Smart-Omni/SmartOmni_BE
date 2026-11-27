@@ -1,6 +1,7 @@
 package com.smartomni.integration.service;
 
 import com.smartomni.common.tenant.TenantContext;
+import com.smartomni.integration.client.shopee.ShopeeVoucherClient;
 import com.smartomni.integration.client.tiktok.TiktokApiException;
 import com.smartomni.integration.client.tiktok.TiktokVoucherClient;
 import com.smartomni.integration.dto.InternalIssueVoucherRequest;
@@ -29,6 +30,7 @@ class MarketplaceVoucherAdapterServiceTest {
     private final MarketplaceConnectionRepository connectionRepository = mock(MarketplaceConnectionRepository.class);
     private final TiktokVoucherClient tiktokVoucherClient = mock(TiktokVoucherClient.class);
     private final TiktokVoucherStore store = mock(TiktokVoucherStore.class);
+    private final ShopeeVoucherClient shopeeVoucherClient = mock(ShopeeVoucherClient.class);
     private MarketplaceVoucherAdapterService adapterService;
     private MarketplaceConnection conn;
 
@@ -37,7 +39,7 @@ class MarketplaceVoucherAdapterServiceTest {
         PlatformTransactionManager ptm = mock(PlatformTransactionManager.class);
         when(ptm.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         adapterService = new MarketplaceVoucherAdapterService(connectionRepository, tiktokVoucherClient, store,
-                new TransactionTemplate(ptm));
+                new TransactionTemplate(ptm), shopeeVoucherClient);
         TenantContext.setTenantId(1L);
         conn = connectedTiktok(10L, 1L);
         when(connectionRepository.findByIdAndTenantId(10L, 1L)).thenReturn(Optional.of(conn));
@@ -127,6 +129,74 @@ class MarketplaceVoucherAdapterServiceTest {
 
         assertThat(res.getOutcome()).isEqualTo("FAILED");
         assertThat(res.getFailureReason()).contains("CONNECTED");
+    }
+
+    // ---- Shopee (api mode: SmartOmni creates each voucher with v2.voucher.add_voucher)
+
+    private InternalIssueVoucherRequest shopeeRequest(String key) {
+        MarketplaceConnection shopee = connectedTiktok(20L, 1L);
+        shopee.setPlatform(MarketplaceConnection.Platform.SHOPEE);
+        when(connectionRepository.findByIdAndTenantId(20L, 1L)).thenReturn(Optional.of(shopee));
+        return InternalIssueVoucherRequest.builder().connectionId(20L).requestKey(key).title("Gold")
+                .discountPercent(new BigDecimal("10.00")).provisioningMode("api").build();
+    }
+
+    @Test
+    void shopeeCreatesAPercentVoucherWithACodeDerivedFromTheRequestKey() {
+        String code = MarketplaceVoucherAdapterService.shopeeVoucherCode("req-s1", 0);
+        when(shopeeVoucherClient.addPercentVoucher(eq(20L), eq("SmartOmni Gold #req-s1"), eq(code), eq(new BigDecimal("10.00")),
+                anyLong(), anyLong())).thenReturn(777L);
+
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(shopeeRequest("req-s1"));
+
+        assertThat(res.getOutcome()).isEqualTo("ISSUED");
+        assertThat(res.getCode()).isEqualTo(code).matches("[A-Z0-9]{5}");
+        assertThat(res.getExternalVoucherId()).isEqualTo("777");
+        assertThat(MarketplaceVoucherAdapterService.shopeeVoucherCode("req-s1", 0)).isEqualTo(code);
+    }
+
+    @Test
+    void shopeeRetryAfterTimeoutReturnsTheVoucherAlreadyCreated() {
+        String code = MarketplaceVoucherAdapterService.shopeeVoucherCode("req-s2", 0);
+        when(shopeeVoucherClient.addPercentVoucher(eq(20L), anyString(), eq(code), any(), anyLong(), anyLong()))
+                .thenThrow(new com.smartomni.integration.client.shopee.ShopeeApiException("dup", 200,
+                        MarketplaceVoucherAdapterService.SHOPEE_DUPLICATE_CODE, "r", false));
+        when(shopeeVoucherClient.findByCode(20L, code)).thenReturn(Optional.of(
+                new ShopeeVoucherClient.ShopeeVoucher(555L, code, "SmartOmni Gold #req-s2")));
+
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(shopeeRequest("req-s2"));
+
+        assertThat(res.getOutcome()).isEqualTo("ISSUED");
+        assertThat(res.getExternalVoucherId()).isEqualTo("555");
+        verify(shopeeVoucherClient, times(1)).addPercentVoucher(anyLong(), anyString(), anyString(), any(), anyLong(), anyLong());
+    }
+
+    @Test
+    void shopeeCodeTakenBySomeoneElseMovesToTheNextCode() {
+        String first = MarketplaceVoucherAdapterService.shopeeVoucherCode("req-s3", 0);
+        String second = MarketplaceVoucherAdapterService.shopeeVoucherCode("req-s3", 1);
+        when(shopeeVoucherClient.addPercentVoucher(eq(20L), anyString(), eq(first), any(), anyLong(), anyLong()))
+                .thenThrow(new com.smartomni.integration.client.shopee.ShopeeApiException("dup", 200,
+                        MarketplaceVoucherAdapterService.SHOPEE_DUPLICATE_CODE, "r", false));
+        when(shopeeVoucherClient.findByCode(20L, first)).thenReturn(Optional.of(
+                new ShopeeVoucherClient.ShopeeVoucher(1L, first, "Shop's own voucher")));
+        when(shopeeVoucherClient.addPercentVoucher(eq(20L), anyString(), eq(second), any(), anyLong(), anyLong())).thenReturn(9L);
+
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(shopeeRequest("req-s3"));
+
+        assertThat(res.getCode()).isEqualTo(second);
+    }
+
+    @Test
+    void shopeeTransientErrorIsPendingAndRejectionFails() {
+        when(shopeeVoucherClient.addPercentVoucher(anyLong(), anyString(), anyString(), any(), anyLong(), anyLong()))
+                .thenThrow(com.smartomni.integration.client.shopee.ShopeeApiException.transport("timeout"));
+        assertThat(adapterService.issueVoucher(shopeeRequest("req-s4")).getOutcome()).isEqualTo("PENDING");
+
+        reset(shopeeVoucherClient);
+        when(shopeeVoucherClient.addPercentVoucher(anyLong(), anyString(), anyString(), any(), anyLong(), anyLong()))
+                .thenThrow(new com.smartomni.integration.client.shopee.ShopeeApiException("bad", 200, "voucher.voucher_over_limit", "r", false));
+        assertThat(adapterService.issueVoucher(shopeeRequest("req-s5")).getOutcome()).isEqualTo("FAILED");
     }
 
     private static MarketplaceConnection connectedTiktok(Long id, Long tenantId) {
