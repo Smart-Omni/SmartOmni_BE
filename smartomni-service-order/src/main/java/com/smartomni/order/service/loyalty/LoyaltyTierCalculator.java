@@ -4,11 +4,11 @@ import com.smartomni.order.dto.loyalty.LoyaltyProfileDto;
 
 /**
  * Computes customer loyalty tier and next-tier thresholds based on cumulative earned points:
- * Standard (&lt; 500), Silver (&gt;= 500), Platinum (&gt;= 1,000), Diamond (&gt;= 1,500).
+ * Standard (&lt; 500), Gold (&gt;= 500), Platinum (&gt;= 1,000), Diamond (&gt;= 1,500).
  */
 public final class LoyaltyTierCalculator {
 
-    public static final long SILVER_THRESHOLD = 500L;
+    public static final long GOLD_THRESHOLD = 500L;
     public static final long PLATINUM_THRESHOLD = 1000L;
     public static final long DIAMOND_THRESHOLD = 1500L;
 
@@ -32,16 +32,16 @@ public final class LoyaltyTierCalculator {
             nextTier = "Diamond";
             nextThreshold = DIAMOND_THRESHOLD;
             pointsToNext = DIAMOND_THRESHOLD - safePoints;
-        } else if (safePoints >= SILVER_THRESHOLD) {
-            tier = "Silver";
+        } else if (safePoints >= GOLD_THRESHOLD) {
+            tier = "Gold";
             nextTier = "Platinum";
             nextThreshold = PLATINUM_THRESHOLD;
             pointsToNext = PLATINUM_THRESHOLD - safePoints;
         } else {
             tier = "Standard";
-            nextTier = "Silver";
-            nextThreshold = SILVER_THRESHOLD;
-            pointsToNext = SILVER_THRESHOLD - safePoints;
+            nextTier = "Gold";
+            nextThreshold = GOLD_THRESHOLD;
+            pointsToNext = GOLD_THRESHOLD - safePoints;
         }
 
         return LoyaltyProfileDto.builder()

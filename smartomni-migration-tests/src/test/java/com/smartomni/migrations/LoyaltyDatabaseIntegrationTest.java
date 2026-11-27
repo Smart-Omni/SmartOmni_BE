@@ -34,6 +34,7 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -156,11 +157,11 @@ class LoyaltyDatabaseIntegrationTest {
                                 new ClaimPointsRequest(eligibleOrder, BigDecimal.valueOf(550000))));
                 assertEquals("ORDER_NOT_FOUND", cross.getErrorCode());
 
-                // Verify profile & Silver tier (550 points >= 500)
+                // Verify profile & Gold tier (550 points >= 500)
                 setRls(appConn, tenantA, "customer");
                 LoyaltyProfileDto profile = customerService.getMyProfile(customerA, tenantA);
                 assertEquals(550L, profile.getTotalPoints());
-                assertEquals("Silver", profile.getTier());
+                assertEquals("Gold", profile.getTier());
                 assertEquals("Platinum", profile.getNextTier());
                 assertEquals(450L, profile.getPointsToNextTier());
 
@@ -228,6 +229,121 @@ class LoyaltyDatabaseIntegrationTest {
                 assertEquals(1, notifCount);
             }
         }
+    }
+
+    /** Claims by the marketplace order id the shopper sees, tier setup per shop, and the per-platform progress. */
+    @Test
+    void marketplaceOrderIdClaimsAndPerShopTiersOnPostgres() throws Exception {
+        String dbName = "loyalty_" + UUID.randomUUID().toString().replace("-", "");
+        try (Connection c = postgres.getPostgresDatabase().getConnection()) {
+            exec(c, "CREATE DATABASE " + dbName);
+            exec(c, "ALTER DATABASE " + dbName + " OWNER TO smartomni_migrator");
+        }
+        String jdbcUrl = postgres.getJdbcUrl("postgres", dbName);
+        Flyway.configure().dataSource(jdbcUrl, "smartomni_migrator", TEST_PASSWORD)
+                .locations("classpath:db/migration").load().migrate();
+
+        try (Connection superConn = postgres.getDatabase("postgres", dbName).getConnection()) {
+            long tenantA = insertTenant(superConn, "shopa");
+            long tenantB = insertTenant(superConn, "shopb");
+            long adminA = insertUser(superConn, tenantA, "admin@a.test", "tenant_admin");
+            long buyer = insertUser(superConn, tenantA, "buyer@a.test", "customer");
+            long otherBuyer = insertUser(superConn, tenantA, "other@a.test", "customer");
+            long buyerB = insertUser(superConn, tenantB, "buyer@b.test", "customer");
+            long tiktokA = insertConnection(superConn, tenantA, "tiktok_shop", "connected");
+            long shopeeA = insertConnection(superConn, tenantA, "shopee", "connected");
+
+            insertOrder(superConn, tenantA, "5760028171077135663", "completed", BigDecimal.valueOf(184000),
+                    Instant.now().minus(16, ChronoUnit.DAYS), Instant.now().minus(1, ChronoUnit.DAYS));
+            insertOrder(superConn, tenantA, "5760000000000000001", "completed", BigDecimal.valueOf(343000),
+                    Instant.now().minus(3, ChronoUnit.DAYS), Instant.now().plus(12, ChronoUnit.DAYS));
+            insertOrder(superConn, tenantA, "SAME-ID", "completed", BigDecimal.valueOf(500000),
+                    Instant.now().minus(20, ChronoUnit.DAYS), Instant.now().minus(5, ChronoUnit.DAYS));
+            exec(superConn, "SET LOCAL app.user_role = 'super_admin'");
+            exec(superConn, "INSERT INTO orders (tenant_id, platform, platform_order_id, status, total_amount, completed_at, "
+                    + "eligible_for_points_at) VALUES (" + tenantA + ", 'shopee', 'SAME-ID', 'completed', 900000, "
+                    + "now() - interval '20 days', now() - interval '5 days')");
+
+            try (Connection appConn = DriverManager.getConnection(jdbcUrl, "smartomni_app", TEST_PASSWORD)) {
+                SingleConnectionDataSource ds = new SingleConnectionDataSource(appConn, true);
+                JdbcTemplate jdbc = new JdbcTemplate(ds);
+                LoyaltyCustomerService customers = new LoyaltyCustomerService(jdbc);
+                LoyaltyCampaignService campaigns = new LoyaltyCampaignService(jdbc);
+                com.smartomni.order.service.loyalty.LoyaltyTierService tiers =
+                        new com.smartomni.order.service.loyalty.LoyaltyTierService(jdbc, campaigns);
+
+                // Any customer may claim with the marketplace id; points come from the stored order total.
+                setRls(appConn, tenantA, "customer");
+                LoyaltyClaimDto claim = customers.claimOrderPoints(buyer, tenantA,
+                        ClaimPointsRequest.builder().platformOrderId(" 5760028171077135663 ").build());
+                assertEquals(184L, claim.getPointsAwarded());
+
+                BusinessException again = assertThrows(BusinessException.class, () -> customers.claimOrderPoints(otherBuyer,
+                        tenantA, ClaimPointsRequest.builder().platformOrderId("5760028171077135663").build()));
+                assertEquals("ORDER_ALREADY_CLAIMED", again.getErrorCode());
+
+                BusinessException early = assertThrows(BusinessException.class, () -> customers.claimOrderPoints(buyer,
+                        tenantA, ClaimPointsRequest.builder().platformOrderId("5760000000000000001").build()));
+                assertEquals("ORDER_NOT_ELIGIBLE_YET", early.getErrorCode());
+                assertTrue(early.getMessage().contains("eligible from"), early.getMessage());
+
+                BusinessException ambiguous = assertThrows(BusinessException.class, () -> customers.claimOrderPoints(buyer,
+                        tenantA, ClaimPointsRequest.builder().platformOrderId("SAME-ID").build()));
+                assertEquals("PLATFORM_REQUIRED", ambiguous.getErrorCode());
+                assertEquals(900L, customers.claimOrderPoints(buyer, tenantA,
+                        ClaimPointsRequest.builder().platformOrderId("SAME-ID").platform("shopee").build()).getPointsAwarded());
+
+                setRls(appConn, tenantB, "customer");
+                BusinessException cross = assertThrows(BusinessException.class, () -> customers.claimOrderPoints(buyerB,
+                        tenantB, ClaimPointsRequest.builder().platformOrderId("SAME-ID").platform("tiktok_shop").build()));
+                assertEquals("ORDER_NOT_FOUND", cross.getErrorCode());
+
+                // Shop sets up tiers per marketplace: the suggestion on TikTok, its own milestones on Shopee.
+                setRls(appConn, tenantA, "tenant_admin");
+                var tiktokSetup = tiers.saveTiers(adminA, tenantA, com.smartomni.order.dto.loyalty.SaveLoyaltyTiersRequest.builder()
+                        .connectionId(tiktokA).tiers(com.smartomni.order.service.loyalty.LoyaltyTierService.SUGGESTED).build());
+                assertEquals(List.of("Gold", "Platinum", "Diamond"),
+                        tiktokSetup.getTiers().stream().map(com.smartomni.order.dto.loyalty.LoyaltyTierSetupDto.Tier::getName).toList());
+                assertEquals("import", jdbc.queryForObject("SELECT DISTINCT provisioning_mode FROM loyalty_reward_campaigns "
+                        + "WHERE tenant_id = ? AND connection_id = ?", String.class, tenantA, tiktokA));
+
+                tiers.saveTiers(adminA, tenantA, com.smartomni.order.dto.loyalty.SaveLoyaltyTiersRequest.builder()
+                        .connectionId(shopeeA).tiers(List.of(
+                                tier(null, "Bạc", 300, 5), tier(null, "Vàng", 2000, 25))).build());
+                // Re-saving TikTok: rename Gold and drop Diamond -> Diamond is closed, Gold keeps its campaign id.
+                var gold = tiktokSetup.getTiers().get(0);
+                var platinum = tiktokSetup.getTiers().get(1);
+                tiers.saveTiers(adminA, tenantA, com.smartomni.order.dto.loyalty.SaveLoyaltyTiersRequest.builder()
+                        .connectionId(tiktokA).tiers(List.of(
+                                tier(gold.getCampaignId(), "Gold+", 500, 12),
+                                tier(platinum.getCampaignId(), "Platinum", 1000, 20))).build());
+                assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM loyalty_reward_campaigns WHERE tenant_id = ? "
+                        + "AND connection_id = ? AND status = 'closed'", Integer.class, tenantA, tiktokA));
+
+                // Profile: one wallet (184 + 900 = 1084), progress per marketplace.
+                setRls(appConn, tenantA, "customer");
+                LoyaltyProfileDto profile = customers.getMyProfile(buyer, tenantA);
+                assertEquals(1084L, profile.getTotalPoints());
+                assertEquals(2, profile.getPlatforms().size());
+                var tiktok = profile.getPlatforms().stream().filter(p -> "tiktok_shop".equals(p.getPlatform())).findFirst().orElseThrow();
+                assertEquals("Platinum", tiktok.getCurrentTier());
+                assertNull(tiktok.getNextTier());
+                assertEquals(List.of("Gold+", "Platinum"), tiktok.getMilestones().stream()
+                        .map(LoyaltyProfileDto.Milestone::getName).toList());
+                assertTrue(tiktok.getMilestones().stream().allMatch(LoyaltyProfileDto.Milestone::isReached));
+                var shopee = profile.getPlatforms().stream().filter(p -> "shopee".equals(p.getPlatform())).findFirst().orElseThrow();
+                assertEquals("Bạc", shopee.getCurrentTier());
+                assertEquals("Vàng", shopee.getNextTier());
+                assertEquals(916L, shopee.getPointsToNextTier());
+                assertEquals("Platinum", profile.getTier(), "summary tier is the highest milestone reached on any shop");
+                assertEquals("Vàng", profile.getNextTier());
+            }
+        }
+    }
+
+    private static com.smartomni.order.dto.loyalty.LoyaltyTierSetupDto.Tier tier(Long campaignId, String name, long points, int percent) {
+        return com.smartomni.order.dto.loyalty.LoyaltyTierSetupDto.Tier.builder().campaignId(campaignId).name(name)
+                .requiredPoints(points).discountPercent(BigDecimal.valueOf(percent)).build();
     }
 
     private static void setRls(Connection conn, long tenantId, String role) throws Exception {
