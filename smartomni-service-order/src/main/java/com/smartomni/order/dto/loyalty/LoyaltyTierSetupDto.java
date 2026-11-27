@@ -10,7 +10,7 @@ import java.util.List;
 
 /**
  * Tier milestones of one connected marketplace shop. Each tier is a reward campaign of that shop.
- * TikTok hands out codes of a Seller Center code batch whose title matches the tier name ({@code import});
+ * TikTok hands out codes of the Seller Center code batch linked to the tier ({@code tiktokBatchTitle}, {@code import});
  * Shopee vouchers are created by SmartOmni through the Shopee voucher API ({@code api}).
  */
 @Data
@@ -26,7 +26,7 @@ public class LoyaltyTierSetupDto {
     private List<Tier> suggested;
 
     @Data
-    @Builder
+    @Builder(toBuilder = true)
     @NoArgsConstructor
     @AllArgsConstructor
     public static class Tier {
@@ -34,7 +34,10 @@ public class LoyaltyTierSetupDto {
         private String name;
         private Long requiredPoints;
         private BigDecimal discountPercent;
+        /** TikTok: exact title of the linked Seller Center code batch. */
+        private String tiktokBatchTitle;
         private Integer quantity;
         private Integer availableQuantity;
+        private java.time.Instant endsAt;
     }
 }

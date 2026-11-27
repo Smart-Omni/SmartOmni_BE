@@ -171,7 +171,7 @@ class DatabaseMigrationTest {
             for (var future : futures) {
                 applied += future.get(60, java.util.concurrent.TimeUnit.SECONDS);
             }
-            assertEquals(29, applied);
+            assertEquals(30, applied);
         } finally {
             start.countDown();
             executor.shutdownNow();
@@ -186,7 +186,7 @@ class DatabaseMigrationTest {
                     "SELECT count(*) FROM pg_type WHERE typnamespace='public'::regnamespace AND typtype='e'"));
             assertTrue(count(admin,
                     "SELECT count(*) FROM pg_constraint WHERE connamespace='public'::regnamespace AND contype='f'") > 50);
-            assertEquals(29, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(30, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
             assertEquals(1, count(admin, "SELECT count(*) FROM information_schema.columns WHERE table_name='users' AND column_name='token_version' AND is_nullable='NO'"));
             assertEquals(1, count(admin, "SELECT count(*) FROM pg_class WHERE relname='tiktok_sync_checkpoints' AND relrowsecurity AND relforcerowsecurity"));
             assertEquals(2, count(admin, "SELECT count(*) FROM information_schema.columns WHERE table_name='orders' AND column_name IN ('platform_updated_at','reconciliation_reason')"));
@@ -553,13 +553,13 @@ class DatabaseMigrationTest {
             invitationsBefore = count(admin, "SELECT count(*) FROM staff_invitations");
         }
 
-        assertEquals(9, flyway(url).migrate().migrationsExecuted);
+        assertEquals(10, flyway(url).migrate().migrationsExecuted);
 
         try (Connection admin = connect(url, "postgres")) {
             assertEquals(usersBefore, count(admin, "SELECT count(*) FROM users"));
             assertEquals(historyBefore, count(admin, "SELECT count(*) FROM order_status_history"));
             assertEquals(invitationsBefore, count(admin, "SELECT count(*) FROM staff_invitations"));
-            assertEquals(29, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(30, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
             assertEquals("manager", string(admin, "SELECT role::text FROM users WHERE email='manager@a.test'"));
             assertEquals("manager", string(admin, "SELECT role::text FROM users WHERE email='manager@b.test'"));
             assertEquals(3, count(admin, "SELECT count(*) FROM users WHERE role='manager'"));
@@ -641,7 +641,7 @@ class DatabaseMigrationTest {
         assertThrows(FlywayException.class, invalid::migrate);
         try (Connection admin = connect(url, "postgres")) {
             assertEquals(0, count(admin, "SELECT count(*) FROM pg_tables WHERE tablename='should_rollback'"));
-            assertEquals(29, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
+            assertEquals(30, count(admin, "SELECT count(*) FROM flyway_schema_history WHERE success"));
         }
     }
 
@@ -665,7 +665,7 @@ class DatabaseMigrationTest {
         Flyway baseline = Flyway.configure().dataSource(url, "smartomni_migrator", TEST_PASSWORD)
                 .defaultSchema("public").baselineVersion("5").load();
         baseline.baseline();
-        assertEquals(24, flyway(url).migrate().migrationsExecuted);
+        assertEquals(25, flyway(url).migrate().migrationsExecuted);
         try (var context = boot(url)) {
             assertNotNull(context.getBean(EntityManagerFactory.class));
         }

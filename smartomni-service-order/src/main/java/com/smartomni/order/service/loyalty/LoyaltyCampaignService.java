@@ -71,8 +71,8 @@ public class LoyaltyCampaignService {
         Long id = jdbcTemplate.queryForObject(
                 "INSERT INTO loyalty_reward_campaigns "
                         + "(tenant_id, connection_id, created_by, name, discount_percent, required_points, "
-                        + "quantity, provisioning_mode, external_coupon_id, status, starts_at, ends_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                        + "quantity, provisioning_mode, external_coupon_id, tiktok_batch_title, status, starts_at, ends_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
                 Long.class,
                 tenantId,
                 conn.id(),
@@ -83,6 +83,7 @@ public class LoyaltyCampaignService {
                 request.getQuantity(),
                 mode,
                 trimToNull(request.getExternalCouponId()),
+                trimToNull(request.getTiktokBatchTitle()),
                 status,
                 Timestamp.from(request.getStartsAt()),
                 Timestamp.from(request.getEndsAt()));
@@ -148,6 +149,8 @@ public class LoyaltyCampaignService {
                 ? normalizeMode(request.getProvisioningMode()) : existing.getProvisioningMode();
         String externalCouponId = request.getExternalCouponId() != null
                 ? trimToNull(request.getExternalCouponId()) : existing.getExternalCouponId();
+        String tiktokBatchTitle = request.getTiktokBatchTitle() != null
+                ? trimToNull(request.getTiktokBatchTitle()) : existing.getTiktokBatchTitle();
         String status = request.getStatus() != null
                 ? normalizeStatus(request.getStatus(), existing.getStatus()) : existing.getStatus();
         Instant startsAt = request.getStartsAt() != null ? request.getStartsAt() : existing.getStartsAt();
@@ -156,10 +159,10 @@ public class LoyaltyCampaignService {
 
         jdbcTemplate.update(
                 "UPDATE loyalty_reward_campaigns SET name = ?, discount_percent = ?, required_points = ?, "
-                        + "quantity = ?, provisioning_mode = ?, external_coupon_id = ?, status = ?, "
+                        + "quantity = ?, provisioning_mode = ?, external_coupon_id = ?, tiktok_batch_title = ?, status = ?, "
                         + "starts_at = ?, ends_at = ?, updated_at = now() "
                         + "WHERE tenant_id = ? AND id = ?",
-                name, discountPercent, requiredPoints, quantity, mode, externalCouponId, status,
+                name, discountPercent, requiredPoints, quantity, mode, externalCouponId, tiktokBatchTitle, status,
                 Timestamp.from(startsAt), Timestamp.from(endsAt), tenantId, campaignId);
 
         return getCampaignById(tenantId, campaignId);
@@ -226,6 +229,7 @@ public class LoyaltyCampaignService {
                 .availableQuantity(Math.max(0, qty - reserved))
                 .provisioningMode(rs.getString("provisioning_mode"))
                 .externalCouponId(rs.getString("external_coupon_id"))
+                .tiktokBatchTitle(rs.getString("tiktok_batch_title"))
                 .status(rs.getString("status"))
                 .startsAt(toInstant(rs.getTimestamp("starts_at")))
                 .endsAt(toInstant(rs.getTimestamp("ends_at")))
@@ -270,7 +274,7 @@ public class LoyaltyCampaignService {
     private static final String BASE_CAMPAIGN_SELECT =
             "SELECT c.id, c.tenant_id, c.connection_id, mc.platform::text AS platform, mc.shop_name, "
                     + "c.created_by, c.name, c.discount_percent, c.required_points, c.quantity, c.reserved_count, "
-                    + "c.provisioning_mode, c.external_coupon_id, c.status, c.starts_at, c.ends_at, c.created_at, c.updated_at "
+                    + "c.provisioning_mode, c.external_coupon_id, c.tiktok_batch_title, c.status, c.starts_at, c.ends_at, c.created_at, c.updated_at "
                     + "FROM loyalty_reward_campaigns c "
                     + "JOIN marketplace_connections mc ON mc.tenant_id = c.tenant_id AND mc.id = c.connection_id";
 

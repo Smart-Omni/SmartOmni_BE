@@ -19,6 +19,7 @@ public class IntegrationIssueVoucherRequest {
     private BigDecimal discountPercent;
     private String provisioningMode;
     private String externalCouponId;
+    private String batchTitle;
     private Instant startsAt;
     private Instant endsAt;
 }

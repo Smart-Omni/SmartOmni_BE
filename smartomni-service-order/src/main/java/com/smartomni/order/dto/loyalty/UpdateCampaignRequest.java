@@ -19,6 +19,8 @@ public class UpdateCampaignRequest {
     private Long requiredPoints;
     private String provisioningMode;
     private String externalCouponId;
+    /** TikTok: exact title of the Seller Center code batch the campaign hands codes from. */
+    private String tiktokBatchTitle;
     private String status;
     private Instant startsAt;
     private Instant endsAt;

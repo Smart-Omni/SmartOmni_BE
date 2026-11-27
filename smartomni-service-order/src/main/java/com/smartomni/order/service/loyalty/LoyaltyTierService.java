@@ -4,6 +4,7 @@ import com.smartomni.common.exception.BusinessException;
 import com.smartomni.order.dto.loyalty.CreateCampaignRequest;
 import com.smartomni.order.dto.loyalty.LoyaltyTierSetupDto;
 import com.smartomni.order.dto.loyalty.SaveLoyaltyTiersRequest;
+import com.smartomni.order.dto.loyalty.TiktokVoucherBatchDto;
 import com.smartomni.order.dto.loyalty.UpdateCampaignRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -36,8 +37,11 @@ public class LoyaltyTierService {
     public static final List<LoyaltyTierSetupDto.Tier> SUGGESTED = List.of(
             suggestion("Gold", 500, 10), suggestion("Platinum", 1000, 20), suggestion("Diamond", 1500, 30));
 
+    static final String TIKTOK = "tiktok_shop";
+
     private final JdbcTemplate jdbcTemplate;
     private final LoyaltyCampaignService campaignService;
+    private final IntegrationVoucherClient integrationVoucherClient;
 
     @Transactional(readOnly = true)
     public List<LoyaltyTierSetupDto> getSetup(Long tenantId) {
@@ -81,34 +85,61 @@ public class LoyaltyTierService {
         ConnectionRow connection = found.get(0);
         List<LoyaltyTierSetupDto.Tier> tiers = validate(request.getTiers(), connection.platform());
         String mode = modeFor(connection.platform());
-
-        Set<Long> existing = jdbcTemplate.query(
-                "SELECT id FROM loyalty_reward_campaigns WHERE tenant_id = ? AND connection_id = ? "
-                        + "AND status = 'active'",
-                (rs, i) -> rs.getLong("id"), tenantId, connection.id()).stream().collect(Collectors.toSet());
-        Set<Long> kept = new HashSet<>();
+        boolean tiktok = TIKTOK.equals(connection.platform());
         Instant now = Instant.now();
+        Instant defaultEnd = now.plus(DEFAULT_DURATION);
+
+        // TikTok: every tier hands out codes of the batch it is linked to, so the batch must exist now and give the
+        // tier's percent. The campaign takes the batch's free codes as its quantity and ends when the batch ends.
+        Map<LoyaltyTierSetupDto.Tier, BatchLink> links = new java.util.IdentityHashMap<>();
+        if (tiktok) {
+            List<TiktokVoucherBatchDto> batches = integrationVoucherClient.listTiktokBatches(tenantId, connection.id());
+            for (LoyaltyTierSetupDto.Tier tier : tiers) {
+                links.put(tier, linkBatch(tier, batches));
+            }
+        }
+
+        Map<Long, Integer> reserved = jdbcTemplate.query(
+                "SELECT id, reserved_count FROM loyalty_reward_campaigns WHERE tenant_id = ? AND connection_id = ? "
+                        + "AND status = 'active'",
+                (rs, i) -> Map.entry(rs.getLong("id"), rs.getInt("reserved_count")), tenantId, connection.id())
+                .stream().collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        Set<Long> existing = reserved.keySet();
+        Set<Long> kept = new HashSet<>();
         for (LoyaltyTierSetupDto.Tier tier : tiers) {
+            BatchLink link = links.get(tier);
+            Instant endsAt = link == null ? defaultEnd : earliest(link.endTime(), defaultEnd);
             if (tier.getCampaignId() != null && existing.contains(tier.getCampaignId())) {
-                campaignService.updateCampaign(tenantId, tier.getCampaignId(), UpdateCampaignRequest.builder()
+                UpdateCampaignRequest.UpdateCampaignRequestBuilder update = UpdateCampaignRequest.builder()
                         .name(tier.getName())
                         .requiredPoints(tier.getRequiredPoints())
                         .discountPercent(tier.getDiscountPercent())
                         .provisioningMode(mode)
-                        .status("active")
-                        .build());
+                        .status("active");
+                if (link != null) {
+                    // codes already handed out by this campaign stay counted; the rest of the batch is what is left
+                    update.tiktokBatchTitle(tier.getTiktokBatchTitle())
+                            .quantity(reserved.get(tier.getCampaignId()) + link.freeCodes())
+                            .endsAt(endsAt);
+                }
+                campaignService.updateCampaign(tenantId, tier.getCampaignId(), update.build());
                 kept.add(tier.getCampaignId());
             } else {
+                if (link != null && link.freeCodes() < 1) {
+                    throw invalid("TikTok batch '" + tier.getTiktokBatchTitle() + "' has no free code left for "
+                            + tier.getName());
+                }
                 campaignService.createCampaign(staffUserId, tenantId, CreateCampaignRequest.builder()
                         .connectionId(connection.id())
                         .name(tier.getName())
                         .requiredPoints(tier.getRequiredPoints())
                         .discountPercent(tier.getDiscountPercent())
-                        .quantity(DEFAULT_QUANTITY)
+                        .quantity(link == null ? DEFAULT_QUANTITY : link.freeCodes())
                         .provisioningMode(mode)
+                        .tiktokBatchTitle(link == null ? null : tier.getTiktokBatchTitle())
                         .status("active")
                         .startsAt(now.minusSeconds(60))
-                        .endsAt(now.plus(DEFAULT_DURATION))
+                        .endsAt(endsAt)
                         .build());
             }
         }
@@ -128,6 +159,7 @@ public class LoyaltyTierService {
         }
         Set<String> names = new HashSet<>();
         Set<Long> points = new HashSet<>();
+        Set<String> batchTitles = new HashSet<>();
         List<LoyaltyTierSetupDto.Tier> clean = new ArrayList<>();
         for (LoyaltyTierSetupDto.Tier t : tiers) {
             String name = t == null || t.getName() == null ? "" : t.getName().trim();
@@ -147,14 +179,63 @@ public class LoyaltyTierService {
             if (pct == null || pct.signum() <= 0 || pct.compareTo(BigDecimal.valueOf(100)) > 0) {
                 throw invalid("Voucher % for " + name + " must be between 0 and 100");
             }
-            if ("shopee".equals(platform) && pct.stripTrailingZeros().scale() > 0) {
-                throw invalid("Shopee vouchers take a whole-number % (" + name + ")");
+            if (pct.stripTrailingZeros().scale() > 0) {
+                // Shopee vouchers and TikTok Seller Center code batches both take whole percentages only
+                throw invalid(("shopee".equals(platform) ? "Shopee vouchers" : "TikTok code batches")
+                        + " take a whole-number % (" + name + ")");
+            }
+            String batchTitle = null;
+            if (TIKTOK.equals(platform)) {
+                batchTitle = t.getTiktokBatchTitle() == null ? "" : t.getTiktokBatchTitle().trim();
+                if (batchTitle.isEmpty() || batchTitle.length() > 100) {
+                    throw invalid("Choose the TikTok code batch for " + name);
+                }
+                if (!batchTitles.add(batchTitle.toLowerCase(Locale.ROOT))) {
+                    throw invalid("Two tiers cannot use the same TikTok code batch (" + batchTitle + ")");
+                }
             }
             clean.add(LoyaltyTierSetupDto.Tier.builder().campaignId(t.getCampaignId()).name(name)
-                    .requiredPoints(t.getRequiredPoints()).discountPercent(pct).build());
+                    .requiredPoints(t.getRequiredPoints()).discountPercent(pct).tiktokBatchTitle(batchTitle).build());
         }
         clean.sort(java.util.Comparator.comparingLong(LoyaltyTierSetupDto.Tier::getRequiredPoints));
         return clean;
+    }
+
+    /** Free codes and end of the batch a TikTok tier is linked to: exact title, PERCENT_OFF, the tier's percent. */
+    record BatchLink(int freeCodes, Instant endTime) { }
+
+    static BatchLink linkBatch(LoyaltyTierSetupDto.Tier tier, List<TiktokVoucherBatchDto> batches) {
+        String title = tier.getTiktokBatchTitle().trim();
+        List<TiktokVoucherBatchDto> titled = batches.stream()
+                .filter(b -> b.getTitle() != null && b.getTitle().trim().equalsIgnoreCase(title))
+                .toList();
+        if (titled.isEmpty()) {
+            throw invalid("No ongoing TikTok code batch titled '" + title + "' for " + tier.getName());
+        }
+        List<TiktokVoucherBatchDto> matching = titled.stream()
+                .filter(b -> "PERCENT_OFF".equalsIgnoreCase(b.getDiscountType()) && b.getDiscountValue() != null
+                        && b.getDiscountValue().compareTo(tier.getDiscountPercent()) == 0)
+                .toList();
+        if (matching.isEmpty()) {
+            TiktokVoucherBatchDto other = titled.get(0);
+            String gives = "PERCENT_OFF".equalsIgnoreCase(other.getDiscountType())
+                    ? plain(other.getDiscountValue()) + "%" : plain(other.getDiscountValue()) + " VND off";
+            throw invalid("TikTok batch '" + title + "' gives " + gives + ", " + tier.getName() + " needs "
+                    + plain(tier.getDiscountPercent()) + "%");
+        }
+        int free = matching.stream().mapToInt(TiktokVoucherBatchDto::getFreeCodes).sum();
+        Instant end = matching.stream().map(TiktokVoucherBatchDto::getEndTime).filter(java.util.Objects::nonNull)
+                .min(Instant::compareTo).orElse(null);
+        return new BatchLink(free, end);
+    }
+
+    private static String plain(BigDecimal value) {
+        return value == null ? "?" : value.stripTrailingZeros().toPlainString();
+    }
+
+    private static Instant earliest(Instant a, Instant b) {
+        if (a == null) return b;
+        return a.isBefore(b) ? a : b;
     }
 
     static String modeFor(String platform) {
@@ -163,7 +244,8 @@ public class LoyaltyTierService {
 
     private List<TierRow> activeTiers(Long tenantId) {
         return jdbcTemplate.query(
-                "SELECT id, connection_id, name, required_points, discount_percent, quantity, reserved_count "
+                "SELECT id, connection_id, name, required_points, discount_percent, quantity, reserved_count, "
+                        + "tiktok_batch_title, ends_at "
                         + "FROM loyalty_reward_campaigns WHERE tenant_id = ? AND status = 'active' "
                         + "ORDER BY connection_id, required_points, id",
                 (rs, i) -> new TierRow(rs.getLong("connection_id"), LoyaltyTierSetupDto.Tier.builder()
@@ -173,6 +255,8 @@ public class LoyaltyTierService {
                         .discountPercent(rs.getBigDecimal("discount_percent"))
                         .quantity(rs.getInt("quantity"))
                         .availableQuantity(Math.max(0, rs.getInt("quantity") - rs.getInt("reserved_count")))
+                        .tiktokBatchTitle(rs.getString("tiktok_batch_title"))
+                        .endsAt(rs.getTimestamp("ends_at") == null ? null : rs.getTimestamp("ends_at").toInstant())
                         .build()),
                 tenantId);
     }
