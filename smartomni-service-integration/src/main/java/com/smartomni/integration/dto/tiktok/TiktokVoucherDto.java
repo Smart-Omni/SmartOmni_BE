@@ -12,7 +12,7 @@ import java.time.Instant;
  * DTO representing an issued TikTok Shop voucher stored in SmartOmni DB (WF-02 Part A).
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class TiktokVoucherDto {

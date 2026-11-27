@@ -142,9 +142,10 @@ public class TiktokVoucherClient {
         Integer usageLimit = node.path("usage_limits").hasNonNull("redemption_limit")
                 ? node.path("usage_limits").get("redemption_limit").asInt()
                 : null;
+        // Search Coupon List carries no usage_stats: unknown stays null so a sync never resets a known count to 0.
         Integer redeemedCount = node.path("usage_stats").hasNonNull("redeemed_count")
                 ? node.path("usage_stats").get("redeemed_count").asInt()
-                : 0;
+                : null;
 
         Instant startTime = fromUnixSeconds(node.path("claim_duration").path("start_time").asLong(0), Instant.now());
         Instant endTime = fromUnixSeconds(node.path("claim_duration").path("end_time").asLong(0),

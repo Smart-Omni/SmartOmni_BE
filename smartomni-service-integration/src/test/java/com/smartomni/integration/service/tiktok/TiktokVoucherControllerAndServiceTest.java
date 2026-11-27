@@ -61,7 +61,7 @@ class TiktokVoucherControllerAndServiceTest {
         });
 
         voucherService = new TiktokVoucherService(tenantConnections, voucherClient, jdbcTemplate, transactionTemplate);
-        controller = new TiktokVoucherController(voucherService);
+        controller = new TiktokVoucherController(voucherService, mock(TiktokVoucherBatchService.class));
 
         connection = new MarketplaceConnection();
         connection.setId(77L);

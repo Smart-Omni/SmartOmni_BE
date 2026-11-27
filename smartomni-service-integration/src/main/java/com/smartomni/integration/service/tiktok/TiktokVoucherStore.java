@@ -9,8 +9,10 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * {@code tiktok_vouchers} as the pool of single-use TikTok codes pulled from Seller Center batches.
@@ -51,7 +53,8 @@ public class TiktokVoucherStore {
                     start_time, end_time, status, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now())
                 ON CONFLICT (connection_id, tiktok_voucher_id) DO UPDATE
-                SET status = EXCLUDED.status, redeemed_count = EXCLUDED.redeemed_count, updated_at = now()
+                SET status = EXCLUDED.status,
+                    redeemed_count = GREATEST(tiktok_vouchers.redeemed_count, EXCLUDED.redeemed_count), updated_at = now()
                 """, tenantId, connectionId, shopId, c.getTiktokVoucherId(), c.getVoucherCode(), c.getTitle(),
                 c.getDiscountType(), c.getDiscountValue(), c.getMaxDiscountAmount(), c.getMinOrderAmount(),
                 c.getUsageLimit(), c.getRedeemedCount() != null ? c.getRedeemedCount() : 0,
@@ -92,6 +95,14 @@ public class TiktokVoucherStore {
                         + "WHERE tenant_id = ? AND idempotency_key IS NOT NULL AND status = 'ONGOING' AND redeemed_count = 0 "
                         + "ORDER BY id",
                 (rs, i) -> new IssuedCode(rs.getLong(1), rs.getLong(2), rs.getString(3)), tenantId);
+    }
+
+    /** Coupon ids of the connection that can still be handed out (ONGOING, unused, not issued). */
+    public Set<String> freeCouponIds(long tenantId, long connectionId) {
+        return new HashSet<>(jdbc.query("SELECT tiktok_voucher_id FROM tiktok_vouchers "
+                        + "WHERE tenant_id = ? AND connection_id = ? AND idempotency_key IS NULL "
+                        + "AND status = 'ONGOING' AND redeemed_count = 0 AND voucher_code IS NOT NULL",
+                (rs, i) -> rs.getString(1), tenantId, connectionId));
     }
 
     public void updateUsage(long tenantId, long id, String status, int redeemedCount) {

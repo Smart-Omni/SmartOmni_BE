@@ -10,6 +10,7 @@ import com.smartomni.integration.dto.InternalIssueVoucherResponse;
 import com.smartomni.integration.dto.tiktok.TiktokVoucherDto;
 import com.smartomni.integration.entity.MarketplaceConnection;
 import com.smartomni.integration.repository.MarketplaceConnectionRepository;
+import com.smartomni.integration.service.tiktok.TiktokVoucherBatchService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -89,28 +90,35 @@ public class MarketplaceVoucherAdapterService {
 
             // "import" mode: verify an existing coupon on TikTok Shop / Simulator
             if (hasText(req.getExternalCouponId())) {
-                TiktokVoucherDto detail = tiktokVoucherClient.getCoupon(connection.getId(), req.getExternalCouponId().trim());
-                if (detail != null && hasText(detail.getTiktokVoucherId()) && hasText(detail.getVoucherCode())
-                        && !"DEACTIVATED".equalsIgnoreCase(detail.getStatus())
-                        && !"EXPIRED".equalsIgnoreCase(detail.getStatus())) {
-                    return issued(detail.getTiktokVoucherId(), detail.getVoucherCode());
-                }
-                return failed("Configured TikTok coupon is unavailable or expired: " + req.getExternalCouponId());
+                return issueConfiguredCoupon(connection, req);
             }
 
-            if (!hasText(req.getTitle())) {
+            // The batch the campaign is linked to; campaigns saved before batch linking fall back to their name.
+            String batchTitle = hasText(req.getBatchTitle()) ? req.getBatchTitle().trim()
+                    : hasText(req.getTitle()) ? req.getTitle().trim() : null;
+            if (batchTitle == null) {
                 return failed("Import mode needs the TikTok code batch title on the campaign");
             }
             if (!hasText(req.getRequestKey())) {
                 return failed("Import mode needs a requestKey to record which code was handed out");
             }
-            // Pull the batch (all pages), keep only codes of that batch that are ONGOING, then claim a free one.
-            String batchTitle = req.getTitle().trim();
-            List<TiktokVoucherDto> batch = tiktokVoucherClient.searchCoupons(connection.getId(), batchTitle, List.of("ONGOING")).stream()
+            // Pull the batch (all pages), keep the ONGOING codes titled exactly like the batch, then only those giving
+            // the campaign's percent: a code with another value is never handed out.
+            List<TiktokVoucherDto> titled = tiktokVoucherClient.searchCoupons(connection.getId(), batchTitle, List.of("ONGOING")).stream()
                     .filter(c -> hasText(c.getTiktokVoucherId()) && hasText(c.getVoucherCode()))
                     .filter(c -> "ONGOING".equalsIgnoreCase(c.getStatus()))
-                    .filter(c -> c.getTitle() != null && c.getTitle().toLowerCase().contains(batchTitle.toLowerCase()))
+                    .filter(c -> TiktokVoucherBatchService.sameTitle(c.getTitle(), batchTitle))
                     .toList();
+            if (titled.isEmpty()) {
+                return failed("No ongoing TikTok code batch titled '" + batchTitle + "'");
+            }
+            List<TiktokVoucherDto> batch = req.getDiscountPercent() == null ? titled : titled.stream()
+                    .filter(c -> TiktokVoucherBatchService.samePercent(c, req.getDiscountPercent()))
+                    .toList();
+            if (batch.isEmpty()) {
+                return failed("TikTok batch '" + batchTitle + "' gives " + TiktokVoucherBatchService.describe(titled.get(0))
+                        + ", campaign needs " + percent(req.getDiscountPercent()));
+            }
             List<String> candidates = batch.stream().map(TiktokVoucherDto::getTiktokVoucherId).toList();
             TiktokVoucherDto claimed = transactionTemplate.execute(status -> {
                 for (TiktokVoucherDto c : batch) {
@@ -185,6 +193,43 @@ public class MarketplaceVoucherAdapterService {
             log.warn("Ambiguous error provisioning Shopee voucher for requestKey={}: {}", req.getRequestKey(), ex.getMessage());
             return pending(ex.getMessage());
         }
+    }
+
+    /**
+     * A campaign pinned to one coupon id. The coupon must give the campaign's percent. A single-use coupon is handed
+     * out once (recorded like a batch code); a coupon with a higher or no redemption limit is shared by design.
+     */
+    private InternalIssueVoucherResponse issueConfiguredCoupon(MarketplaceConnection connection, InternalIssueVoucherRequest req) {
+        String couponId = req.getExternalCouponId().trim();
+        TiktokVoucherDto detail = tiktokVoucherClient.getCoupon(connection.getId(), couponId);
+        if (detail == null || !hasText(detail.getTiktokVoucherId()) || !hasText(detail.getVoucherCode())
+                || "DEACTIVATED".equalsIgnoreCase(detail.getStatus()) || "EXPIRED".equalsIgnoreCase(detail.getStatus())) {
+            return failed("Configured TikTok coupon is unavailable or expired: " + couponId);
+        }
+        if (req.getDiscountPercent() != null && !TiktokVoucherBatchService.samePercent(detail, req.getDiscountPercent())) {
+            return failed("TikTok coupon " + couponId + " gives " + TiktokVoucherBatchService.describe(detail)
+                    + ", campaign needs " + percent(req.getDiscountPercent()));
+        }
+        if (!Integer.valueOf(1).equals(detail.getUsageLimit())) {
+            return issued(detail.getTiktokVoucherId(), detail.getVoucherCode());
+        }
+        if (!hasText(req.getRequestKey())) {
+            return failed("Import mode needs a requestKey to record which code was handed out");
+        }
+        long tenantId = connection.getTenantId();
+        TiktokVoucherDto claimed = transactionTemplate.execute(status -> {
+            voucherStore.upsertPulled(tenantId, connection.getId(), connection.getShopId(), detail);
+            return voucherStore.claimFree(tenantId, connection.getId(), List.of(detail.getTiktokVoucherId()),
+                    req.getRequestKey()).orElse(null);
+        });
+        if (claimed == null) {
+            return failed("Single-use TikTok coupon " + couponId + " was already handed out or used");
+        }
+        return issued(claimed.getTiktokVoucherId(), claimed.getVoucherCode());
+    }
+
+    private static String percent(BigDecimal value) {
+        return value == null ? "?" : value.stripTrailingZeros().toPlainString() + "%";
     }
 
     static String shopeeVoucherName(InternalIssueVoucherRequest req) {

@@ -56,6 +56,7 @@ public class LoyaltyVoucherWorker {
                             .discountPercent(row.discountPercent())
                             .provisioningMode(row.provisioningMode())
                             .externalCouponId(row.externalCouponId())
+                            .batchTitle(row.tiktokBatchTitle())
                             .startsAt(row.startsAt())
                             .endsAt(row.endsAt())
                             .build());
@@ -112,7 +113,7 @@ public class LoyaltyVoucherWorker {
         List<PendingRewardRow> rows = jdbcTemplate.query(
                 "SELECT r.id, r.customer_id, r.request_key::text AS request_key, "
                         + "c.connection_id, c.name AS campaign_name, c.discount_percent, "
-                        + "c.provisioning_mode, c.external_coupon_id, c.starts_at, c.ends_at "
+                        + "c.provisioning_mode, c.external_coupon_id, c.tiktok_batch_title, c.starts_at, c.ends_at "
                         + "FROM loyalty_reward_requests r "
                         + "JOIN loyalty_reward_campaigns c ON c.tenant_id = r.tenant_id AND c.id = r.campaign_id "
                         + "WHERE r.tenant_id = ? AND r.id = ? AND r.status = 'pending'",
@@ -125,6 +126,7 @@ public class LoyaltyVoucherWorker {
                         rs.getBigDecimal("discount_percent"),
                         rs.getString("provisioning_mode"),
                         rs.getString("external_coupon_id"),
+                        rs.getString("tiktok_batch_title"),
                         toInstant(rs.getTimestamp("starts_at")),
                         toInstant(rs.getTimestamp("ends_at"))),
                 tenantId, requestId);
@@ -148,6 +150,7 @@ public class LoyaltyVoucherWorker {
             BigDecimal discountPercent,
             String provisioningMode,
             String externalCouponId,
+            String tiktokBatchTitle,
             Instant startsAt,
             Instant endsAt) {
     }

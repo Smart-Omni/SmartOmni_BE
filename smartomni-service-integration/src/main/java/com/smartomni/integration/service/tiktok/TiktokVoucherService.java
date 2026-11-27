@@ -122,7 +122,7 @@ public class TiktokVoucherService {
         if (!existingIds.isEmpty()) {
             long existingId = existingIds.get(0);
             jdbcTemplate.update(
-                    "UPDATE tiktok_vouchers SET status = ?, redeemed_count = ?, updated_at = now() "
+                    "UPDATE tiktok_vouchers SET status = ?, redeemed_count = GREATEST(redeemed_count, ?), updated_at = now() "
                             + "WHERE tenant_id = ? AND id = ?",
                     voucher.getStatus() != null ? voucher.getStatus() : "ONGOING",
                     voucher.getRedeemedCount() != null ? voucher.getRedeemedCount() : 0,

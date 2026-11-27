@@ -16,6 +16,8 @@ public class InternalIssueVoucherRequest {
     private Long connectionId;
     private String requestKey;
     private String title;
+    /** TikTok: exact title of the Seller Center code batch the campaign is linked to (falls back to title). */
+    private String batchTitle;
     private BigDecimal discountPercent;
     private String provisioningMode;
     private String externalCouponId;

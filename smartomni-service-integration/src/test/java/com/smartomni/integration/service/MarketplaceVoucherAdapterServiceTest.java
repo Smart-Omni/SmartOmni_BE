@@ -94,7 +94,77 @@ class MarketplaceVoucherAdapterServiceTest {
         InternalIssueVoucherResponse res = adapterService.issueVoucher(importRequest("req-2"));
 
         assertThat(res.getOutcome()).isEqualTo("FAILED");
-        assertThat(res.getFailureReason()).contains("No free code");
+        assertThat(res.getFailureReason()).contains("No ongoing TikTok code batch titled 'Loyalty Diamond 30%'");
+    }
+
+    @Test
+    void allCodesOfTheBatchHandedOutFails() {
+        TiktokVoucherDto diamond1 = code("C1", "DIA-1", "Loyalty Diamond 30%");
+        when(tiktokVoucherClient.searchCoupons(eq(10L), anyString(), any())).thenReturn(List.of(diamond1));
+        when(store.claimFree(1L, 10L, List.of("C1"), "req-full")).thenReturn(Optional.empty());
+
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(importRequest("req-full"));
+
+        assertThat(res.getOutcome()).isEqualTo("FAILED");
+        assertThat(res.getFailureReason()).contains("No free code left");
+    }
+
+    @Test
+    void linkedBatchTitleIsMatchedExactlyAndWinsOverTheCampaignName() {
+        TiktokVoucherDto gold = code("G1", "GOLD-1", "Loyalty Gold 30%");
+        TiktokVoucherDto goldPlus = code("G9", "PLUS-9", "Loyalty Gold 30% Plus");
+        when(tiktokVoucherClient.searchCoupons(10L, "loyalty gold 30%", List.of("ONGOING"))).thenReturn(List.of(goldPlus, gold));
+        when(store.claimFree(1L, 10L, List.of("G1"), "req-g")).thenReturn(Optional.of(gold));
+
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(InternalIssueVoucherRequest.builder()
+                .connectionId(10L).requestKey("req-g").title("Gold").batchTitle(" loyalty gold 30% ")
+                .discountPercent(new BigDecimal("30.00")).provisioningMode("import").build());
+
+        assertThat(res.getOutcome()).isEqualTo("ISSUED");
+        assertThat(res.getCode()).isEqualTo("GOLD-1");
+        verify(tiktokVoucherClient).searchCoupons(10L, "loyalty gold 30%", List.of("ONGOING"));
+    }
+
+    @Test
+    void batchWithAnotherPercentIsNeverHandedOut() {
+        TiktokVoucherDto tenPercent = code("G1", "GOLD-1", "Loyalty Gold").toBuilder().discountValue(BigDecimal.TEN).build();
+        when(tiktokVoucherClient.searchCoupons(eq(10L), anyString(), any())).thenReturn(List.of(tenPercent));
+
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(InternalIssueVoucherRequest.builder()
+                .connectionId(10L).requestKey("req-pct").title("Gold").batchTitle("Loyalty Gold")
+                .discountPercent(new BigDecimal("30")).provisioningMode("import").build());
+
+        assertThat(res.getOutcome()).isEqualTo("FAILED");
+        assertThat(res.getFailureReason()).isEqualTo("TikTok batch 'Loyalty Gold' gives 10%, campaign needs 30%");
+        verify(store, never()).claimFree(anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void configuredSingleUseCouponIsHandedOutOnlyOnce() {
+        TiktokVoucherDto single = code("C7", "ONE-7", "One shot").toBuilder().usageLimit(1).build();
+        when(tiktokVoucherClient.getCoupon(10L, "C7")).thenReturn(single);
+        when(store.claimFree(1L, 10L, List.of("C7"), "req-a")).thenReturn(Optional.of(single));
+        when(store.claimFree(1L, 10L, List.of("C7"), "req-b")).thenReturn(Optional.empty());
+
+        InternalIssueVoucherRequest.InternalIssueVoucherRequestBuilder req = InternalIssueVoucherRequest.builder()
+                .connectionId(10L).externalCouponId("C7").discountPercent(new BigDecimal("30")).provisioningMode("import");
+
+        assertThat(adapterService.issueVoucher(req.requestKey("req-a").build()).getOutcome()).isEqualTo("ISSUED");
+        InternalIssueVoucherResponse second = adapterService.issueVoucher(req.requestKey("req-b").build());
+        assertThat(second.getOutcome()).isEqualTo("FAILED");
+        assertThat(second.getFailureReason()).contains("already handed out");
+    }
+
+    @Test
+    void configuredCouponWithAnotherPercentFails() {
+        when(tiktokVoucherClient.getCoupon(10L, "C8")).thenReturn(code("C8", "SHARED", "Shared").toBuilder()
+                .discountValue(new BigDecimal("15")).build());
+
+        InternalIssueVoucherResponse res = adapterService.issueVoucher(InternalIssueVoucherRequest.builder()
+                .connectionId(10L).requestKey("req-c").externalCouponId("C8").discountPercent(new BigDecimal("30"))
+                .provisioningMode("import").build());
+
+        assertThat(res.getFailureReason()).isEqualTo("TikTok coupon C8 gives 15%, campaign needs 30%");
     }
 
     @Test

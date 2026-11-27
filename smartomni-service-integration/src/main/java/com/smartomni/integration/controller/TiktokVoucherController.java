@@ -2,7 +2,9 @@ package com.smartomni.integration.controller;
 
 import com.smartomni.common.dto.ApiResponse;
 import com.smartomni.integration.dto.tiktok.CreateTiktokVoucherRequest;
+import com.smartomni.integration.dto.tiktok.TiktokVoucherBatchDto;
 import com.smartomni.integration.dto.tiktok.TiktokVoucherDto;
+import com.smartomni.integration.service.tiktok.TiktokVoucherBatchService;
 import com.smartomni.integration.service.tiktok.TiktokVoucherService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +23,13 @@ import java.util.List;
 public class TiktokVoucherController {
 
     private final TiktokVoucherService voucherService;
+    private final TiktokVoucherBatchService batchService;
+
+    /** Seller Center code batches (ONGOING codes grouped by title and discount) a loyalty tier can be linked to. */
+    @GetMapping("/batches")
+    public ResponseEntity<ApiResponse<List<TiktokVoucherBatchDto>>> listBatches() {
+        return ResponseEntity.ok(ApiResponse.success(batchService.listForCurrentTenant()));
+    }
 
     @PostMapping
     public ResponseEntity<ApiResponse<TiktokVoucherDto>> createVoucher(@RequestBody CreateTiktokVoucherRequest request) {
