@@ -66,6 +66,24 @@ public class FakeTiktokPlatform extends TiktokShopApiExecutor {
         products.computeIfAbsent(connectionId, k -> new ArrayList<>()).add(p);
     }
 
+    /** Sets the detail-only {@code main_images} of a product: one {uri, urls} entry per image; urls null = uri only. */
+    public void setMainImages(long connectionId, String productId, String[]... images) {
+        for (ObjectNode p : products.getOrDefault(connectionId, List.of())) {
+            if (productId.equals(p.get("id").asText())) {
+                ArrayNode array = p.putArray("main_images");
+                for (String[] image : images) {
+                    ObjectNode i = array.addObject().put("uri", image[0]);
+                    if (image.length > 1) {
+                        ArrayNode urls = i.putArray("urls");
+                        for (int k = 1; k < image.length; k++) {
+                            urls.add(image[k]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     public void setPrice(long connectionId, String externalSkuId, String price) {
         for (ObjectNode p : products.getOrDefault(connectionId, List.of())) {
             for (JsonNode sku : p.get("skus")) {
@@ -117,6 +135,7 @@ public class FakeTiktokPlatform extends TiktokShopApiExecutor {
             for (ObjectNode p : all.subList(offset, end)) {
                 ObjectNode summary = p.deepCopy();
                 summary.remove("description");
+                summary.remove("main_images");
                 page.add(summary);
             }
             data.put("next_page_token", end < all.size() ? "t" + end : "");
