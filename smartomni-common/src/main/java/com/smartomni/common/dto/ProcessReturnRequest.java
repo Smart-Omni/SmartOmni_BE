@@ -61,6 +61,18 @@ public class ProcessReturnRequest {
     @JsonProperty("refund_amount")
     private BigDecimal refundAmount;
 
+    @JsonProperty("refund_subtotal")
+    private BigDecimal refundSubtotal;
+
+    @JsonProperty("refund_shipping_fee")
+    private BigDecimal refundShippingFee;
+
+    @JsonProperty("reverse_shipping_fee")
+    private BigDecimal reverseShippingFee;
+
+    @JsonProperty("platform_create_time")
+    private Long platformCreateTime;
+
     @JsonProperty("restock_required")
     private Boolean restockRequired;
 
