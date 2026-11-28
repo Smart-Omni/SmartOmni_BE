@@ -77,4 +77,71 @@ public class ShopeeFinanceClient {
                 paymentMethod
         );
     }
+
+    /** Nullable analytics-facing escrow breakdown (preserves null when Shopee omits a numeric field). */
+    public record EscrowAnalyticsDetail(
+            String orderSn,
+            BigDecimal escrowAmount,
+            BigDecimal buyerTotalAmount,
+            BigDecimal orderOriginalPrice,
+            BigDecimal orderDiscountedPrice,
+            BigDecimal voucherFromSeller,
+            BigDecimal commissionFee,
+            BigDecimal serviceFee,
+            BigDecimal sellerTransactionFee,
+            BigDecimal escrowTax,
+            BigDecimal actualShippingFee,
+            BigDecimal buyerPaidShippingFee,
+            BigDecimal shopeeShippingRebate,
+            BigDecimal sellerShippingDiscount,
+            BigDecimal finalShippingFee,
+            BigDecimal sellerReturnRefund,
+            BigDecimal reverseShippingFee
+    ) {}
+
+    public EscrowAnalyticsDetail getEscrowAnalyticsDetail(Long connectionId, String orderSn) {
+        Map<String, String> query = Map.of("order_sn", orderSn);
+        JsonNode data = executor.call(connectionId, "GET", "/api/v2/payment/get_escrow_detail", query, null);
+
+        JsonNode income = data.path("order_income");
+        if (income.isMissingNode() || income.isNull()) {
+            income = data;
+        }
+
+        return new EscrowAnalyticsDetail(
+                orderSn,
+                nullableAmount(income, "escrow_amount"),
+                nullableAmount(income, "buyer_total_amount"),
+                nullableAmount(income, "order_original_price"),
+                nullableAmount(income, "order_discounted_price"),
+                nullableAmount(income, "voucher_from_seller"),
+                nullableAmount(income, "commission_fee"),
+                nullableAmount(income, "service_fee"),
+                nullableAmount(income, "seller_transaction_fee"),
+                nullableAmount(income, "escrow_tax"),
+                nullableAmount(income, "actual_shipping_fee"),
+                nullableAmount(income, "buyer_paid_shipping_fee"),
+                nullableAmount(income, "shopee_shipping_rebate"),
+                nullableAmount(income, "seller_shipping_discount"),
+                nullableAmount(income, "final_shipping_fee"),
+                nullableAmount(income, "seller_return_refund"),
+                nullableAmount(income, "reverse_shipping_fee")
+        );
+    }
+
+    private static BigDecimal nullableAmount(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+        if (value.isNumber()) {
+            return value.decimalValue();
+        }
+        try {
+            String text = value.asText("").trim();
+            return text.isEmpty() ? null : new BigDecimal(text);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
 }

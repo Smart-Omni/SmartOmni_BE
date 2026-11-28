@@ -27,7 +27,6 @@ import java.util.Set;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TiktokOrderSyncService {
 
     static final String SOURCE_POLLING = TiktokOrderIngestionService.SOURCE_POLLING;
@@ -37,6 +36,22 @@ public class TiktokOrderSyncService {
     private final TiktokOrderClient orderClient;
     private final TiktokOrderIngestionService ingestionService;
     private final TiktokTrackingEnricher trackingEnricher;
+    private final com.smartomni.integration.service.finance.MarketplaceFinanceSyncService financeSyncService;
+
+    public TiktokOrderSyncService(TiktokOrderClient orderClient, TiktokOrderIngestionService ingestionService,
+                                  TiktokTrackingEnricher trackingEnricher) {
+        this(orderClient, ingestionService, trackingEnricher, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TiktokOrderSyncService(TiktokOrderClient orderClient, TiktokOrderIngestionService ingestionService,
+                                  TiktokTrackingEnricher trackingEnricher,
+                                  com.smartomni.integration.service.finance.MarketplaceFinanceSyncService financeSyncService) {
+        this.orderClient = orderClient;
+        this.ingestionService = ingestionService;
+        this.trackingEnricher = trackingEnricher;
+        this.financeSyncService = financeSyncService;
+    }
 
     public TiktokOrderSyncResponse syncOrders(MarketplaceConnection connection, Long fromDate, Long toDate) {
         if (connection == null || connection.getId() == null || connection.getTenantId() == null) {
@@ -51,7 +66,10 @@ public class TiktokOrderSyncService {
         for (TiktokOrderDetailResponse order : enrichedOrders) {
             try {
                 trackingEnricher.enrich(connection, order);
-                ingestionService.ingestOrder(connection.getTenantId(), order, SOURCE_POLLING);
+                ingestionService.ingestOrder(connection.getTenantId(), connection.getId(), order, SOURCE_POLLING);
+                if (financeSyncService != null) {
+                    financeSyncService.syncTiktokOrderFinance(connection, order.getOrderId());
+                }
                 enqueued++;
             } catch (Exception ex) {
                 failed++;

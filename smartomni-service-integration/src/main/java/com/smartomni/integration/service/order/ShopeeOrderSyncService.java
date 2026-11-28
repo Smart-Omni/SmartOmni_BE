@@ -23,12 +23,25 @@ import java.util.List;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ShopeeOrderSyncService {
 
     private final ShopeeOrderClient orderClient;
     private final ShopeeOrderMapper orderMapper;
     private final RabbitTemplate rabbitTemplate;
+    private final com.smartomni.integration.service.finance.MarketplaceFinanceSyncService financeSyncService;
+
+    public ShopeeOrderSyncService(ShopeeOrderClient orderClient, ShopeeOrderMapper orderMapper, RabbitTemplate rabbitTemplate) {
+        this(orderClient, orderMapper, rabbitTemplate, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ShopeeOrderSyncService(ShopeeOrderClient orderClient, ShopeeOrderMapper orderMapper, RabbitTemplate rabbitTemplate,
+                                  com.smartomni.integration.service.finance.MarketplaceFinanceSyncService financeSyncService) {
+        this.orderClient = orderClient;
+        this.orderMapper = orderMapper;
+        this.rabbitTemplate = rabbitTemplate;
+        this.financeSyncService = financeSyncService;
+    }
 
     /**
      * Ingests and synchronizes a single order by order SN, then publishes to RabbitMQ.
@@ -45,6 +58,9 @@ public class ShopeeOrderSyncService {
         WebhookOrderPayload payload = orderMapper.toPayload(connection.getTenantId(), connection.getId(), detail);
 
         publishOrderToQueue(payload);
+        if (financeSyncService != null) {
+            financeSyncService.syncShopeeOrderFinance(connection, detail.orderSn(), detail.orderStatus());
+        }
         return payload;
     }
 
@@ -75,6 +91,9 @@ public class ShopeeOrderSyncService {
             try {
                 WebhookOrderPayload payload = orderMapper.toPayload(connection.getTenantId(), connection.getId(), detail);
                 publishOrderToQueue(payload);
+                if (financeSyncService != null) {
+                    financeSyncService.syncShopeeOrderFinance(connection, detail.orderSn(), detail.orderStatus());
+                }
                 synced.add(payload);
             } catch (Exception ex) {
                 log.error("Failed to process Shopee order {}: {}", detail.orderSn(), ex.getMessage());

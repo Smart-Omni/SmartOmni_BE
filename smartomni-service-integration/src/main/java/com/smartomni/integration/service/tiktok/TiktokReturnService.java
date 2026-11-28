@@ -265,8 +265,11 @@ public class TiktokReturnService {
                 .returnReason(ret.getReturnReasonText() != null ? ret.getReturnReasonText() : ret.getReturnReason())
                 .returnAction(returnAction)
                 .refundAmount(java.util.Optional.ofNullable(TiktokRefundAmount.totalOf(ret.getRefundAmount())).orElse(BigDecimal.ZERO))
+                .refundSubtotal(ret.getRefundAmount() != null ? ret.getRefundAmount().subtotal() : null)
+                .refundShippingFee(ret.getRefundAmount() != null ? ret.getRefundAmount().shippingFee() : null)
                 .restockRequired(restockRequired)
                 .partialReturn(partial)
+                .platformCreateTime(ret.getCreateTime())
                 .platformUpdateTime(ret.getUpdateTime())
                 .items(items)
                 .build();

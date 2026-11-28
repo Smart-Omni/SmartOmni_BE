@@ -129,6 +129,12 @@ public class TiktokOrderDetailResponse {
         @JsonProperty("original_total_product_price")
         private BigDecimal originalTotalProductPrice;
 
+        @JsonProperty("original_shipping_fee")
+        private BigDecimal originalShippingFee;
+
+        @JsonProperty("shipping_fee_seller_discount")
+        private BigDecimal shippingFeeSellerDiscount;
+
         @JsonProperty("tax")
         private BigDecimal tax;
     }
@@ -206,6 +212,12 @@ public class TiktokOrderDetailResponse {
 
         @JsonProperty("original_price")
         private BigDecimal originalPrice;
+
+        @JsonProperty("seller_discount")
+        private BigDecimal sellerDiscount;
+
+        @JsonProperty("platform_discount")
+        private BigDecimal platformDiscount;
 
         @JsonProperty("package_id")
         private String packageId;

@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -101,6 +102,19 @@ public class ShopeeReturnHandler {
         refund.setMarketplaceStatus(request.getReturnStatus());
         if (request.getRefundAmount() != null) {
             refund.setRefundAmount(request.getRefundAmount());
+        }
+        if (request.getRefundSubtotal() != null) {
+            refund.setRefundSubtotal(request.getRefundSubtotal());
+        }
+        if (request.getRefundShippingFee() != null) {
+            refund.setRefundShippingFee(request.getRefundShippingFee());
+        }
+        if (request.getReverseShippingFee() != null) {
+            refund.setReverseShippingFee(request.getReverseShippingFee());
+        }
+        Instant created = com.smartomni.order.marketplace.OrderStatusFlow.platformInstant(request.getPlatformCreateTime());
+        if (created != null && refund.getMarketplaceCreatedAt() == null) {
+            refund.setMarketplaceCreatedAt(created);
         }
         boolean inspectedByWarehouse = refund.isRestocked() || refund.getReceivedAt() != null
                 || order.getStatus() == Order.OrderStatus.RETURNED;

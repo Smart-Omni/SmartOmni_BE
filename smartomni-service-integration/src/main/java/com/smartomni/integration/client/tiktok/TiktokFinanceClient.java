@@ -25,7 +25,11 @@ public class TiktokFinanceClient {
 
     public static final String SOURCE_PRICE_DETAIL = "ORDER_PRICE_DETAIL";
     public static final String SOURCE_ESTIMATED = "ESTIMATED_FROM_ORDERS";
+    public static final String SOURCE_STATEMENT_TRANSACTIONS = "STATEMENT_TRANSACTIONS";
     static final String PRICE_DETAIL_PATH = "/order/202407/orders/%s/price_detail";
+    static final String ORDER_STATEMENT_TRANSACTIONS_PATH = "/finance/202501/orders/%s/statement_transactions";
+    static final String STATEMENTS_PATH = "/finance/202309/statements";
+    static final String UNSETTLED_PATH = "/finance/202507/orders/unsettled";
 
     private final TiktokShopApiExecutor executor;
     private final ObjectMapper mapper;
@@ -151,6 +155,140 @@ public class TiktokFinanceClient {
                 order,
                 lines,
                 SOURCE_PRICE_DETAIL);
+    }
+
+    public record OrderStatementTransaction(
+            String orderId,
+            String transactionId,
+            String statementId,
+            Long statementTime,
+            String status,
+            boolean estimated,
+            String currency,
+            BigDecimal revenueAmount,
+            BigDecimal feeAndTaxAmount,
+            BigDecimal shippingCostAmount,
+            BigDecimal adjustmentAmount,
+            BigDecimal settlementAmount,
+            BigDecimal grossSalesAmount,
+            BigDecimal sellerDiscountAmount,
+            BigDecimal platformDiscountAmount,
+            BigDecimal customerRefundAmount,
+            BigDecimal platformCommissionAmount,
+            BigDecimal serviceFeeAmount,
+            BigDecimal transactionFeeAmount,
+            BigDecimal taxAmount,
+            BigDecimal customerShippingFeeAmount,
+            BigDecimal actualShippingFeeAmount,
+            BigDecimal shippingFeeSubsidyAmount,
+            BigDecimal sellerShippingDiscountAmount,
+            BigDecimal returnShippingFeeAmount
+    ) {}
+
+    public record StatementSummary(
+            String id,
+            Long statementTime,
+            String paymentStatus,
+            String currency,
+            BigDecimal revenueAmount,
+            BigDecimal feeAmount,
+            BigDecimal shippingCostAmount,
+            BigDecimal adjustmentAmount,
+            BigDecimal settlementAmount,
+            int orderCount
+    ) {}
+
+    public record StatementListResult(
+            List<StatementSummary> statements,
+            String nextPageToken,
+            int totalCount
+    ) {}
+
+    /** Reads per-order statement transaction breakdown (GET /finance/202501/orders/{order_id}/statement_transactions). */
+    public OrderStatementTransaction getOrderStatementTransaction(Long connectionId, String orderId) {
+        if (orderId == null || !orderId.trim().matches("[A-Za-z0-9_-]{1,64}")) {
+            throw new BusinessException("Invalid TikTok order id", HttpStatus.BAD_REQUEST, "TIKTOK_ORDER_ID_INVALID");
+        }
+        String id = orderId.trim();
+        JsonNode data = executor.call(connectionId, "GET", String.format(ORDER_STATEMENT_TRANSACTIONS_PATH, id), Map.of(), null);
+        JsonNode txns = data.path("statement_transactions");
+        JsonNode txn = txns.isArray() && !txns.isEmpty() ? txns.get(0) : data;
+        return parseStatementTransaction(id, txn);
+    }
+
+    /** Reads daily settlement statements (GET /finance/202309/statements). */
+    public StatementListResult getStatements(Long connectionId, Long statementTimeGe, Long statementTimeLt,
+                                             int pageSize, String pageToken) {
+        Map<String, String> query = new java.util.LinkedHashMap<>();
+        query.put("page_size", String.valueOf(Math.max(1, Math.min(pageSize, 100))));
+        if (statementTimeGe != null) query.put("statement_time_ge", String.valueOf(statementTimeGe));
+        if (statementTimeLt != null) query.put("statement_time_lt", String.valueOf(statementTimeLt));
+        if (pageToken != null && !pageToken.isBlank()) query.put("page_token", pageToken.trim());
+
+        JsonNode data = executor.call(connectionId, "GET", STATEMENTS_PATH, query, null);
+        List<StatementSummary> list = new ArrayList<>();
+        for (JsonNode st : data.path("statements")) {
+            list.add(new StatementSummary(
+                    st.path("id").asText(null),
+                    st.hasNonNull("statement_time") ? st.path("statement_time").asLong() : null,
+                    st.path("payment_status").asText(null),
+                    st.path("currency").asText("VND"),
+                    amount(st, "revenue_amount"),
+                    amount(st, "fee_amount"),
+                    amount(st, "shipping_cost_amount"),
+                    amount(st, "adjustment_amount"),
+                    amount(st, "settlement_amount"),
+                    st.path("order_count").asInt(0)
+            ));
+        }
+        return new StatementListResult(list, data.path("next_page_token").asText(""), data.path("total_count").asInt(list.size()));
+    }
+
+    /** Reads unsettled paid orders (GET /finance/202507/orders/unsettled). */
+    public List<OrderStatementTransaction> getUnsettledTransactions(Long connectionId, int pageSize, String pageToken) {
+        Map<String, String> query = new java.util.LinkedHashMap<>();
+        query.put("page_size", String.valueOf(Math.max(1, Math.min(pageSize, 100))));
+        if (pageToken != null && !pageToken.isBlank()) query.put("page_token", pageToken.trim());
+
+        JsonNode data = executor.call(connectionId, "GET", UNSETTLED_PATH, query, null);
+        List<OrderStatementTransaction> list = new ArrayList<>();
+        for (JsonNode txn : data.path("transactions")) {
+            list.add(parseStatementTransaction(txn.path("order_id").asText(null), txn));
+        }
+        return list;
+    }
+
+    private static OrderStatementTransaction parseStatementTransaction(String fallbackOrderId, JsonNode txn) {
+        JsonNode rev = txn.path("revenue_breakdown");
+        JsonNode fee = txn.path("fee_tax_breakdown");
+        JsonNode ship = txn.path("shipping_cost_breakdown");
+        return new OrderStatementTransaction(
+                txn.path("order_id").asText(fallbackOrderId),
+                txn.path("transaction_id").asText(null),
+                txn.path("statement_id").asText(null),
+                txn.hasNonNull("statement_time") ? txn.path("statement_time").asLong() : null,
+                txn.path("status").asText(null),
+                txn.path("estimated").asBoolean(false),
+                txn.path("currency").asText("VND"),
+                amount(txn, "revenue_amount"),
+                amount(txn, "fee_and_tax_amount"),
+                amount(txn, "shipping_cost_amount"),
+                amount(txn, "adjustment_amount"),
+                amount(txn, "settlement_amount"),
+                amount(rev, "gross_sales_amount"),
+                amount(rev, "seller_discount_amount"),
+                amount(rev, "platform_discount_amount"),
+                amount(rev, "customer_refund_amount"),
+                amount(fee, "platform_commission_amount"),
+                amount(fee, "service_fee_amount"),
+                amount(fee, "transaction_fee_amount"),
+                amount(fee, "tax_amount"),
+                amount(ship, "customer_shipping_fee_amount"),
+                amount(ship, "actual_shipping_fee_amount"),
+                amount(ship, "shipping_fee_subsidy_amount"),
+                amount(ship, "seller_shipping_discount_amount"),
+                amount(ship, "return_shipping_fee_amount")
+        );
     }
 
     private static PriceBreakdown breakdown(String id, JsonNode node) {

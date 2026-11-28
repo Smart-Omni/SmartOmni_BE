@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -56,19 +57,42 @@ public class ShopeeOrderMapper {
 
                 String externalSkuId = String.valueOf(item.modelId() != 0 ? item.modelId() : item.itemId());
 
+                BigDecimal origPrice = item.originalPrice() != null ? item.originalPrice() : item.discountedPrice();
+                BigDecimal discPrice = item.discountedPrice() != null ? item.discountedPrice() : origPrice;
+                BigDecimal qty = BigDecimal.valueOf(item.quantityPurchased());
+                BigDecimal lineSellerDiscount = origPrice != null && discPrice != null
+                        ? origPrice.subtract(discPrice).max(BigDecimal.ZERO).multiply(qty)
+                        : BigDecimal.ZERO;
+                BigDecimal lineMerch = discPrice != null ? discPrice.multiply(qty) : BigDecimal.ZERO;
+
                 itemPayloads.add(WebhookOrderPayload.OrderItemPayload.builder()
                         .skuId(resolvedSkuId)
                         .sellerSku(skuCode)
                         .externalSkuId(externalSkuId)
                         .productName(item.itemName() + (item.modelName() != null && !item.modelName().isBlank() ? " - " + item.modelName() : ""))
                         .quantity(item.quantityPurchased())
-                        .unitPrice(item.discountedPrice())
+                        .unitPrice(discPrice)
+                        .originalPrice(origPrice)
+                        .sellerDiscount(lineSellerDiscount)
+                        .platformDiscount(BigDecimal.ZERO)
+                        .merchandiseValue(lineMerch)
                         .build());
             }
         }
 
+        BigDecimal orderOriginalProductPrice = itemPayloads.stream()
+                .map(i -> i.getOriginalPrice() != null && i.getQuantity() != null
+                        ? i.getOriginalPrice().multiply(BigDecimal.valueOf(i.getQuantity()))
+                        : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal orderMerchandiseValue = itemPayloads.stream()
+                .map(i -> i.getMerchandiseValue() != null ? i.getMerchandiseValue() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal orderSellerDiscount = orderOriginalProductPrice.subtract(orderMerchandiseValue).max(BigDecimal.ZERO);
+
         return WebhookOrderPayload.builder()
                 .tenantId(tenantId)
+                .connectionId(connectionId)
                 .platform("SHOPEE")
                 .platformOrderId(order.orderSn())
                 .orderStatus(order.orderStatus())
@@ -76,6 +100,10 @@ public class ShopeeOrderMapper {
                 .customerPhone(customerPhone)
                 .shippingAddress(fullAddress)
                 .totalAmount(order.totalAmount())
+                .originalProductPrice(orderOriginalProductPrice)
+                .sellerDiscount(orderSellerDiscount)
+                .platformDiscount(BigDecimal.ZERO)
+                .merchandiseValue(orderMerchandiseValue)
                 .createTime(order.createTime())
                 .platformUpdateTime(order.updateTime())
                 .reconciliationReason(unmappedSku ? RECONCILIATION_SKU_UNMAPPED : null)
