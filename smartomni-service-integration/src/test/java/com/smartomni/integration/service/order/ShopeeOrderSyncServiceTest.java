@@ -116,6 +116,28 @@ class ShopeeOrderSyncServiceTest {
     }
 
     @Test
+    @DisplayName("syncOrdersBatch paginates across multiple pages until more=false")
+    void syncOrdersBatch_PaginatesAllPages() {
+        OrderListResult page1 = new OrderListResult(List.of(new OrderSummary("SP01", "COMPLETED")), true, "50");
+        OrderListResult page2 = new OrderListResult(List.of(new OrderSummary("SP02", "COMPLETED")), false, "");
+        when(orderClient.getOrderList(eq(88L), any(), any(), eq(50), isNull(), any())).thenReturn(page1);
+        when(orderClient.getOrderList(eq(88L), any(), any(), eq(50), eq("50"), any())).thenReturn(page2);
+
+        ShopeeOrderDetail d1 = new ShopeeOrderDetail("SP01", "COMPLETED", "VND", BigDecimal.TEN, null, null, null, List.of(), null, null, null, null, null, null, null);
+        ShopeeOrderDetail d2 = new ShopeeOrderDetail("SP02", "COMPLETED", "VND", BigDecimal.ONE, null, null, null, List.of(), null, null, null, null, null, null, null);
+        when(orderClient.getOrderDetail(88L, List.of("SP01"))).thenReturn(List.of(d1));
+        when(orderClient.getOrderDetail(88L, List.of("SP02"))).thenReturn(List.of(d2));
+
+        when(orderMapper.toPayload(1L, 88L, d1)).thenReturn(WebhookOrderPayload.builder().platformOrderId("SP01").orderStatus("COMPLETED").build());
+        when(orderMapper.toPayload(1L, 88L, d2)).thenReturn(WebhookOrderPayload.builder().platformOrderId("SP02").orderStatus("COMPLETED").build());
+
+        List<WebhookOrderPayload> synced = service.syncOrdersBatch(connection, null, null, "ALL", 50);
+
+        assertEquals(2, synced.size());
+        verify(rabbitTemplate, times(2)).convertAndSend(eq(RabbitMQConfig.ORDER_EXCHANGE), eq("order.incoming"), any(WebhookOrderPayload.class));
+    }
+
+    @Test
     @DisplayName("cancelOrder forwards request to ShopeeOrderClient")
     void cancelOrder_Success() {
         when(orderClient.cancelOrder(88L, "241027SP1042", "OUT_OF_STOCK")).thenReturn(true);
