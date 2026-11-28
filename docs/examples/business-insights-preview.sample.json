@@ -1,0 +1,161 @@
+{
+  "demoData": true,
+  "currency": "VND",
+  "period": {
+    "startInclusive": "2026-11-21T00:00:00+07:00",
+    "endExclusive": "2026-11-28T00:00:00+07:00",
+    "timeBasis": "ORDER_CREATED_AT",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "orderStatusPolicy": "COMPLETED_ONLY"
+  },
+  "generatedAt": "2026-11-27T10:00:00+07:00",
+  "channels": [
+    {
+      "platform": "SHOPEE",
+      "connectionId": 101,
+      "shopExternalId": "SAMPLE-SHOPEE-01",
+      "shopName": "Everyday Studio Shopee",
+      "state": "COMPUTABLE",
+      "coverage": {
+        "sourceWatermark": "2026-11-27T09:55:00+07:00",
+        "sourceEndpoint": "GET /api/v2/payment/get_escrow_detail",
+        "expectedDays": 7,
+        "coveredDays": 7,
+        "excludedOrderCount": 3,
+        "missingInputs": []
+      },
+      "merchandiseValue": {
+        "value": 24680000,
+        "unit": "VND",
+        "state": "COMPUTABLE",
+        "definition": "Illustrative merchandise value after seller-funded discounts, before refunds",
+        "sourceEndpoint": "Shopee order items + payment escrow detail",
+        "sourceField": "order_income.items[].discounted_price × quantity_purchased - allocated seller voucher",
+        "missingInputs": []
+      },
+      "orderCount": {
+        "value": 148,
+        "unit": "orders",
+        "state": "COMPUTABLE",
+        "definition": "Distinct completed external order keys",
+        "sourceEndpoint": "Shopee order list/detail",
+        "sourceField": "order_sn",
+        "missingInputs": []
+      },
+      "averageOrderValue": {
+        "value": 166757,
+        "unit": "VND/order",
+        "state": "COMPUTABLE",
+        "definition": "Merchandise value divided by distinct eligible orders",
+        "sourceEndpoint": "Derived from response metrics",
+        "sourceField": null,
+        "missingInputs": []
+      },
+      "topProducts": [
+        { "internalSkuId": 501, "sellerSku": "ET-NT-01", "productName": "Everyday tote · Natural", "units": 56, "merchandiseValue": 8960000, "mappingState": "VERIFIED", "sourceEndpoint": "Normalized Shopee order lines" },
+        { "internalSkuId": 502, "sellerSku": "CM-SD-02", "productName": "Ceramic mug · Sand", "units": 43, "merchandiseValue": 6450000, "mappingState": "VERIFIED", "sourceEndpoint": "Normalized Shopee order lines" },
+        { "internalSkuId": 503, "sellerSku": "LC-OL-04", "productName": "Linen cushion cover · Olive", "units": 29, "merchandiseValue": 4930000, "mappingState": "VERIFIED", "sourceEndpoint": "Normalized Shopee order lines" }
+      ],
+      "finance": {
+        "state": "COMPUTABLE",
+        "estimated": false,
+        "settlementStatus": "SAMPLE_RELEASED",
+        "buyerPayment": { "value": 25900000, "unit": "VND", "state": "COMPUTABLE", "definition": "Illustrative buyer total", "sourceEndpoint": "Shopee escrow detail", "sourceField": "order_income.buyer_total_amount", "missingInputs": [] },
+        "merchandiseValue": { "value": 24680000, "unit": "VND", "state": "COMPUTABLE", "definition": "Illustrative order merchandise amount", "sourceEndpoint": "Shopee escrow detail", "sourceField": "order_income.order_original_price and seller discounts", "missingInputs": [] },
+        "platformFees": { "value": 1480000, "unit": "VND", "state": "COMPUTABLE", "definition": "Illustrative seller platform fees", "sourceEndpoint": "Shopee escrow detail", "sourceField": "commission_fee + service_fee + seller_transaction_fee", "missingInputs": [] },
+        "sellerShippingCost": { "value": 680000, "unit": "VND", "state": "COMPUTABLE", "definition": "Illustrative net seller-borne delivery shipping", "sourceEndpoint": "Shopee escrow detail", "sourceField": "actual_shipping_fee and buyer/subsidy offsets", "missingInputs": [] },
+        "buyerRefunds": { "value": 540000, "unit": "VND", "state": "COMPUTABLE", "definition": "Illustrative seller-funded return/refund amount", "sourceEndpoint": "Shopee escrow detail", "sourceField": "seller_return_refund", "missingInputs": [] },
+        "reverseShippingCost": { "value": 120000, "unit": "VND", "state": "COMPUTABLE", "definition": "Illustrative reverse shipping charges", "sourceEndpoint": "Shopee escrow detail", "sourceField": "reverse_shipping_fee", "missingInputs": [] },
+        "sellerSettlement": { "value": 23100000, "unit": "VND", "state": "COMPUTABLE", "definition": "Illustrative escrow amount; not profit", "sourceEndpoint": "Shopee escrow detail", "sourceField": "escrow_amount", "missingInputs": [] },
+        "sourceEndpoint": "GET /api/v2/payment/get_escrow_detail",
+        "components": [
+          { "code": "COMMISSION_FEE", "label": "Commission fee", "sellerImpact": 810000, "currency": "VND", "transactionStatus": "RELEASED", "sourceEndpoint": "Shopee escrow detail", "sourceField": "commission_fee", "state": "COMPUTABLE" },
+          { "code": "REVERSE_SHIPPING", "label": "Reverse shipping", "sellerImpact": 120000, "currency": "VND", "transactionStatus": "RELEASED", "sourceEndpoint": "Shopee escrow detail", "sourceField": "reverse_shipping_fee", "state": "COMPUTABLE" }
+        ],
+        "missingInputs": []
+      },
+      "returnCosts": {
+        "state": "PARTIAL",
+        "returnOrderCount": 2,
+        "buyerRefunds": { "value": 540000, "unit": "VND", "state": "COMPUTABLE", "definition": "Illustrative refund total", "sourceEndpoint": "Canonical return finance event", "sourceField": "seller_return_refund", "missingInputs": [] },
+        "sellerReverseShipping": { "value": 120000, "unit": "VND", "state": "COMPUTABLE", "definition": "Illustrative reverse shipping debit", "sourceEndpoint": "Shopee escrow detail", "sourceField": "reverse_shipping_fee", "missingInputs": [] },
+        "retainedSellerFees": { "value": null, "unit": "VND", "state": "INSUFFICIENT_DATA", "definition": "Fees retained after return", "sourceEndpoint": null, "sourceField": null, "missingInputs": ["order-level fee finality"] },
+        "knownSellerDebits": { "value": 660000, "unit": "VND", "state": "PARTIAL", "definition": "Known refund and reverse shipping only; not full profit impact", "sourceEndpoint": "Canonical return finance event", "sourceField": null, "missingInputs": ["retained fees", "COGS", "returned item disposition"] },
+        "profitImpactComputable": false,
+        "missingInputs": ["retained fees", "COGS", "returned item disposition"]
+      }
+    },
+    {
+      "platform": "TIKTOK_SHOP",
+      "connectionId": 202,
+      "shopExternalId": "SAMPLE-TIKTOK-01",
+      "shopName": "Everyday Studio TikTok Shop",
+      "state": "PARTIAL",
+      "coverage": {
+        "sourceWatermark": "2026-11-27T09:50:00+07:00",
+        "sourceEndpoint": "TikTok order search/detail",
+        "expectedDays": 7,
+        "coveredDays": 7,
+        "excludedOrderCount": 4,
+        "missingInputs": ["official transaction feed not yet integrated"]
+      },
+      "merchandiseValue": {
+        "value": 19820000,
+        "unit": "VND",
+        "state": "ESTIMATED",
+        "definition": "Illustrative merchandise value from order line/payment data",
+        "sourceEndpoint": "TikTok order detail",
+        "sourceField": "payment.sub_total",
+        "missingInputs": ["official settlement reconciliation"]
+      },
+      "orderCount": {
+        "value": 126,
+        "unit": "orders",
+        "state": "COMPUTABLE",
+        "definition": "Distinct eligible external order keys",
+        "sourceEndpoint": "TikTok order search",
+        "sourceField": "order_id",
+        "missingInputs": []
+      },
+      "averageOrderValue": {
+        "value": 157302,
+        "unit": "VND/order",
+        "state": "ESTIMATED",
+        "definition": "Illustrative merchandise value divided by eligible distinct orders",
+        "sourceEndpoint": "Derived from response metrics",
+        "sourceField": null,
+        "missingInputs": ["official settlement reconciliation"]
+      },
+      "topProducts": [
+        { "internalSkuId": 502, "sellerSku": "CM-SD-02", "productName": "Ceramic mug · Sand", "units": 52, "merchandiseValue": 7800000, "mappingState": "VERIFIED", "sourceEndpoint": "Normalized TikTok order lines" },
+        { "internalSkuId": 501, "sellerSku": "ET-NT-01", "productName": "Everyday tote · Natural", "units": 44, "merchandiseValue": 7040000, "mappingState": "VERIFIED", "sourceEndpoint": "Normalized TikTok order lines" },
+        { "internalSkuId": 508, "sellerSku": "MK-WH-08", "productName": "Mechanical keyboard · White", "units": 31, "merchandiseValue": 4960000, "mappingState": "VERIFIED", "sourceEndpoint": "Normalized TikTok order lines" }
+      ],
+      "finance": {
+        "state": "INSUFFICIENT_DATA",
+        "estimated": true,
+        "settlementStatus": "OFFICIAL_FEED_NOT_INTEGRATED",
+        "buyerPayment": { "value": 20740000, "unit": "VND", "state": "ESTIMATED", "definition": "Illustrative total from order payment block", "sourceEndpoint": "TikTok order detail", "sourceField": "payment.total_amount", "missingInputs": [] },
+        "merchandiseValue": { "value": 19820000, "unit": "VND", "state": "ESTIMATED", "definition": "Illustrative order subtotal", "sourceEndpoint": "TikTok order detail", "sourceField": "payment.sub_total", "missingInputs": [] },
+        "platformFees": { "value": null, "unit": "VND", "state": "INSUFFICIENT_DATA", "definition": "Final fees and taxes from statement transactions", "sourceEndpoint": null, "sourceField": null, "missingInputs": ["Finance Information permission", "statement transactions integration"] },
+        "sellerShippingCost": { "value": null, "unit": "VND", "state": "INSUFFICIENT_DATA", "definition": "Final seller-borne shipping cost", "sourceEndpoint": null, "sourceField": null, "missingInputs": ["statement transactions integration"] },
+        "buyerRefunds": { "value": 610000, "unit": "VND", "state": "PARTIAL", "definition": "Illustrative after-sale request refund; not verified seller debit", "sourceEndpoint": "TikTok return search", "sourceField": "refund_amount.refund_total", "missingInputs": ["final settlement transaction match"] },
+        "reverseShippingCost": { "value": null, "unit": "VND", "state": "INSUFFICIENT_DATA", "definition": "Seller-borne return shipping charge", "sourceEndpoint": null, "sourceField": null, "missingInputs": ["final transaction evidence for seller charge"] },
+        "sellerSettlement": { "value": null, "unit": "VND", "state": "INSUFFICIENT_DATA", "definition": "Final settlement amount", "sourceEndpoint": null, "sourceField": null, "missingInputs": ["official statement transaction integration"] },
+        "sourceEndpoint": "Current BE estimate: COMPLETED order payment totals",
+        "components": [],
+        "missingInputs": ["Finance Information permission", "official transaction adapter", "final transaction status"]
+      },
+      "returnCosts": {
+        "state": "INSUFFICIENT_DATA",
+        "returnOrderCount": 3,
+        "buyerRefunds": { "value": 610000, "unit": "VND", "state": "PARTIAL", "definition": "Illustrative return request refund", "sourceEndpoint": "TikTok return search", "sourceField": "refund_amount.refund_total", "missingInputs": ["final settlement transaction match"] },
+        "sellerReverseShipping": { "value": null, "unit": "VND", "state": "INSUFFICIENT_DATA", "definition": "Seller-paid reverse shipping", "sourceEndpoint": null, "sourceField": null, "missingInputs": ["final transaction evidence"] },
+        "retainedSellerFees": { "value": null, "unit": "VND", "state": "INSUFFICIENT_DATA", "definition": "Fees retained after return", "sourceEndpoint": null, "sourceField": null, "missingInputs": ["statement transaction integration"] },
+        "knownSellerDebits": { "value": null, "unit": "VND", "state": "INSUFFICIENT_DATA", "definition": "No verified seller debit yet", "sourceEndpoint": null, "sourceField": null, "missingInputs": ["final transaction evidence"] },
+        "profitImpactComputable": false,
+        "missingInputs": ["final transaction evidence", "COGS", "returned item disposition"]
+      }
+    }
+  ]
+}
