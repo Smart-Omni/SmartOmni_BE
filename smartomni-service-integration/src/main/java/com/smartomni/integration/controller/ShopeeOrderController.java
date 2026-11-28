@@ -28,6 +28,12 @@ public class ShopeeOrderController {
     private final ShopeeOrderClient orderClient;
     private final ShopeeOrderSyncService orderSyncService;
 
+    public record ShopeeOrderPageResponse(
+            List<ShopeeOrderDetail> orders,
+            boolean more,
+            String nextCursor
+    ) {}
+
     /**
      * Lists orders directly from Shopee Simulator.
      */
@@ -52,6 +58,33 @@ public class ShopeeOrderController {
 
         List<ShopeeOrderDetail> details = orderClient.getOrderDetail(connection.getId(), orderSns);
         return ResponseEntity.ok(ApiResponse.success(details));
+    }
+
+    /**
+     * Lists a single cursor-paginated page of orders from Shopee Simulator with pagination metadata.
+     */
+    @GetMapping("/page")
+    public ResponseEntity<ApiResponse<ShopeeOrderPageResponse>> listOrdersPage(
+            @RequestParam(required = false) Long timeFrom,
+            @RequestParam(required = false) Long timeTo,
+            @RequestParam(defaultValue = "50") int pageSize,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) String orderStatus) {
+
+        MarketplaceConnection connection = tenantConnections.requireConnected();
+        var listResult = orderClient.getOrderList(connection.getId(), timeFrom, timeTo, pageSize, cursor, orderStatus);
+
+        if (listResult.orders().isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.success(new ShopeeOrderPageResponse(List.of(), false, "")));
+        }
+
+        List<String> orderSns = listResult.orders().stream()
+                .map(ShopeeOrderClient.OrderSummary::orderSn)
+                .toList();
+
+        List<ShopeeOrderDetail> details = orderClient.getOrderDetail(connection.getId(), orderSns);
+        String nextCursor = listResult.more() && listResult.nextCursor() != null ? listResult.nextCursor() : "";
+        return ResponseEntity.ok(ApiResponse.success(new ShopeeOrderPageResponse(details, listResult.more(), nextCursor)));
     }
 
     /**
