@@ -67,6 +67,29 @@ class ShopeeOrderControllerTest {
     }
 
     @Test
+    @DisplayName("listOrdersPage returns paginated ShopeeOrderPageResponse with cursor and totalCount")
+    void listOrdersPage_Success() {
+        OrderListResult page1 = new OrderListResult(List.of(new OrderSummary("SP01", "READY_TO_SHIP")), true, "50");
+        OrderListResult page2 = new OrderListResult(List.of(new OrderSummary("SP02", "COMPLETED")), false, "");
+        when(orderClient.getOrderList(eq(88L), any(), any(), eq(50), isNull(), any())).thenReturn(page1);
+        when(orderClient.getOrderList(eq(88L), any(), any(), eq(50), eq("50"), any())).thenReturn(page2);
+
+        ShopeeOrderDetail detail = new ShopeeOrderDetail("SP01", "READY_TO_SHIP", "VND", BigDecimal.TEN, null, null, null, List.of(), null, null, null, null, null, null, null);
+        when(orderClient.getOrderDetail(88L, List.of("SP01"))).thenReturn(List.of(detail));
+
+        ResponseEntity<ApiResponse<ShopeeOrderController.ShopeeOrderPageResponse>> res = controller.listOrdersPage(null, null, 50, null, "ALL");
+
+        assertEquals(HttpStatus.OK, res.getStatusCode());
+        assertNotNull(res.getBody());
+        assertEquals(1, res.getBody().getData().orders().size());
+        assertTrue(res.getBody().getData().more());
+        assertEquals("50", res.getBody().getData().nextCursor());
+        assertEquals(2, res.getBody().getData().totalCount());
+        assertEquals(1, res.getBody().getData().statusCounts().get("READY_TO_SHIP"));
+        assertEquals(1, res.getBody().getData().statusCounts().get("COMPLETED"));
+    }
+
+    @Test
     @DisplayName("syncSingleOrder returns synced payload")
     void syncSingleOrder_Success() {
         WebhookOrderPayload payload = WebhookOrderPayload.builder()

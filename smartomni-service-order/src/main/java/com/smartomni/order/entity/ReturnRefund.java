@@ -78,6 +78,18 @@ public class ReturnRefund extends BaseTenantEntity {
     @Column(name = "refund_amount")
     private BigDecimal refundAmount;
 
+    @Column(name = "refund_subtotal")
+    private BigDecimal refundSubtotal;
+
+    @Column(name = "refund_shipping_fee")
+    private BigDecimal refundShippingFee;
+
+    @Column(name = "reverse_shipping_fee")
+    private BigDecimal reverseShippingFee;
+
+    @Column(name = "marketplace_created_at")
+    private Instant marketplaceCreatedAt;
+
     /** Marketplace return_status, verbatim (e.g. RETURN_OR_REFUND_REQUEST_SUCCESS). */
     @Column(name = "marketplace_status", length = 64)
     private String marketplaceStatus;

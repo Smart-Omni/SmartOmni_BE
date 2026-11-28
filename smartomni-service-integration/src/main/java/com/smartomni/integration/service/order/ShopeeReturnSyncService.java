@@ -157,6 +157,11 @@ public class ShopeeReturnSyncService {
                 .returnAction(returnAction)
                 .evidenceUrls(evidenceUrls)
                 .refundAmount(detail.refundAmount())
+                .refundSubtotal(detail.refundAmount())
+                .refundShippingFee(java.math.BigDecimal.ZERO)
+                .reverseShippingFee(detail.reverseShippingFee())
+                .platformCreateTime(detail.createTime())
+                .platformUpdateTime(detail.updateTime())
                 .restockRequired(restockRequired)
                 .items(items)
                 .build();

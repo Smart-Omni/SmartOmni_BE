@@ -95,6 +95,7 @@ public class OrderService {
             if (payload.getReconciliationReason() != null) {
                 order.setReconciliationReason(payload.getReconciliationReason());
             }
+            applyOrderMetadata(order, payload);
             applyMilestones(order, payload);
             applyTracking(order, payload);
 
@@ -120,6 +121,7 @@ public class OrderService {
         order.setSource(source);
         order.setPlatformUpdatedAt(incomingUpdate);
         order.setReconciliationReason(payload.getReconciliationReason());
+        applyOrderMetadata(order, payload);
         applyMilestones(order, payload);
         applyTracking(order, payload);
 
@@ -146,6 +148,13 @@ public class OrderService {
                 item.setSkuId(itemPayload.getSkuId());
                 item.setQuantity(itemPayload.getQuantity());
                 item.setUnitPrice(itemPayload.getUnitPrice());
+                item.setExternalSkuId(itemPayload.getExternalSkuId());
+                item.setSellerSku(itemPayload.getSellerSku());
+                item.setProductName(itemPayload.getProductName());
+                item.setOriginalPrice(itemPayload.getOriginalPrice());
+                item.setSellerDiscount(itemPayload.getSellerDiscount());
+                item.setPlatformDiscount(itemPayload.getPlatformDiscount());
+                item.setMerchandiseValue(itemPayload.getMerchandiseValue());
                 item.setImageUrl(itemPayload.getImageUrl());
                 orderItemRepository.save(item);
 
@@ -232,6 +241,25 @@ public class OrderService {
         return order;
     }
 
+    private static void applyOrderMetadata(Order order, WebhookOrderPayload payload) {
+        if (payload.getConnectionId() != null) {
+            order.setConnectionId(payload.getConnectionId());
+        }
+        Instant created = payload.getCreatedAt() != null
+                ? payload.getCreatedAt()
+                : OrderStatusFlow.platformInstant(payload.getCreateTime());
+        if (created != null && order.getMarketplaceCreatedAt() == null) {
+            order.setMarketplaceCreatedAt(created);
+        }
+        if (payload.getOriginalProductPrice() != null) order.setOriginalProductPrice(payload.getOriginalProductPrice());
+        if (payload.getSellerDiscount() != null) order.setSellerDiscount(payload.getSellerDiscount());
+        if (payload.getPlatformDiscount() != null) order.setPlatformDiscount(payload.getPlatformDiscount());
+        if (payload.getMerchandiseValue() != null) order.setMerchandiseValue(payload.getMerchandiseValue());
+        if (payload.getBuyerPaidShippingFee() != null) order.setBuyerPaidShippingFee(payload.getBuyerPaidShippingFee());
+        if (payload.getShippingFeeSellerDiscount() != null) order.setShippingFeeSellerDiscount(payload.getShippingFeeSellerDiscount());
+        if (payload.getTaxAmount() != null) order.setTaxAmount(payload.getTaxAmount());
+    }
+
     /**
      * Stores the marketplace milestones of a non-stale message (plan 4.3). A missing field never clears a stored value;
      * the milestones are display data only and never touch the status, completed_at, the wallet or loyalty.
@@ -252,6 +280,9 @@ public class OrderService {
         }
         if (cancelled != null) {
             order.setPlatformCancelledAt(cancelled);
+            if (order.getMarketplaceCancelledAt() == null) {
+                order.setMarketplaceCancelledAt(cancelled);
+            }
         }
     }
 

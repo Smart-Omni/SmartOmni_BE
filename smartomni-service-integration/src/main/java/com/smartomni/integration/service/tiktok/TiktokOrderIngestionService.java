@@ -70,7 +70,7 @@ public class TiktokOrderIngestionService {
             throw new BusinessException("TikTok did not return order " + orderId + " yet",
                     HttpStatus.SERVICE_UNAVAILABLE, "TIKTOK_ORDER_NOT_READY");
         }
-        return ingestOrder(tenantId, detail);
+        return ingestOrder(tenantId, connection.getId(), detail, null);
     }
 
     /**
@@ -107,6 +107,10 @@ public class TiktokOrderIngestionService {
      * ({@code POLLING} for polling and the manual sync; null means webhook).
      */
     public WebhookOrderPayload ingestOrder(Long tenantId, TiktokOrderDetailResponse order, String source) {
+        return ingestOrder(tenantId, null, order, source);
+    }
+
+    public WebhookOrderPayload ingestOrder(Long tenantId, Long connectionId, TiktokOrderDetailResponse order, String source) {
         if (tenantId == null || tenantId <= 0) {
             throw new BusinessException("tenantId is required and must be positive", HttpStatus.BAD_REQUEST, "INVALID_TENANT_ID");
         }
@@ -167,13 +171,23 @@ public class TiktokOrderIngestionService {
                     }
                 }
 
+                BigDecimal lineOrig = lineItem.getOriginalPrice() != null ? lineItem.getOriginalPrice() : unitPrice;
+                BigDecimal lineSellerDisc = lineItem.getSellerDiscount() != null ? lineItem.getSellerDiscount() : BigDecimal.ZERO;
+                BigDecimal linePlatDisc = lineItem.getPlatformDiscount() != null ? lineItem.getPlatformDiscount() : BigDecimal.ZERO;
+                int qty = lineItem.getQuantity() != null ? lineItem.getQuantity() : 1;
+                BigDecimal lineMerch = lineOrig.multiply(BigDecimal.valueOf(qty)).subtract(lineSellerDisc).max(BigDecimal.ZERO);
+
                 items.add(WebhookOrderPayload.OrderItemPayload.builder()
                         .skuId(internalSkuId)
                         .externalSkuId(externalSkuId)
                         .sellerSku(sellerSku)
                         .productName(lineItem.getProductName())
-                        .quantity(lineItem.getQuantity() != null ? lineItem.getQuantity() : 1)
+                        .quantity(qty)
                         .unitPrice(unitPrice)
+                        .originalPrice(lineOrig)
+                        .sellerDiscount(lineSellerDisc)
+                        .platformDiscount(linePlatDisc)
+                        .merchandiseValue(lineMerch)
                         .imageUrl(imageUrl)
                         .build());
             }
@@ -192,10 +206,31 @@ public class TiktokOrderIngestionService {
             }
         }
 
-        // 3. Trích xuất tổng tiền đơn hàng
+        // 3. Trích xuất tổng tiền đơn hàng & các thành phần giá trị hàng hóa
         BigDecimal totalAmount = BigDecimal.ZERO;
-        if (order.getPayment() != null && order.getPayment().getTotalAmount() != null) {
-            totalAmount = order.getPayment().getTotalAmount();
+        BigDecimal originalProductPrice = null;
+        BigDecimal sellerDiscount = null;
+        BigDecimal platformDiscount = null;
+        BigDecimal merchandiseValue = null;
+        BigDecimal buyerPaidShippingFee = null;
+        BigDecimal shippingFeeSellerDiscount = null;
+        BigDecimal taxAmount = null;
+        if (order.getPayment() != null) {
+            var p = order.getPayment();
+            if (p.getTotalAmount() != null) totalAmount = p.getTotalAmount();
+            originalProductPrice = p.getOriginalTotalProductPrice();
+            sellerDiscount = p.getSellerDiscount();
+            platformDiscount = p.getPlatformDiscount();
+            if (originalProductPrice != null) {
+                BigDecimal sd = sellerDiscount != null ? sellerDiscount : BigDecimal.ZERO;
+                merchandiseValue = originalProductPrice.subtract(sd).max(BigDecimal.ZERO);
+            } else if (p.getSubTotal() != null) {
+                BigDecimal pd = platformDiscount != null ? platformDiscount : BigDecimal.ZERO;
+                merchandiseValue = p.getSubTotal().add(pd);
+            }
+            buyerPaidShippingFee = p.getShippingFee();
+            shippingFeeSellerDiscount = p.getShippingFeeSellerDiscount();
+            taxAmount = p.getTax();
         }
 
         // 4. Giữ nguyên timestamp create_time thực tế trên sàn TikTok
@@ -213,6 +248,7 @@ public class TiktokOrderIngestionService {
         // 5. Đóng gói vào WebhookOrderPayload chuẩn của SmartOmni
         WebhookOrderPayload payload = WebhookOrderPayload.builder()
                 .tenantId(tenantId)
+                .connectionId(connectionId)
                 .platform(PLATFORM_TIKTOK_SHOP)
                 .platformOrderId(order.getOrderId())
                 .orderStatus(order.getOrderStatus())
@@ -220,6 +256,13 @@ public class TiktokOrderIngestionService {
                 .customerPhone(customerPhone)
                 .shippingAddress(shippingAddress)
                 .totalAmount(totalAmount)
+                .originalProductPrice(originalProductPrice)
+                .sellerDiscount(sellerDiscount)
+                .platformDiscount(platformDiscount)
+                .merchandiseValue(merchandiseValue)
+                .buyerPaidShippingFee(buyerPaidShippingFee)
+                .shippingFeeSellerDiscount(shippingFeeSellerDiscount)
+                .taxAmount(taxAmount)
                 .createTime(createTime)
                 .createdAt(createdAt)
                 .trackingNumber(order.getTrackingNumber())

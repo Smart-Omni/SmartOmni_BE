@@ -23,12 +23,25 @@ import java.util.List;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ShopeeOrderSyncService {
 
     private final ShopeeOrderClient orderClient;
     private final ShopeeOrderMapper orderMapper;
     private final RabbitTemplate rabbitTemplate;
+    private final com.smartomni.integration.service.finance.MarketplaceFinanceSyncService financeSyncService;
+
+    public ShopeeOrderSyncService(ShopeeOrderClient orderClient, ShopeeOrderMapper orderMapper, RabbitTemplate rabbitTemplate) {
+        this(orderClient, orderMapper, rabbitTemplate, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ShopeeOrderSyncService(ShopeeOrderClient orderClient, ShopeeOrderMapper orderMapper, RabbitTemplate rabbitTemplate,
+                                  com.smartomni.integration.service.finance.MarketplaceFinanceSyncService financeSyncService) {
+        this.orderClient = orderClient;
+        this.orderMapper = orderMapper;
+        this.rabbitTemplate = rabbitTemplate;
+        this.financeSyncService = financeSyncService;
+    }
 
     /**
      * Ingests and synchronizes a single order by order SN, then publishes to RabbitMQ.
@@ -45,40 +58,57 @@ public class ShopeeOrderSyncService {
         WebhookOrderPayload payload = orderMapper.toPayload(connection.getTenantId(), connection.getId(), detail);
 
         publishOrderToQueue(payload);
+        if (financeSyncService != null) {
+            financeSyncService.syncShopeeOrderFinance(connection, detail.orderSn(), detail.orderStatus());
+        }
         return payload;
     }
 
     /**
-     * Ingests a batch of orders by time range / status, useful for initial sync or fallback polling.
+     * Ingests all pages of orders by time range / status, useful for initial sync or fallback polling.
      */
     public List<WebhookOrderPayload> syncOrdersBatch(MarketplaceConnection connection, Long timeFrom, Long timeTo,
                                                     String orderStatus, int pageSize) {
         log.info("Batch syncing Shopee orders for tenant {}, status={}, from={}, to={}",
                 connection.getTenantId(), orderStatus, timeFrom, timeTo);
 
-        OrderListResult listResult = orderClient.getOrderList(
-                connection.getId(), timeFrom, timeTo, pageSize, null, orderStatus
-        );
-
-        if (listResult.orders().isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        List<String> orderSnList = listResult.orders().stream()
-                .map(OrderSummary::orderSn)
-                .toList();
-
-        List<ShopeeOrderDetail> details = orderClient.getOrderDetail(connection.getId(), orderSnList);
         List<WebhookOrderPayload> synced = new ArrayList<>();
+        java.util.Set<String> seenCursors = new java.util.HashSet<>();
+        String cursor = null;
+        final int maxPages = 20;
 
-        for (ShopeeOrderDetail detail : details) {
-            try {
-                WebhookOrderPayload payload = orderMapper.toPayload(connection.getTenantId(), connection.getId(), detail);
-                publishOrderToQueue(payload);
-                synced.add(payload);
-            } catch (Exception ex) {
-                log.error("Failed to process Shopee order {}: {}", detail.orderSn(), ex.getMessage());
+        for (int page = 0; page < maxPages; page++) {
+            OrderListResult listResult = orderClient.getOrderList(
+                    connection.getId(), timeFrom, timeTo, pageSize, cursor, orderStatus
+            );
+
+            if (listResult == null || listResult.orders() == null || listResult.orders().isEmpty()) {
+                break;
             }
+
+            List<String> orderSnList = listResult.orders().stream()
+                    .map(OrderSummary::orderSn)
+                    .toList();
+
+            List<ShopeeOrderDetail> details = orderClient.getOrderDetail(connection.getId(), orderSnList);
+            for (ShopeeOrderDetail detail : details) {
+                try {
+                    WebhookOrderPayload payload = orderMapper.toPayload(connection.getTenantId(), connection.getId(), detail);
+                    publishOrderToQueue(payload);
+                    if (financeSyncService != null) {
+                        financeSyncService.syncShopeeOrderFinance(connection, detail.orderSn(), detail.orderStatus());
+                    }
+                    synced.add(payload);
+                } catch (Exception ex) {
+                    log.error("Failed to process Shopee order {}: {}", detail.orderSn(), ex.getMessage());
+                }
+            }
+
+            String next = listResult.nextCursor();
+            if (!listResult.more() || next == null || next.isBlank() || !seenCursors.add(next)) {
+                break;
+            }
+            cursor = next;
         }
 
         return synced;

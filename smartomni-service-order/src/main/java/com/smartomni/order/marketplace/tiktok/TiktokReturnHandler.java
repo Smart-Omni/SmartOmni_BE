@@ -81,6 +81,19 @@ public class TiktokReturnHandler {
         if (request.getRefundAmount() != null) {
             refund.setRefundAmount(request.getRefundAmount());
         }
+        if (request.getRefundSubtotal() != null) {
+            refund.setRefundSubtotal(request.getRefundSubtotal());
+        }
+        if (request.getRefundShippingFee() != null) {
+            refund.setRefundShippingFee(request.getRefundShippingFee());
+        }
+        if (request.getReverseShippingFee() != null) {
+            refund.setReverseShippingFee(request.getReverseShippingFee());
+        }
+        Instant created = OrderStatusFlow.platformInstant(request.getPlatformCreateTime());
+        if (created != null && refund.getMarketplaceCreatedAt() == null) {
+            refund.setMarketplaceCreatedAt(created);
+        }
         refund.setStatus(refundStatus(marketplaceStatus));
         refund = returnRefundRepository.save(refund);
 

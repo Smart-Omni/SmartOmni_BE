@@ -26,6 +26,9 @@ public class WebhookOrderPayload {
     @JsonProperty("tenant_id")
     private Long tenantId;
 
+    @JsonProperty("connection_id")
+    private Long connectionId;
+
     @JsonProperty("platform")
     private String platform; // SHOPEE | TIKTOK_SHOP
 
@@ -46,6 +49,27 @@ public class WebhookOrderPayload {
 
     @JsonProperty("total_amount")
     private BigDecimal totalAmount;
+
+    @JsonProperty("original_product_price")
+    private BigDecimal originalProductPrice;
+
+    @JsonProperty("seller_discount")
+    private BigDecimal sellerDiscount;
+
+    @JsonProperty("platform_discount")
+    private BigDecimal platformDiscount;
+
+    @JsonProperty("merchandise_value")
+    private BigDecimal merchandiseValue;
+
+    @JsonProperty("buyer_paid_shipping_fee")
+    private BigDecimal buyerPaidShippingFee;
+
+    @JsonProperty("shipping_fee_seller_discount")
+    private BigDecimal shippingFeeSellerDiscount;
+
+    @JsonProperty("tax_amount")
+    private BigDecimal taxAmount;
 
     @JsonProperty("create_time")
     private Long createTime; // Timestamp thực tế trên sàn (seconds hoặc millis)
@@ -127,6 +151,18 @@ public class WebhookOrderPayload {
 
         @JsonProperty("unit_price")
         private BigDecimal unitPrice;
+
+        @JsonProperty("original_price")
+        private BigDecimal originalPrice;
+
+        @JsonProperty("seller_discount")
+        private BigDecimal sellerDiscount;
+
+        @JsonProperty("platform_discount")
+        private BigDecimal platformDiscount;
+
+        @JsonProperty("merchandise_value")
+        private BigDecimal merchandiseValue;
 
         @JsonProperty("image_url")
         @com.fasterxml.jackson.annotation.JsonAlias("imageUrl")

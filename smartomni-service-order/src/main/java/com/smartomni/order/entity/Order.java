@@ -74,6 +74,33 @@ public class Order extends BaseTenantEntity {
     @Column(name = "total_amount")
     private BigDecimal totalAmount;
 
+    @Column(name = "marketplace_created_at")
+    private Instant marketplaceCreatedAt;
+
+    @Column(name = "marketplace_cancelled_at")
+    private Instant marketplaceCancelledAt;
+
+    @Column(name = "original_product_price")
+    private BigDecimal originalProductPrice;
+
+    @Column(name = "seller_discount")
+    private BigDecimal sellerDiscount;
+
+    @Column(name = "platform_discount")
+    private BigDecimal platformDiscount;
+
+    @Column(name = "merchandise_value")
+    private BigDecimal merchandiseValue;
+
+    @Column(name = "buyer_paid_shipping_fee")
+    private BigDecimal buyerPaidShippingFee;
+
+    @Column(name = "shipping_fee_seller_discount")
+    private BigDecimal shippingFeeSellerDiscount;
+
+    @Column(name = "tax_amount")
+    private BigDecimal taxAmount;
+
     @Enumerated(EnumType.STRING)
     @JdbcType(LowercasePostgreSQLEnumJdbcType.class)
     @Column(nullable = false, columnDefinition = "order_source")

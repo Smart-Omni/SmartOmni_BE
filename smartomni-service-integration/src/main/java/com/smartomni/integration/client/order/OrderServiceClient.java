@@ -1,6 +1,7 @@
 package com.smartomni.integration.client.order;
 
 import com.smartomni.common.dto.ApiResponse;
+import com.smartomni.common.dto.OrderFinanceSnapshotRequest;
 import com.smartomni.common.dto.ProcessReturnRequest;
 import com.smartomni.common.dto.UpdateOrderTrackingRequest;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -20,4 +21,7 @@ public interface OrderServiceClient {
 
     @PostMapping("/api/v1/orders/returns")
     ApiResponse<Void> processReturn(@RequestBody ProcessReturnRequest request);
+
+    @PostMapping("/api/v1/orders/finance-snapshots")
+    ApiResponse<Void> upsertFinanceSnapshot(@RequestBody OrderFinanceSnapshotRequest request);
 }
