@@ -31,7 +31,8 @@ public class ShopeeOrderController {
     public record ShopeeOrderPageResponse(
             List<ShopeeOrderDetail> orders,
             boolean more,
-            String nextCursor
+            String nextCursor,
+            Integer totalCount
     ) {}
 
     /**
@@ -75,7 +76,8 @@ public class ShopeeOrderController {
         var listResult = orderClient.getOrderList(connection.getId(), timeFrom, timeTo, pageSize, cursor, orderStatus);
 
         if (listResult.orders().isEmpty()) {
-            return ResponseEntity.ok(ApiResponse.success(new ShopeeOrderPageResponse(List.of(), false, "")));
+            Integer total = (cursor == null || cursor.isBlank()) ? 0 : null;
+            return ResponseEntity.ok(ApiResponse.success(new ShopeeOrderPageResponse(List.of(), false, "", total)));
         }
 
         List<String> orderSns = listResult.orders().stream()
@@ -84,7 +86,38 @@ public class ShopeeOrderController {
 
         List<ShopeeOrderDetail> details = orderClient.getOrderDetail(connection.getId(), orderSns);
         String nextCursor = listResult.more() && listResult.nextCursor() != null ? listResult.nextCursor() : "";
-        return ResponseEntity.ok(ApiResponse.success(new ShopeeOrderPageResponse(details, listResult.more(), nextCursor)));
+        Integer totalCount = computeTotalCount(connection.getId(), timeFrom, timeTo, pageSize, cursor, orderStatus, listResult);
+        return ResponseEntity.ok(ApiResponse.success(new ShopeeOrderPageResponse(details, listResult.more(), nextCursor, totalCount)));
+    }
+
+    private Integer computeTotalCount(
+            Long connectionId,
+            Long timeFrom,
+            Long timeTo,
+            int pageSize,
+            String initialCursor,
+            String orderStatus,
+            ShopeeOrderClient.OrderListResult firstPage) {
+        if (initialCursor != null && !initialCursor.isBlank()) {
+            return null;
+        }
+        int total = firstPage.orders().size();
+        if (!firstPage.more() || firstPage.nextCursor() == null || firstPage.nextCursor().isBlank()) {
+            return total;
+        }
+        String walkCursor = firstPage.nextCursor();
+        java.util.Set<String> seenCursors = new java.util.HashSet<>();
+        seenCursors.add(walkCursor);
+        for (int page = 1; page < 20; page++) {
+            var nextPage = orderClient.getOrderList(connectionId, timeFrom, timeTo, pageSize, walkCursor, orderStatus);
+            total += nextPage.orders().size();
+            String next = nextPage.nextCursor();
+            if (!nextPage.more() || next == null || next.isBlank() || !seenCursors.add(next)) {
+                break;
+            }
+            walkCursor = next;
+        }
+        return total;
     }
 
     /**
