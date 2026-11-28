@@ -32,7 +32,8 @@ public class ShopeeOrderController {
             List<ShopeeOrderDetail> orders,
             boolean more,
             String nextCursor,
-            Integer totalCount
+            Integer totalCount,
+            Map<String, Integer> statusCounts
     ) {}
 
     /**
@@ -76,8 +77,9 @@ public class ShopeeOrderController {
         var listResult = orderClient.getOrderList(connection.getId(), timeFrom, timeTo, pageSize, cursor, orderStatus);
 
         if (listResult.orders().isEmpty()) {
-            Integer total = (cursor == null || cursor.isBlank()) ? 0 : null;
-            return ResponseEntity.ok(ApiResponse.success(new ShopeeOrderPageResponse(List.of(), false, "", total)));
+            boolean first = cursor == null || cursor.isBlank();
+            return ResponseEntity.ok(ApiResponse.success(
+                    new ShopeeOrderPageResponse(List.of(), false, "", first ? 0 : null, first ? Map.of() : null)));
         }
 
         List<String> orderSns = listResult.orders().stream()
@@ -86,11 +88,14 @@ public class ShopeeOrderController {
 
         List<ShopeeOrderDetail> details = orderClient.getOrderDetail(connection.getId(), orderSns);
         String nextCursor = listResult.more() && listResult.nextCursor() != null ? listResult.nextCursor() : "";
-        Integer totalCount = computeTotalCount(connection.getId(), timeFrom, timeTo, pageSize, cursor, orderStatus, listResult);
-        return ResponseEntity.ok(ApiResponse.success(new ShopeeOrderPageResponse(details, listResult.more(), nextCursor, totalCount)));
+        SummaryStats stats = computeSummaryStats(connection.getId(), timeFrom, timeTo, pageSize, cursor, orderStatus, listResult);
+        return ResponseEntity.ok(ApiResponse.success(
+                new ShopeeOrderPageResponse(details, listResult.more(), nextCursor, stats.totalCount(), stats.statusCounts())));
     }
 
-    private Integer computeTotalCount(
+    private record SummaryStats(Integer totalCount, Map<String, Integer> statusCounts) {}
+
+    private SummaryStats computeSummaryStats(
             Long connectionId,
             Long timeFrom,
             Long timeTo,
@@ -99,25 +104,34 @@ public class ShopeeOrderController {
             String orderStatus,
             ShopeeOrderClient.OrderListResult firstPage) {
         if (initialCursor != null && !initialCursor.isBlank()) {
-            return null;
+            return new SummaryStats(null, null);
         }
-        int total = firstPage.orders().size();
+        Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+        int total = tallyPage(firstPage.orders(), counts);
         if (!firstPage.more() || firstPage.nextCursor() == null || firstPage.nextCursor().isBlank()) {
-            return total;
+            return new SummaryStats(total, counts);
         }
         String walkCursor = firstPage.nextCursor();
         java.util.Set<String> seenCursors = new java.util.HashSet<>();
         seenCursors.add(walkCursor);
         for (int page = 1; page < 20; page++) {
             var nextPage = orderClient.getOrderList(connectionId, timeFrom, timeTo, pageSize, walkCursor, orderStatus);
-            total += nextPage.orders().size();
+            total += tallyPage(nextPage.orders(), counts);
             String next = nextPage.nextCursor();
             if (!nextPage.more() || next == null || next.isBlank() || !seenCursors.add(next)) {
                 break;
             }
             walkCursor = next;
         }
-        return total;
+        return new SummaryStats(total, counts);
+    }
+
+    private int tallyPage(List<ShopeeOrderClient.OrderSummary> orders, Map<String, Integer> counts) {
+        for (var order : orders) {
+            String st = order.orderStatus() != null && !order.orderStatus().isBlank() ? order.orderStatus() : "UNKNOWN";
+            counts.merge(st, 1, Integer::sum);
+        }
+        return orders.size();
     }
 
     /**

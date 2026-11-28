@@ -85,6 +85,8 @@ class ShopeeOrderControllerTest {
         assertTrue(res.getBody().getData().more());
         assertEquals("50", res.getBody().getData().nextCursor());
         assertEquals(2, res.getBody().getData().totalCount());
+        assertEquals(1, res.getBody().getData().statusCounts().get("READY_TO_SHIP"));
+        assertEquals(1, res.getBody().getData().statusCounts().get("COMPLETED"));
     }
 
     @Test
